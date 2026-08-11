@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NutriScore Health Details</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <span class="logo-mark">N</span>
+        <span class="logo-text">NutriScore <span class="logo-badge">Extension</span></span>
+      </a>
+      <div class="nav-links">
+        <button type="button" id="navSignButton" class="nav-action">Sign in</button>
+      </div>
+    </div>
+  </nav>
+
+  <header class="site-header">
+    <p class="header-label">Personalize your nutrition</p>
+    <h1>Your health profile, saved and synced</h1>
+    <p class="header-subtitle" id="headerSubtitle">Sign up or sign in with Google to save your profile once and have it follow you everywhere you shop.</p>
+  </header>
+
+  <div class="page-wrapper">
+    <aside class="sidebar">
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <h4>Navigation</h4>
+          <ul>
+            <li><a href="index.html#highlights">Highlights</a></li>
+            <li><a href="index.html#features">Features</a></li>
+            <li><a href="index.html#install">Install</a></li>
+            <li><a href="index.html#stores">Stores</a></li>
+            <li><a href="index.html#faq">FAQ</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main-content">
+      <section>
+        <p>Use this page to record your personal health profile. NutriScore uses these details to personalize nutrition hints and product suggestions while you shop.</p>
+
+      <!-- Account section: Sign Up (new account) and Sign In (existing
+           account) are separate actions. Both show Google's account picker
+           so the user explicitly chooses which email to use. -->
+      <div class="account-panel">
+        <button type="button" id="signUpWithGoogle" class="cta-button">Sign up with Google</button>
+        <button type="button" id="signInWithGoogle" class="cta-button--secondary">Sign in with Google</button>
+        <button type="button" id="signOutButton" class="save-btn" style="display:none;">Sign out</button>
+      </div>
+
+      <div class="health-panel">
+        <fieldset class="health-profile">
+          <legend>Personal profile</legend>
+
+          <label for="age">
+            Age
+            <input id="age" type="number" min="0" placeholder="e.g. 28">
+          </label>
+
+          <label for="gender">
+            Gender
+            <select id="gender">
+              <option value="">Select gender</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="non-binary">Non-binary</option>
+              <option value="other">Other</option>
+              <option value="prefer-not-to-say">Prefer not to say</option>
+            </select>
+          </label>
+
+          <label for="weight">
+            Weight (kg)
+            <input id="weight" type="number" min="0" step="0.1" placeholder="e.g. 68.5">
+          </label>
+
+          <label for="height">
+            Height (cm)
+            <input id="height" type="number" min="0" step="0.1" placeholder="e.g. 172">
+          </label>
+        </fieldset>
+
+        <fieldset class="health-allergies">
+          <legend>Allergies</legend>
+          <label for="allergies">
+            Describe any known allergies
+            <textarea id="allergies" placeholder="e.g. peanuts, shellfish, dairy"></textarea>
+          </label>
+        </fieldset>
+
+        <fieldset class="health-conditions">
+          <legend>Health conditions</legend>
+          <div class="chip-group">
+            <label class="chip"><input type="checkbox" name="condition" value="diabetes"><span class="chip-check">✓</span><span>Diabetes</span></label>
+            <label class="chip"><input type="checkbox" name="condition" value="hypertension"><span class="chip-check">✓</span><span>Hypertension</span></label>
+            <label class="chip"><input type="checkbox" name="condition" value="heart-disease"><span class="chip-check">✓</span><span>Heart disease</span></label>
+            <label class="chip"><input type="checkbox" name="condition" value="gluten-sensitivity"><span class="chip-check">✓</span><span>Gluten sensitivity</span></label>
+            <label class="chip"><input type="checkbox" name="condition" value="lactose-intolerance"><span class="chip-check">✓</span><span>Lactose intolerance</span></label>
+            <label class="chip"><input type="checkbox" name="condition" value="nut-allergy"><span class="chip-check">✓</span><span>Nut allergy</span></label>
+            <label class="chip"><input type="checkbox" name="condition" value="low-sodium"><span class="chip-check">✓</span><span>Low-sodium diet</span></label>
+          </div>
+        </fieldset>
+
+        <fieldset class="dietary-preferences">
+          <legend>Dietary preferences</legend>
+          <div class="chip-group">
+            <label class="chip"><input type="checkbox" name="diet" value="vegan"><span class="chip-check">✓</span><span>Vegan</span></label>
+            <label class="chip"><input type="checkbox" name="diet" value="vegetarian"><span class="chip-check">✓</span><span>Vegetarian</span></label>
+            <label class="chip"><input type="checkbox" name="diet" value="pescatarian"><span class="chip-check">✓</span><span>Pescatarian</span></label>
+            <label class="chip"><input type="checkbox" name="diet" value="low-carb"><span class="chip-check">✓</span><span>Low-carb</span></label>
+            <label class="chip"><input type="checkbox" name="diet" value="low-fat"><span class="chip-check">✓</span><span>Low-fat</span></label>
+            <label class="chip"><input type="checkbox" name="diet" value="keto"><span class="chip-check">✓</span><span>Keto</span></label>
+            <label class="chip"><input type="checkbox" name="diet" value="gluten-free"><span class="chip-check">✓</span><span>Gluten-free</span></label>
+            <label class="chip"><input type="checkbox" name="diet" value="dairy-free"><span class="chip-check">✓</span><span>Dairy-free</span></label>
+            <label class="chip"><input type="checkbox" name="diet" value="paleo"><span class="chip-check">✓</span><span>Paleo</span></label>
+          </div>
+        </fieldset>
+
+        <button type="button" id="saveHealthDetails" class="save-btn">Save for extension use</button>
+        <p id="saveStatus" class="health-note" aria-live="polite"></p>
+        <p class="health-note">Sign up (new account) or sign in (existing account) with Google to securely save and sync your health profile across devices. NutriScore will use this information to tailor guidance and recommendations.</p>
+      </div>
+    </section>
+
+    </main>
+  </div>
+
+  <footer class="site-footer">
+    <small>NutriScore — personalize your nutrition hints.</small>
+  </footer>
+
+  <!-- health.js is now bundled with esbuild (see build.js) since it uses
+       ES module imports for the Firebase SDK, which raw <script> tags
+       can't resolve from node_modules directly. -->
+  <script src="dist/health.bundle.js"></script>
+</body>
+</html>

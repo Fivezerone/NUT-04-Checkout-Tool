@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NutriScore — About the Extension</title>
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+</head>
+<body>
+  <a href="#highlights" class="skip-link">Skip to content</a>
+
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <span class="logo-mark">N</span>
+        <span class="logo-text">NutriScore <span class="logo-badge">Extension</span></span>
+      </a>
+      <div class="nav-links">
+        <button type="button" id="navSignButton" class="nav-action" onclick="location.href='health.html'">Sign in</button>
+      </div>
+    </div>
+  </nav>
+
+  <header class="site-header">
+    <p class="header-label">Kenyan grocery companion</p>
+    <h1>More than a score — smarter shopping, instantly</h1>
+    <p class="header-subtitle">Grade products in real time and get personalized guidance to make healthier choices, right inside your shopping flow.</p>
+    <a class="cta-button" href="health.html">Set up my health profile</a>
+  </header>
+
+  <div class="page-wrapper">
+    <aside class="sidebar">
+      <nav class="sidebar-nav" role="navigation">
+        <div class="nav-section">
+          <h4>Main</h4>
+          <ul>
+            <li><a href="#highlights">Highlights</a></li>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#install">Install</a></li>
+            <li><a href="#stores">Stores</a></li>
+            <li><a href="#faq">FAQ</a></li>
+            <li><a href="health.html">Health</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main-content">
+
+      <section class="spotlight" id="highlights">
+        <h2 class="section-label">Highlights</h2>
+        <div class="spotlight-grid">
+          <div class="spotlight-card" style="background: linear-gradient(135deg, #16a34a, #34d399);">
+            <div class="card-header">
+              <h3>Quick Scoring</h3>
+              <span class="card-tag">Core Feature</span>
+            </div>
+            <p>Overlay A–E grade badges on products as you shop. No extra clicks needed.</p>
+            <div class="card-footer">Instant Grades</div>
+          </div>
+          <div class="spotlight-card" style="background: linear-gradient(135deg, #0f766e, #14b8a6);">
+            <div class="card-header">
+              <h3>Full Nutrient Data</h3>
+              <span class="card-tag">Nutrient Detail</span>
+            </div>
+            <p>View detailed breakdowns of calories, fat, sugar, salt, fiber, and protein.</p>
+            <div class="card-footer">Detailed Analytics</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features">
+      <h2>Key features</h2>
+      <p>Everything you need to make smarter food choices while you shop — without leaving the page.</p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <i class="ti ti-certificate"></i>
+          <h3>Grade badges</h3>
+          <p>Compact A–E score badges appear on each product card as you hover.</p>
+        </div>
+        <div class="feature-card">
+          <i class="ti ti-chart-bar"></i>
+          <h3>Nutrient overlay</h3>
+          <p>Click a badge to see calories, fat, sugar, salt, fiber, and protein estimates.</p>
+        </div>
+        <div class="feature-card">
+          <i class="ti ti-bolt"></i>
+          <h3>Instant scan</h3>
+          <p>Lightweight content script runs entirely in your browser — no data sent anywhere.</p>
+        </div>
+        <div class="feature-card">
+          <i class="ti ti-arrows-compare"></i>
+          <h3>Compare at a glance</h3>
+          <p>Quickly compare multiple products side by side as you browse.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="example">
+      <h2>Example product preview</h2>
+      <p>This example shows how NutriScore places a grade badge on a product card and displays a nutrient detail overlay for a single item.</p>
+      <div class="example-panel">
+        <div class="product-sample">
+          <div class="product-sample-top">
+            <div>
+              <p class="sample-label">Product card</p>
+              <h3>Naivas Fresh Spinach</h3>
+              <p class="sample-meta">Naivas • 250 g</p>
+            </div>
+            <div class="nutri-badge badge-a">A</div>
+          </div>
+          <p class="sample-copy">A strong grade badge is attached to the product tile to make the score instantly visible while browsing.</p>
+          <div class="badge-row">
+            <span class="nutri-pill badge-a">A</span>
+            <span class="nutri-pill badge-b">B</span>
+            <span class="nutri-pill badge-c">C</span>
+            <span class="nutri-pill badge-d">D</span>
+            <span class="nutri-pill badge-e">E</span>
+          </div>
+        </div>
+
+        <div class="overlay-sample">
+          <div class="overlay-sample-header">
+            <div>
+              <p class="sample-label">Nutrient overlay</p>
+              <h3>Naivas Fresh Spinach</h3>
+            </div>
+            <div class="overlay-grade">A</div>
+          </div>
+          <p class="sample-copy">Tap a badge to open a detail panel with estimated nutrients and a summary grade.</p>
+          <div class="nutrient-list">
+            <div class="nutrient-item">
+              <span>Calories</span>
+              <strong>22 kcal</strong>
+              <div class="nutrient-bar"><span style="width: 16%;"></span></div>
+            </div>
+            <div class="nutrient-item">
+              <span>Fat</span>
+              <strong>0.3 g</strong>
+              <div class="nutrient-bar"><span style="width: 8%;"></span></div>
+            </div>
+            <div class="nutrient-item">
+              <span>Sugar</span>
+              <strong>0.4 g</strong>
+              <div class="nutrient-bar"><span style="width: 10%;"></span></div>
+            </div>
+            <div class="nutrient-item">
+              <span>Salt</span>
+              <strong>0.02 g</strong>
+              <div class="nutrient-bar"><span style="width: 4%;"></span></div>
+            </div>
+            <div class="nutrient-item">
+              <span>Fiber</span>
+              <strong>2.8 g</strong>
+              <div class="nutrient-bar"><span style="width: 35%;"></span></div>
+            </div>
+            <div class="nutrient-item">
+              <span>Protein</span>
+              <strong>3.0 g</strong>
+              <div class="nutrient-bar"><span style="width: 30%;"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="install">
+      <h2>How to Install NutriScore Extension</h2>
+      <p>Get NutriScore running in under two minutes.</p>
+      <ul class="install-steps">
+        <li><strong>Install the Extension</strong> — Click on the Extensions icon (the puzzle piece) in your browser's toolbar, then select <strong>Manage Extensions.</strong> — Use the search bar to look up <code>NutriScore Checkout Tool</code> and click <strong>Install.</strong></li>
+        <li><strong>Confirm Installation</strong> — Once installed, the NutriScore icon should appear in your browser's toolbar. If it's hidden, click the puzzle piece icon and pin NutriScore for easy access.</li>
+        <li><strong>Activate on a Shopping Page</strong> — Navigate to any supported shopping or checkout page. Click the NutriScore icon in your toolbar to open the popup, then click <strong>Activate.</strong></li>
+        <li><strong>Start Using NutriScore</strong> — Once activated, NutriScore will have and icon pop-up, that will be hovering over the product.  that is interactable by a mouse hover. </li>
+      </ul>
+    </section>
+
+    <section id="stores">
+      <h2>Supported stores</h2>
+      <p>NutriScore currently supports Naivas online stores in Kenya. More Kenyan retailers may be added as the scraper improves.</p>
+      <ul class="stores-grid">
+        <li><i class="ti ti-shopping-cart"></i> Naivas</li>
+        <li><i class="ti ti-shopping-cart"></i> Carrefour</li>
+      </ul>
+      <p>Support is currently focused on Naivas; if you'd like other Kenyan online retailers supported in future, please share feedback or file a request on the project repository.</p>
+    </section>
+
+    <section id="faq">
+      <h2>Frequently Asked Questions</h2>
+      <details class="faq-item">
+        <summary><h3>How does NutriScore work?</h3></summary>
+        <p>NutriScore analyzes product details on supported shopping pages and overlays a simple grade badge that reflects estimated nutrition quality. It also shows nutrient estimates when you click a badge.</p>
+        <p>NutriScore uses the FSA-NPS 2023 algorithm — the same system used by France's official Nutri-Score food labeling program — to compute grades. It weighs negative nutrients (energy, sugar, saturated fat, sodium) against positive ones (fibre, protein, fruit/vegetable content) on a scale from A (best) to E (least healthy).</p>
+      </details>
+      <details class="faq-item">
+        <summary><h3>Do I need to sign in to use it?</h3></summary>
+        <p>No. The extension works immediately on supported pages, but signing in lets you save a health profile and receive more tailored suggestions.</p>
+      </details>
+      <details class="faq-item">
+        <summary><h3>Which stores are supported?</h3></summary>
+        <p>NutriScore currently supports Naivas and selected Kenyan online stores. We plan to add more retailers over time, and requests are welcome.</p>
+      </details>
+      <details class="faq-item">
+        <summary><h3>Is my data shared?</h3></summary>
+        <p>No. NutriScore runs locally in your browser and does not send personal shopping data to external servers.</p>
+      </details>
+    </section>
+
+    <section id="thanks">
+      <h2>A word of thanks</h2>
+      <div class="appreciate-box">
+        <i class="ti ti-heart"></i>
+        <div>
+          <h3>Thank you for using NutriScore</h3>
+          <p>Every person who installs this extension is choosing to be a little more mindful about what goes into their basket. That means a lot. NutriScore is a side project built out of genuine curiosity — no analytics, no ads, no data collection. If it's helped you make even one better food choice, it's done its job. Feedback, ideas, and contributions are always welcome.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="contribute">
+      <h2>Contribute & Learn more</h2>
+      <p>If you'd like to help improve NutriScore or learn how it works, contributions and feedback are welcome. Open an issue to suggest new stores, report bugs, or propose enhancements. Developer notes and contribution guidelines are available in the project repository.</p>
+      <p><small>Thank you for improving the extension — every suggestion helps make shopping healthier for everyone.</small></p>
+    </section>
+
+  </main>
+  </div>
+
+  <footer class="site-footer">
+    <small>NutriScore — personalized nutrition hints while you shop.</small>
+  </footer>
+
+
+  <script>
+    const nav = document.querySelector('.site-nav');
+
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        document.querySelector(a.getAttribute('href'))
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+    // show avatar if user signed in elsewhere (health page)
+    try {
+      const raw = localStorage.getItem('nutriscoreUser');
+      if (raw) {
+        const u = JSON.parse(raw);
+        const b = document.getElementById('navSignButton');
+        if (b) {
+          if (u && u.photoURL) {
+            b.innerHTML = '';
+            const img = document.createElement('img');
+            img.className = 'nav-avatar';
+            img.src = u.photoURL;
+            img.alt = u.displayName || u.email || 'Account';
+            b.appendChild(img);
+            b.onclick = () => { location.href = 'health.html'; };
+          } else {
+            b.textContent = 'Profile';
+            b.onclick = () => { location.href = 'health.html'; };
+          }
+        }
+      }
+    } catch (e) {}
+  </script>
+</body>
+</html>

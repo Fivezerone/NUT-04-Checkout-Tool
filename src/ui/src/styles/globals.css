@@ -1,0 +1,24 @@
+/* NUT-04 NutriScore — FSA-NPS grade color tokens.
+   Single source of truth for grade colors; referenced everywhere via var(). */
+:root {
+  --ns-grade-a: #037b3e; /* dark green  */
+  --ns-grade-b: #85bb2f; /* light green */
+  --ns-grade-c: #fecb02; /* yellow      */
+  --ns-grade-d: #ee8100; /* orange      */
+  --ns-grade-e: #e63e11; /* red         */
+
+  /* Foreground that keeps AA contrast on top of each grade color. */
+  --ns-on-grade-a: #ffffff;
+  --ns-on-grade-b: #14320a;
+  --ns-on-grade-c: #3a2e00;
+  --ns-on-grade-d: #331c00;
+  --ns-on-grade-e: #ffffff;
+}
+
+/* Green status pulse used by the popup "active" indicator. */
+@keyframes ns-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(3, 123, 62, 0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(3, 123, 62, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(3, 123, 62, 0); }
+}
+.ns-pulse { animation: ns-pulse 1.8s infinite; }
