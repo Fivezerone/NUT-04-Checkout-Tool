@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build:ext": "node src/extension/build.cjs && node -e \"const fs=require('fs'); fs.cpSync('src/extension', 'dist', {recursive: true, filter: (src) => !src.endsWith('.xlsx')})\"",
+    "build:ext": "node -e \"const fs=require('fs'); fs.cpSync('src/extension', 'dist', {recursive: true, filter: (src) => !src.endsWith('.xlsx')})\"",
     "build:ui": "vite build",
     "build:web": "cd webpage && node build.js",
     "build": "npm run build:ui && npm run build:ext && npm run build:web && node scripts/prepare-deploy.js",
@@ -21,7 +21,6 @@
     "clsx": "2.1.1",
     "date-fns": "3.6.0",
     "esbuild": "^0.28.1",
-    "firebase": "^12.17.1",
     "idb": "^8.0.3",
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
