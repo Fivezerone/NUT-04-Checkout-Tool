@@ -51,7 +51,7 @@ const ScoreEngine = {
 
     // Adjusted for 2023 FSA-NPS ADDED_FAT path (Ratio of sat fat to total fat)
     if (fsaCategoryCode === "ADDED_FAT") {
-      const totVal = safeNum(data.total_fat) || (satVal * 1.5); // Fallback assumption
+      const totVal = (data.total_fat != null) ? data.total_fat : (satVal * 1.5); // Fallback assumption
       const fatRatio = totVal > 0 ? (satVal / totVal) * 100 : 0;
       nSatFat = Math.min(Math.floor(fatRatio / 10), 10);
     }
@@ -89,7 +89,8 @@ const ScoreEngine = {
     // Grade assignment
     let grade = 'C';
     if (fsaCategoryCode === "BEVERAGE") {
-      if (data.name && data.name.toLowerCase() === 'water') grade = 'A';
+      const isWater = data.name && /pure water|still water|spring water|purified water|mineral water|^water$/i.test(data.name.trim());
+      if (isWater) grade = 'A';
       else if (finalScore <= 1) grade = 'B';
       else if (finalScore <= 5) grade = 'C';
       else if (finalScore <= 9) grade = 'D';

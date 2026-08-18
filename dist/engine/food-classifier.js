@@ -27,7 +27,7 @@ const FoodClassifier = {
 
     if (isExcluded) {
       return { 
-        IsExcluded: true, 
+        isExcluded: true, 
         FSAProductCategoryCode: null,
         NOVAProcessingLevel: data.nova_group || null
       };
@@ -47,7 +47,7 @@ const FoodClassifier = {
     }
 
     return { 
-      IsExcluded: false, 
+      isExcluded: false, 
       FSAProductCategoryCode: fsaCategory,
       NOVAProcessingLevel: data.nova_group || 3
     };
