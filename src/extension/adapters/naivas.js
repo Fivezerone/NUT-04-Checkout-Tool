@@ -6,14 +6,6 @@
  */
 
 const NaivasAdapter = {
-  parsePrice(text) {
-    if (!text) return 0;
-    const match = text.match(/\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?/);
-    if (match) {
-      return parseFloat(match[0].replace(/,/g, ''));
-    }
-    return 0;
-  },
 
   getRetailerCode() {
     return "NAIVAS";
@@ -40,7 +32,13 @@ const NaivasAdapter = {
     const cards = document.querySelectorAll(productSelector);
 
     cards.forEach((card) => {
-      if (card.hasAttribute("data-nutriscore-scanned")) return;
+      if (card.hasAttribute("data-nutriscore-scanned")) {
+        if (!card.querySelector(".nutriscore-isolated-root")) {
+          card.removeAttribute("data-nutriscore-scanned");
+        } else {
+          return;
+        }
+      }
 
       const nameEl = card.querySelector(nameSelector);
       let name = nameEl?.textContent?.trim() || "";
@@ -53,10 +51,10 @@ const NaivasAdapter = {
       let priceNumeric = 0;
       const priceEl = card.querySelector(priceSelector);
       if (priceEl) {
-        priceNumeric = this.parsePrice(priceEl.textContent);
+        priceNumeric = NutriSharedUI.parsePrice(priceEl.textContent);
       }
 
-      const id = card.getAttribute("data-product-id") || card.getAttribute("data-sku") || null;
+      const id = card.getAttribute("data-product-id") || card.getAttribute("data-sku") || NutriSharedUI.generateIdFromName(name);
       const hash = card.getAttribute("data-original-hash") || null;
 
       products.push({
@@ -129,7 +127,7 @@ const NaivasAdapter = {
       for (let i = 0; i < 8; i++) {
         if (!el) break;
         const priceEl = el.querySelector('.font-extrabold');
-        if (priceEl) { price = this.parsePrice(priceEl.textContent); break; }
+        if (priceEl) { price = NutriSharedUI.parsePrice(priceEl.textContent); break; }
         el = el.parentElement;
       }
 
@@ -228,7 +226,7 @@ const NaivasAdapter = {
                 retailer: 'NAIVAS',
                 productId: String(i.product_id || i.item_id),
                 product_name: i.product_name || i.name || '',
-                priceSnapshot: this.parsePrice(String(i.product_price || i.price || '0')),
+                priceSnapshot: NutriSharedUI.parsePrice(String(i.product_price || i.price || '0')),
                 quantity: i.qty || 1,
                 url: i.product_url || null
               }));
@@ -267,7 +265,7 @@ const NaivasAdapter = {
         if (!name) return null;
 
         const priceEl = card.querySelector('.font-extrabold, [class*="text-naivas-green"], .price-box .price');
-        const price = priceEl ? this.parsePrice(priceEl.textContent) : 0;
+        const price = priceEl ? NutriSharedUI.parsePrice(priceEl.textContent) : 0;
 
         return {
           retailer: 'NAIVAS',
@@ -302,10 +300,10 @@ const NaivasAdapter = {
 
     const productId = card.getAttribute('data-product-id')
       || card.querySelector('input[name="product"]')?.value
-      || name;
+      || NutriSharedUI.generateIdFromName(name);
 
     const priceEl = card.querySelector('.price-box .price, .price-wrapper .price, .price');
-    const price = priceEl ? this.parsePrice(priceEl.textContent) : 0;
+    const price = priceEl ? NutriSharedUI.parsePrice(priceEl.textContent) : 0;
 
     return {
       retailer: 'NAIVAS',

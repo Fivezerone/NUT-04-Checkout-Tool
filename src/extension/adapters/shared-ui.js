@@ -1,4 +1,18 @@
 const NutriSharedUI = {
+  parsePrice(text) {
+    if (!text) return 0;
+    const match = text.match(/\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?/);
+    if (match) {
+      return parseFloat(match[0].replace(/,/g, ''));
+    }
+    return 0;
+  },
+
+  generateIdFromName(name) {
+    if (!name) return "";
+    return "synth_" + name.toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 32);
+  },
+
   escapeHTML(str) {
     if (typeof str !== "string") return String(str ?? "");
     return str.replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
@@ -15,10 +29,17 @@ const NutriSharedUI = {
       C: { bg: "#ffcc00", txt: "#111111", label: "Moderate" }
     };
 
-    const grade  = (productResult.nutriscore_grade || "UNKNOWN").toUpperCase();
-    if (grade === "UNKNOWN" || grade === "NULL") return;
+    let grade  = (productResult.nutriscore_grade || "UNKNOWN").toUpperCase();
+    const isNoData = grade === "UNKNOWN" || grade === "NULL";
     
-    const info   = gradeColors[grade] || gradeColors.C;
+    let info;
+    if (isNoData) {
+      grade = "—";
+      info = { bg: "#e0e0e0", txt: "#555555", label: "No data" };
+    } else {
+      info = gradeColors[grade] || gradeColors.C;
+    }
+
     const name   = this.escapeHTML(productResult.product_name || "");
     const prof   = productResult.nutritional_profile_display || {};
     const diseaseWarnings = productResult.diseaseWarnings || [];
@@ -36,8 +57,8 @@ const NutriSharedUI = {
     ];
 
     const rows = rawRows
-      .filter(r => r.val != null && r.val !== 0 && r.val !== "0")
-      .map(r => ({ label: r.label, value: `${r.val} ${r.unit}` }));
+      .filter(r => r.val != null && r.val !== "")
+      .map(r => ({ label: r.label, value: `${this.escapeHTML(String(r.val))} ${r.unit}` }));
 
     const nutriRowsHTML = rows.map(r => `
       <div class="ns-row">
@@ -127,8 +148,7 @@ const NutriSharedUI = {
 
     shadow.innerHTML = `
       <div class="badge-trigger" style="--ns-bg: ${info.bg}; --ns-txt: ${info.txt};">
-        <span class="badge-grade">${grade}</span>
-        <span>NutriScore</span>
+        ${isNoData ? `<span>No data</span>` : `<span class="badge-grade">${grade}</span>`}
       </div>
       <div class="flyout">
         <button class="ns-close" style="display:none"></button>
@@ -148,13 +168,26 @@ const NutriSharedUI = {
 
     trigger.addEventListener("click", e => {
       e.preventDefault(); e.stopPropagation();
+      const rect = trigger.getBoundingClientRect();
+      // Determine if the flyout (width 268px) goes off-screen to the right
+      if (rect.left + 268 > window.innerWidth) {
+        flyout.style.left = "auto";
+        flyout.style.right = "0";
+      } else {
+        flyout.style.left = "0";
+        flyout.style.right = "auto";
+      }
       flyout.classList.toggle("open");
     });
     const closeBtn = shadow.querySelector(".ns-close");
     if (closeBtn) closeBtn.addEventListener("click", () => flyout.classList.remove("open"));
 
     card.setAttribute("data-nutriscore-id", productResult.productId || "");
+    // Force the card to be the positioned ancestor so absolute children
+    // anchor to it — not to any inner Tailwind `relative` wrapper (e.g. image containers).
+    // overflow:visible ensures the badge is never clipped.
     card.style.position = "relative";
+    card.style.overflow = "visible";
     card.appendChild(badgeContainer);
     return shadow;
   }
