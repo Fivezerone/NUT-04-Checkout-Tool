@@ -27,11 +27,18 @@ const AlternativesEngine = {
       prod.productId !== targetProduct.productId
     );
 
-    // Filter for LetterGrade in {A, B, C} (Mocked as score <= 10 here for backward compatibility if grades aren't cached)
+    const targetGrade = targetProduct.grade || 'C';
+    const targetRank = this.gradeScore(targetGrade);
+
+    // Filter for LetterGrade strictly better than target (unless target is A)
     validAlts = validAlts.filter(prod => {
       const g = prod.grade || prod.nutriscore_grade;
-      if (g) return ['A', 'B', 'C'].includes(g);
-      return prod.score <= 10;
+      if (!g) return false;
+      if (!['A', 'B', 'C'].includes(g)) return false;
+      
+      const altRank = this.gradeScore(g);
+      if (targetRank === 5) return altRank === 5;
+      return altRank > targetRank;
     });
 
     // Price proximity filtering (+/- 30%)
