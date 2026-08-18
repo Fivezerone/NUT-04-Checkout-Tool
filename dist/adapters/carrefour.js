@@ -6,14 +6,6 @@
  */
 
 const CarrefourAdapter = {
-  parsePrice(text) {
-    if (!text) return 0;
-    const match = text.match(/\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?/);
-    if (match) {
-      return parseFloat(match[0].replace(/,/g, ''));
-    }
-    return 0;
-  },
 
   getRetailerCode() {
     return "CARREFOUR";
@@ -31,18 +23,29 @@ const CarrefourAdapter = {
     const processedCards = new Set();
 
     productLinks.forEach(anchor => {
-      // Find the closest container that likely represents the whole card
-      let card = anchor.closest("li") ||
-                 anchor.closest("[data-testid='product-card']") || 
-                 anchor.closest(".cl-product-card") || 
-                 anchor.closest("li[class*='product']") ||
-                 anchor.closest("div[class*='product-card']") ||
-                 anchor.closest("div[class*='ProductCard']") ||
-                 anchor.closest("div[class*='css-']");
+        // The outer Carrefour product card is a flex-col div with style="grid-column:span N".
+        // All other selectors resolved to inner wrappers, causing badge mis-placement.
+        let card = anchor.closest('[style*="grid-column"]') ||
+                   anchor.closest("li") ||
+                   anchor.closest("[data-testid='product-card']") ||
+                   anchor.closest(".cl-product-card") ||
+                   anchor.closest("li[class*='product']") ||
+                   anchor.closest("div[class*='product-card']") ||
+                   anchor.closest("div[class*='ProductCard']");
 
-      if (!card) card = anchor.parentElement;
+        if (!card) card = anchor.parentElement;
+        // If we landed on the narrow text-only inner div (max-w-[134px]), walk up to the real card.
+        if (card && card.parentElement && card.parentElement.style?.gridColumn) {
+          card = card.parentElement;
+        }
       if (!card || processedCards.has(card)) return;
-      if (card.hasAttribute("data-nutriscore-scanned")) return;
+      if (card.hasAttribute("data-nutriscore-scanned")) {
+        if (!card.querySelector(".nutriscore-isolated-root")) {
+          card.removeAttribute("data-nutriscore-scanned");
+        } else {
+          return;
+        }
+      }
 
       processedCards.add(card);
 
@@ -74,9 +77,9 @@ const CarrefourAdapter = {
 
       // 3. Extract Price
       let priceNumeric = 0;
-      const priceEl = card.querySelector("[data-testid='product-price'], [class*='price'], [class*='Price'], .css-10n2u0s, .css-1bndvqp, .text-lg.font-bold, .text-xl.font-bold");
+      const priceEl = card.querySelector("[data-testid='product-price'], [class*='price'], [class*='Price'], .text-lg.font-bold, .text-xl.font-bold");
       if (priceEl) {
-        priceNumeric = this.parsePrice(priceEl.textContent);
+        priceNumeric = NutriSharedUI.parsePrice(priceEl.textContent);
       }
 
       products.push({
@@ -94,7 +97,7 @@ const CarrefourAdapter = {
   },
 
   injectBadge(card, productResult, price) {
-    return NutriSharedUI.injectBadge(card, productResult, price, "position:absolute;top:8px;right:8px;z-index:1000;");
+    return NutriSharedUI.injectBadge(card, productResult, price);
   },
 
   extractCartState() {
@@ -160,7 +163,7 @@ const CarrefourAdapter = {
       // Look for the specific div holding the price number, or a data-testid
       const priceWrapper = card.querySelector("[data-testid='product-price'], .text-lg.leading-5.font-bold, .text-xl.font-bold, .text-lg.font-bold");
       if (priceWrapper) {
-        price = this.parsePrice(priceWrapper.textContent);
+        price = NutriSharedUI.parsePrice(priceWrapper.textContent);
       } else {
         // Fallback: look for KES
         const allText = card.textContent || "";
@@ -246,7 +249,7 @@ const CarrefourAdapter = {
         }
       }
     } catch (e) {
-      console.warn('[NutriScore] Carrefour fetchCartFromAPI failed:', e);
+      // Silent catch; fallback to DOM extraction if API is unavailable or blocked
     }
     return [];
   },
@@ -266,9 +269,9 @@ const CarrefourAdapter = {
     if (nameEl) name = nameEl.textContent.trim();
     
     let price = 0;
-    const priceEl = card.querySelector("[data-testid='product-price'], [class*='price'], .css-10n2u0s, .text-xl.font-bold, .text-lg.font-bold");
+    const priceEl = card.querySelector("[data-testid='product-price'], [class*='price'], .text-xl.font-bold, .text-lg.font-bold");
     if (priceEl) {
-       price = this.parsePrice(priceEl.textContent);
+       price = NutriSharedUI.parsePrice(priceEl.textContent);
     }
     
     let id = card.getAttribute("data-product-id") || card.getAttribute("data-id");
@@ -288,7 +291,7 @@ const CarrefourAdapter = {
     
     return {
        retailer: "CARREFOUR",
-       productId: id || name,
+       productId: id || NutriSharedUI.generateIdFromName(name),
        product_name: name,
        priceSnapshot: price,
        quantity: 1
