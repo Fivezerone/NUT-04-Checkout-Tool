@@ -60,7 +60,10 @@ var NutriScoreDB = (() => {
     resolveTimeframe: () => resolveTimeframe,
     saveProduct: () => saveProduct,
     saveSettings: () => saveSettings,
-    syncCart: () => syncCart
+    syncCart: () => syncCart,
+    savePrice: () => savePrice,
+    getPrice: () => getPrice,
+    deleteLedgerEntry: () => deleteLedgerEntry
   });
 
   // node_modules/idb/build/index.js
@@ -307,7 +310,7 @@ var NutriScoreDB = (() => {
   };
   var SETTINGS_KEY = "warning-modules";
   var DB_NAME = "nut04-nutriscore";
-  var DB_VERSION = 7;
+  var DB_VERSION = 8;
   var dbPromise = null;
   function getDB() {
     if (!dbPromise) {
@@ -360,6 +363,9 @@ var NutriScoreDB = (() => {
             nStore.createIndex("by-url", "Identity.RetailerProductUrl");
             nStore.createIndex("by-name", "Identity.ProductName");
           }
+          if (oldVersion < 8) {
+            db.createObjectStore("price_cache");
+          }
         }
       });
     }
@@ -384,18 +390,30 @@ var NutriScoreDB = (() => {
     const isCarrefour = retailer.toUpperCase() === "CARREFOUR";
     const storeName = isCarrefour ? "carrefourProducts" : "naivasProducts";
     const all = await db.getAll(storeName);
+    
+    const allPrices = new Map();
+    if (db.objectStoreNames.contains("price_cache")) {
+      const tx = db.transaction("price_cache", "readonly");
+      let cursor = await tx.store.openCursor();
+      while (cursor) {
+        allPrices.set(cursor.key, cursor.value);
+        cursor = await cursor.continue();
+      }
+    }
+    
     return all.map(p => {
       const interpretation = interpretProduct(p);
       let grade = "C";
       if (interpretation.canDisplayGrade) {
         grade = ScoreEngine.score(mapRecordToCalcData(p), interpretation.nutrientAlgorithmVariant).LetterGrade;
       }
+      const productId = String(p.Identity?.ProductID || p.GroceryProductID);
       return {
-        productId: p.Identity?.ProductID || p.GroceryProductID,
+        productId,
         name: p.Identity?.ProductName || p.GroceryProductName || p.name,
         fsaCategory: interpretation.nutrientAlgorithmVariant || "GENERAL_FOOD",
         grade: grade,
-        price: 0
+        price: allPrices.get(productId) || 0
       };
     });
   }
@@ -457,22 +475,21 @@ var NutriScoreDB = (() => {
         // url not parsed
         item.product_name || null
       );
-      let gradeSnapshot = "C";
-      let category = "Uncategorized";
-      let nutrition = { sodiumMg: null, sugarsG: null, satFatG: null };
-      let name = item.product_name || "Unknown Product";
-      if (matchResult.matched && matchResult.product) {
-        const p = matchResult.product;
-        name = p.Identity?.ProductName || p.GroceryProductName || p.name || name;
-        const interpretation = interpretProduct(p);
-        gradeSnapshot = interpretation.canDisplayGrade ? ScoreEngine.score(mapRecordToCalcData(p), interpretation.nutrientAlgorithmVariant).LetterGrade : "C";
-        category = resolveDisplayCategory(p);
-        nutrition = {
-          sodiumMg: p.Nutrition?.SodiumMG ?? null,
-          sugarsG: p.Nutrition?.SugarsG ?? null,
-          satFatG: p.Nutrition?.SaturatedFatG ?? null
-        };
-      }
+      if (!matchResult.matched || !matchResult.product) continue;
+      const p = matchResult.product;
+      const interpretation = interpretProduct(p);
+      if (!interpretation.canDisplayGrade) continue;
+
+      let name = p.Identity?.ProductName || p.GroceryProductName || p.name || item.product_name || "Unknown Product";
+      let gradeSnapshot = ScoreEngine.score(mapRecordToCalcData(p), interpretation.nutrientAlgorithmVariant).LetterGrade;
+      let category = resolveDisplayCategory(p);
+      let nutrition = {
+        sodiumMg: p.Nutrition?.SodiumMG ?? null,
+        sugarsG: p.Nutrition?.SugarsG ?? null,
+        satFatG: p.Nutrition?.SaturatedFatG ?? null,
+        potassiumMg: p.Nutrition?.PotassiumMG ?? p.Nutrition?.Potassium?.ValueMG ?? null
+      };
+
       const newRow = {
         id: `${retailer}-${item.productId}-${now}`,
         productId: item.productId,
@@ -694,10 +711,16 @@ var NutriScoreDB = (() => {
     const tx = db.transaction(storeName, "readonly");
     const store = tx.store;
 
+    if (!memCache.idIndex) memCache.idIndex = { carrefour: new Map(), naivas: new Map() };
+    if (!memCache.urlIndex) memCache.urlIndex = { carrefour: new Map(), naivas: new Map() };
+
     if (isCarrefour && !memCache.carrefour) {
       memCache.carrefour = await store.getAll();
       nameIndexCache.carrefour = new Map();
       for (const p of memCache.carrefour) {
+        if (p.Identity?.ProductID) memCache.idIndex.carrefour.set(String(p.Identity.ProductID), p);
+        if (p.GroceryProductID) memCache.idIndex.carrefour.set(String(p.GroceryProductID), p);
+        if (p.Identity?.RetailerProductUrl) memCache.urlIndex.carrefour.set(p.Identity.RetailerProductUrl, p);
         if (p.Identity?.ProductName) {
           nameIndexCache.carrefour.set(p.Identity.ProductName.toLowerCase().trim(), p);
           nameIndexCache.carrefour.set(normalizeProductName(p.Identity.ProductName), p);
@@ -708,6 +731,9 @@ var NutriScoreDB = (() => {
       memCache.naivas = await store.getAll();
       nameIndexCache.naivas = new Map();
       for (const p of memCache.naivas) {
+        if (p.Identity?.ProductID) memCache.idIndex.naivas.set(String(p.Identity.ProductID), p);
+        if (p.GroceryProductID) memCache.idIndex.naivas.set(String(p.GroceryProductID), p);
+        if (p.Identity?.RetailerProductUrl) memCache.urlIndex.naivas.set(p.Identity.RetailerProductUrl, p);
         if (p.Identity?.ProductName) {
           nameIndexCache.naivas.set(p.Identity.ProductName.toLowerCase().trim(), p);
           nameIndexCache.naivas.set(normalizeProductName(p.Identity.ProductName), p);
@@ -717,12 +743,11 @@ var NutriScoreDB = (() => {
 
     const cacheArr = isCarrefour ? memCache.carrefour : memCache.naivas;
     const nameIndex = isCarrefour ? nameIndexCache.carrefour : nameIndexCache.naivas;
+    const idIndex = isCarrefour ? memCache.idIndex.carrefour : memCache.idIndex.naivas;
+    const urlIndex = isCarrefour ? memCache.urlIndex.carrefour : memCache.urlIndex.naivas;
 
     if (retailerProductId) {
-      let hit = await store.get(retailerProductId);
-      if (!hit && !isNaN(Number(retailerProductId))) {
-        hit = await store.get(Number(retailerProductId));
-      }
+      let hit = idIndex.get(String(retailerProductId));
       if (hit) return { matched: true, matchMethod: "product_id", confidence: "high", product: hit };
       if (retailerProductId && isCarrefour) {
         const pathFragment = `/p/${retailerProductId}`;
@@ -733,11 +758,11 @@ var NutriScoreDB = (() => {
       }
     }
     if (url) {
-      const urlHit = await store.index("by-url").get(url);
+      const urlHit = urlIndex.get(url);
       if (urlHit) return { matched: true, matchMethod: "url", confidence: "high", product: urlHit };
     }
     if (productName) {
-      const nameHit = await store.index("by-name").get(productName);
+      const nameHit = nameIndex.get(productName.toLowerCase().trim());
       if (nameHit) return { matched: true, matchMethod: "exact_name", confidence: "medium", product: nameHit };
       
       const lower = productName.toLowerCase().trim();
@@ -920,12 +945,15 @@ var NutriScoreDB = (() => {
       const sugar = e.nutritionSnapshot?.sugarsG ?? e.sugarsG ?? null;
       const sodium = e.nutritionSnapshot?.sodiumMg ?? e.sodiumMg ?? null;
       const satFat = e.nutritionSnapshot?.satFatG ?? e.satFatG ?? null;
+      const potassium = e.nutritionSnapshot?.potassiumMg ?? e.potassiumMg ?? null;
       if (sugar !== null) {
         if (Number(sugar) > 22.5) diabetes++;
       }
       if (sodium !== null) {
         if (Number(sodium) > 600) hypertension++;
-        if (Number(sodium) > 600) kidney++;
+      }
+      if ((sodium !== null && Number(sodium) > 600) || (potassium !== null && Number(potassium) > 200)) {
+        kidney++;
       }
       if (satFat !== null || sodium !== null) {
         if (Number(satFat) > 5 || Number(sodium) > 400 && Number(sodium) <= 600) cvd++;
@@ -996,5 +1024,24 @@ var NutriScoreDB = (() => {
       }
     };
   }
+  
+  async function savePrice(productId, price) {
+    if (!productId || price == null) return;
+    const db = await getDB();
+    await db.put("price_cache", price, String(productId));
+  }
+  
+  async function getPrice(productId) {
+    if (!productId) return null;
+    const db = await getDB();
+    const price = await db.get("price_cache", String(productId));
+    return price ?? null;
+  }
+  
+  async function deleteLedgerEntry(id) {
+    const db = await getDB();
+    await db.delete("shopping_ledger", id);
+  }
+
   return __toCommonJS(db_exports);
 })();

@@ -28,10 +28,12 @@ class NutriScoreContentEngine {
 
     document.addEventListener("click", (e) => {
       if (this.adapter) {
+        let isRemove = false;
         // Check for item removal first (highest priority)
         if (this.adapter.extractRemoveAction) {
           const removed = this.adapter.extractRemoveAction(e.target);
           if (removed) {
+            isRemove = true;
             if (removed.clearAll) {
               // "Clear Cart" button — wipe all in_cart items immediately
               chrome.runtime.sendMessage({
@@ -48,8 +50,8 @@ class NutriScoreContentEngine {
             }
           }
         }
-        // Check for add-to-cart
-        if (this.adapter.extractCartAction) {
+        // Check for add-to-cart only if not a remove action
+        if (!isRemove && this.adapter.extractCartAction) {
           const item = this.adapter.extractCartAction(e.target);
           if (item) {
             chrome.runtime.sendMessage({
@@ -80,8 +82,9 @@ class NutriScoreContentEngine {
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.action === "GET_PAGE_STATS") {
         const count = document.querySelectorAll('[data-nutriscore-scanned="complete"]').length;
+        const total = document.querySelectorAll('[data-nutriscore-scanned]').length;
         const retailer = this.adapter ? this.adapter.getRetailerCode() : null;
-        sendResponse({ count, retailer });
+        sendResponse({ count, total, retailer });
       }
     });
 
@@ -245,7 +248,8 @@ class NutriScoreContentEngine {
             product_name:        prodInfo.name,
             name_hash:           prodInfo.nameHash || null,
             retailer_product_id: prodInfo.id || null,
-            url:                 prodInfo.url || null
+            url:                 prodInfo.url || null,
+            price:               prodInfo.price || null
           }
         },
         response => {
