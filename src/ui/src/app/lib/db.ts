@@ -1,21 +1,27 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { Grade, ShoppingLedgerRow, DatasetMetadata } from "./nutriscore";
+import type { Grade, ShoppingLedgerRow, DatasetMetadata, ReviewState, ScoringStatus } from "./nutriscore";
 
-// User preferences for the disease-warning modules. Persisted locally only.
+
+// User preferences and unified profile settings.
 export interface Settings {
-  diabetes: boolean;      // sugar warnings
-  hypertension: boolean;  // sodium warnings
-  cardiovascular: boolean; // saturated fat / sodium-CVD warnings
-  kidney: boolean;        // potassium / high-sodium kidney warnings
+  diabetes: boolean;
+  hypertension: boolean;
+  kidney: boolean;
+  profileName: string;
+  primaryMetric: string;
+  condition: string;
+  initials: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   diabetes: true,
   hypertension: true,
-  cardiovascular: true,
   kidney: true,
+  profileName: "Guest",
+  primaryMetric: "Sugar",
+  condition: "healthy",
+  initials: "GU"
 };
-
 const SETTINGS_KEY = "warning-modules";
 
 // Local-first storage. Nothing here is ever transmitted to an external server.
@@ -23,7 +29,13 @@ interface NutriDB extends DBSchema {
   shopping_ledger: {
     key: string;
     value: ShoppingLedgerRow;
-    indexes: { "by-addedAt": number };
+    indexes: {
+      "by-addedAt": number;
+      // Compound index added in v11: enables O(1) duplicate detection in logCartEvent
+      // and avoids the full-table scan in dedupeActiveCartItems.
+      "by-retailer-product-status": [string, string, string];
+      "by-status": string;
+    };
   };
   dataset_metadata: {
     key: string;
@@ -31,11 +43,15 @@ interface NutriDB extends DBSchema {
   };
   user_settings: {
     key: string;
-    value: Settings;
+    value: any; // Per-key primitives: boolean for flags, string for the rest.
   };
   product_cache: {
     key: string;
     value: any; // Cache for adapter output Product objects
+  };
+  price_cache: {
+    key: string;
+    value: number;
   };
   carrefourProducts: {
     key: string;
@@ -47,24 +63,35 @@ interface NutriDB extends DBSchema {
     value: any;
     indexes: { "by-url": string, "by-name": string };
   };
-  kfctReference: {
-    key: string;
-    value: any;
-  };
 }
 
 const DB_NAME = "nut04-nutriscore";
-const DB_VERSION = 7;
+const DB_VERSION = 11;
+
+/**
+ * Increment this constant whenever the bundled JSON dataset files change.
+ * importDatasets() compares the stored metadata version against this value;
+ * a mismatch triggers a full store clear and re-import so the SW always serves
+ * current nutrition data without requiring a DB_VERSION bump.
+ */
+const BUNDLED_DATASET_VERSION = "v2.1.0";
 
 let dbPromise: Promise<IDBPDatabase<NutriDB>> | null = null;
 
 function getDB() {
   if (!dbPromise) {
     dbPromise = openDB<NutriDB>(DB_NAME, DB_VERSION, {
+      blocked(currentVersion, blockedVersion, event) {
+        console.warn(`[NutriScoreDB] IndexedDB upgrade to ${blockedVersion} is blocked by an older connection (v${currentVersion}). Close other extension tabs!`);
+      },
+      blocking(currentVersion, blockedVersion, event) {
+        console.warn(`[NutriScoreDB] IndexedDB connection (v${currentVersion}) is blocking a newer version (${blockedVersion}). Closing this connection.`);
+        if (dbPromise) dbPromise.then(db => db.close());
+      },
       upgrade(db, oldVersion, newVersion, transaction) {
         if (oldVersion < 1) {
-          const store = db.createObjectStore("shopping_history", { keyPath: "id" });
-          store.createIndex("by-viewedAt", "viewedAt");
+          const store = db.createObjectStore("shopping_history" as any, { keyPath: "id" });
+          (store as any).createIndex("by-viewedAt", "viewedAt");
         }
         if (oldVersion < 2) {
           db.createObjectStore("user_settings");
@@ -72,11 +99,11 @@ function getDB() {
         if (oldVersion < 3) {
           db.createObjectStore("product_cache");
           // Handle renames if upgrading from v2
-          if (db.objectStoreNames.contains("ledger")) {
-            db.deleteObjectStore("ledger");
+          if (db.objectStoreNames.contains("ledger" as any)) {
+            db.deleteObjectStore("ledger" as any);
           }
-          if (db.objectStoreNames.contains("settings")) {
-            db.deleteObjectStore("settings");
+          if (db.objectStoreNames.contains("settings" as any)) {
+            db.deleteObjectStore("settings" as any);
           }
         }
         if (oldVersion < 4) {
@@ -84,7 +111,6 @@ function getDB() {
           cStore.createIndex("by-url", "Identity.RetailerProductUrl");
           const nStore = db.createObjectStore("naivasProducts", { keyPath: "Identity.ProductID" });
           nStore.createIndex("by-url", "Identity.RetailerProductUrl");
-          db.createObjectStore("kfctReference", { keyPath: "Identity.FoodCode" });
         }
         if (oldVersion < 5) {
           const cStore = transaction.objectStore("carrefourProducts");
@@ -93,8 +119,8 @@ function getDB() {
           nStore.createIndex("by-name", "Identity.ProductName");
         }
         if (oldVersion < 6) {
-          if (db.objectStoreNames.contains("shopping_history")) {
-            db.deleteObjectStore("shopping_history");
+          if (db.objectStoreNames.contains("shopping_history" as any)) {
+            db.deleteObjectStore("shopping_history" as any);
           }
           const ledgerStore = db.createObjectStore("shopping_ledger", { keyPath: "id" });
           ledgerStore.createIndex("by-addedAt", "addedAt");
@@ -112,6 +138,22 @@ function getDB() {
           nStore.createIndex("by-url", "Identity.RetailerProductUrl");
           nStore.createIndex("by-name", "Identity.ProductName");
         }
+        if (oldVersion < 8) {
+          db.createObjectStore("price_cache");
+        }
+        if (oldVersion < 9) {
+          if (db.objectStoreNames.contains("kfctReference" as any)) {
+            db.deleteObjectStore("kfctReference" as any);
+          }
+        }
+        // v11: Compound indexes on shopping_ledger replace O(n) full-table scans.
+        // by-retailer-product-status → O(1) duplicate detection in logCartEvent.
+        // by-status → O(n_active) scan in dedupeActiveCartItems instead of O(n_total).
+        if (oldVersion < 11) {
+          const ledger = transaction.objectStore("shopping_ledger");
+          ledger.createIndex("by-retailer-product-status", ["retailer", "productId", "status"]);
+          ledger.createIndex("by-status", "status");
+        }
       },
     });
   }
@@ -120,27 +162,45 @@ function getDB() {
 
 export async function getSettings(): Promise<Settings> {
   const db = await getDB();
-  const stored = await db.get("user_settings", SETTINGS_KEY);
-  // Merge with defaults so newly added modules get a sensible value.
-  return { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
+  const tx = db.transaction("user_settings", "readonly");
+  const diabetes = (await tx.store.get("diabetes")) ?? true;
+  const hypertension = (await tx.store.get("hypertension")) ?? true;
+  const kidney = (await tx.store.get("kidney")) ?? true;
+  const profileName = (await tx.store.get("profileName")) || "";
+  const primaryMetric = (await tx.store.get("primaryMetric")) || "Sugar";
+  const condition = (await tx.store.get("condition")) || "healthy";
+  const initials = (await tx.store.get("initials")) || "";
+  return { ...DEFAULT_SETTINGS, diabetes, hypertension, kidney, profileName, primaryMetric, condition, initials };
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
   const db = await getDB();
-  await db.put("user_settings", settings, SETTINGS_KEY);
+  const tx = db.transaction("user_settings", "readwrite");
+  await tx.store.put(settings.diabetes, "diabetes");
+  await tx.store.put(settings.hypertension, "hypertension");
+  await tx.store.put(settings.kidney, "kidney");
+  await tx.store.put(settings.profileName, "profileName");
+  await tx.store.put(settings.primaryMetric, "primaryMetric");
+  await tx.store.put(settings.condition, "condition");
+  await tx.store.put(settings.initials, "initials");
+  await tx.done;
 }
 
 export async function logCartEvent(row: ShoppingLedgerRow): Promise<void> {
   const db = await getDB();
-  // If it's an in_cart row, ensure we don't insert a duplicate.
+  // If it's an in_cart row, use the compound index for an O(1) duplicate check
+  // instead of the prior O(n) getAllFromIndex + Array.find full-table scan.
   if (row.status === "in_cart") {
-    const all = await db.getAllFromIndex("shopping_ledger", "by-addedAt");
-    const existing = all.find(r => r.retailer === row.retailer && r.productId === row.productId && r.status === "in_cart");
+    const existing = await db.getFromIndex(
+      "shopping_ledger",
+      "by-retailer-product-status",
+      [row.retailer, row.productId, "in_cart"] as any
+    );
     if (existing && existing.id !== row.id) {
-       existing.quantity += (row.quantity || 1);
-       if (row.priceSnapshot) existing.priceSnapshot = row.priceSnapshot;
-       await db.put("shopping_ledger", existing);
-       return;
+      existing.quantity += (row.quantity || 1);
+      if (row.priceSnapshot != null) existing.priceSnapshot = row.priceSnapshot;
+      await db.put("shopping_ledger", existing);
+      return;
     }
   }
   await db.put("shopping_ledger", row);
@@ -207,25 +267,22 @@ export async function syncCart(retailer: string, cartItems: any[]): Promise<void
       item.product_name || null
     );
     
-    let gradeSnapshot: Grade = "C";
-    let category = "Uncategorized";
-    let nutrition = { sodiumMg: null, sugarsG: null, satFatG: null };
-    let name = item.product_name || "Unknown Product";
-    if (matchResult.matched && matchResult.product) {
-      const p = matchResult.product;
-      name = p.Identity?.ProductName || p.GroceryProductName || p.name || name;
-      const interpretation = interpretProduct(p);
-      gradeSnapshot = interpretation.canDisplayGrade
-        ? computeGradeFromProduct(p)
-        : "C";
-      category = resolveDisplayCategory(p);
-      nutrition = {
-        sodiumMg: p.Nutrition?.SodiumMG ?? null,
-        sugarsG: p.Nutrition?.SugarsG ?? null,
-        satFatG: p.Nutrition?.SaturatedFatG ?? null
-      };
-    }
-    
+    if (!matchResult.matched || !matchResult.product) continue;
+    const p = matchResult.product;
+    const interpretation = interpretProduct(p);
+    if (!interpretation.canDisplayGrade) continue;
+
+    let name = p.Identity?.ProductName || p.GroceryProductName || p.name || item.product_name || "Unknown Product";
+    const gradeResult = computeGradeFromProduct(p);
+    let gradeSnapshot: Grade | "UNKNOWN" = gradeResult.grade;
+    let category = resolveDisplayCategory(p);
+    let nutrition = {
+      sodiumMg: p.Nutrition?.SodiumMG ?? null,
+      sugarsG: p.Nutrition?.SugarsG ?? null,
+      satFatG: p.Nutrition?.SaturatedFatG ?? null,
+      potassiumMg: p.Nutrition?.PotassiumMG ?? p.Nutrition?.Potassium?.ValueMG ?? null
+    };
+
     const newRow: ShoppingLedgerRow = {
       id: `${retailer}-${item.productId}-${now}`,
       productId: item.productId,
@@ -235,6 +292,7 @@ export async function syncCart(retailer: string, cartItems: any[]): Promise<void
       quantity: item.quantity || 1,
       priceSnapshot: item.priceSnapshot,
       gradeSnapshot,
+      scoringStatus: gradeResult.status,
       category,
       status: "in_cart",
       nutritionSnapshot: nutrition
@@ -244,25 +302,30 @@ export async function syncCart(retailer: string, cartItems: any[]): Promise<void
   }
 }
 
-export async function dedupeActiveCartItems(dbInstance?: any): Promise<void> {
+async function dedupeActiveCartItems(dbInstance?: any): Promise<void> {
   const db = dbInstance || await getDB();
-  const all = await db.getAll("shopping_ledger");
-  const activeItems = all.filter(r => r.status === "in_cart");
-  
-  const map = new Map();
-  const toDelete = [];
-  
+  // O(n_active) via the by-status index — avoids loading the entire ledger into memory.
+  // Previously this called db.getAll() which returned every historical row (O(n_total)).
+  const activeItems: ShoppingLedgerRow[] = await db.getAllFromIndex(
+    "shopping_ledger",
+    "by-status",
+    "in_cart" as any
+  );
+
+  const map = new Map<string, ShoppingLedgerRow>();
+  const toDelete: string[] = [];
+
   for (const item of activeItems) {
     const key = `${item.retailer}-${item.productId}`;
     if (map.has(key)) {
-       const existing = map.get(key);
-       existing.quantity += item.quantity;
-       toDelete.push(item.id);
+      const existing = map.get(key)!;
+      existing.quantity += item.quantity;
+      toDelete.push(item.id);
     } else {
-       map.set(key, item);
+      map.set(key, item);
     }
   }
-  
+
   if (toDelete.length > 0) {
     const tx = db.transaction("shopping_ledger", "readwrite");
     const store = tx.store;
@@ -276,34 +339,39 @@ export async function dedupeActiveCartItems(dbInstance?: any): Promise<void> {
   }
 }
 
-export async function countEntries(): Promise<number> {
-  const db = await getDB();
-  return db.count("shopping_ledger");
-}
+
+// Increment whenever scoring logic changes (Gate 2 policy, FSA table mapping, etc.).
+// Any cached product result that doesn't carry this version is treated as a cold miss
+// and will be re-scored on next lookup.
+const SCORING_VERSION = "v3";
 
 export async function getCachedProduct(id: string): Promise<any> {
   const db = await getDB();
   const cached = await db.get("product_cache", id);
   if (!cached) return null;
-  
+
+  // Reject stale entries from an older scoring version.
+  if (cached.scoringVersion !== SCORING_VERSION) return null;
+
   let retailer = cached.retailer || "NAIVAS";
   const metadata = await db.get("dataset_metadata", retailer);
   const currentVersion = metadata ? metadata.datasetVersion : "v2.0.0";
-  
+
   if (cached.datasetVersion === currentVersion) {
     return cached;
   }
   return null;
 }
 
-export async function cacheProduct(id: string, product: any): Promise<void> {
+async function cacheProduct(id: string, product: any): Promise<void> {
   const db = await getDB();
   product.cachedAt = Date.now();
-  
+  product.scoringVersion = SCORING_VERSION;
+
   let retailer = product.retailer || "NAIVAS";
   const metadata = await db.get("dataset_metadata", retailer);
   product.datasetVersion = metadata ? metadata.datasetVersion : "v2.0.0";
-  
+
   await db.put("product_cache", product, id);
   
   if (Math.random() < 0.05) {
@@ -334,91 +402,71 @@ export async function saveProduct(key: string, result: any): Promise<void> {
   await cacheProduct(key, result);
 }
 
-
-export async function getAllScans(): Promise<any[]> {
-  return await getAllEntries();
-}
-
-export async function getHistoricalTrends(): Promise<any> {
-  const entries = await getAllEntries();
-  return { count: entries.length };
-}
-
-export async function clearScans(): Promise<void> {
-  await purgeAll();
-}
-
-// Seed demo history so the dashboard has something to show on first open.
-export async function seedIfEmpty(): Promise<void> {
-  const db = await getDB();
-  const existing = await db.count("shopping_ledger");
-  if (existing > 0) return;
-
-  const { PRODUCTS } = await import("./products");
-  const grades: Grade[] = ["A", "B", "C", "D", "E"];
-  const now = Date.now();
-  const day = 24 * 60 * 60 * 1000;
-
-  const tx = db.transaction("shopping_ledger", "readwrite");
-  for (let i = 0; i < 45; i++) {
-    const p = PRODUCTS[i % PRODUCTS.length];
-    const daysAgo = Math.floor((i / 45) * 30);
-    const jitter = (n: number | null) =>
-      n === null ? null : Math.max(0, Math.round(n * (0.85 + Math.random() * 0.3)));
-    const entry: LedgerEntry = {
-      id: `seed-${i}`,
-      productId: p.id,
-      name: p.name,
-      category: p.category,
-      grade: grades[Math.floor(Math.random() * grades.length)],
-      sodiumMg: jitter(p.nutrients.sodiumMg),
-      sugarsG: jitter(p.nutrients.sugarsG),
-      satFatG: jitter(p.nutrients.satFatG),
-      viewedAt: now - daysAgo * day - Math.floor(Math.random() * day),
-    };
-    await tx.store.put(entry);
-  }
-  await tx.done;
-}
-
 // Data ingest logic for the Service Worker (Background)
 export async function importDatasets(): Promise<void> {
   const db = await getDB();
-  const cCount = await db.count("carrefourProducts");
-  const nCount = await db.count("naivasProducts");
-  const kCount = await db.count("kfctReference");
 
-  const importStore = async (count: number, storeName: string, path: string) => {
-    if (count === 0) {
-      console.log(`[NutriScoreDB] Importing ${storeName}...`);
-      const res = await fetch(chrome.runtime.getURL(path));
-      if (res.ok) {
-        const data = await res.json();
-        const chunkSize = 500;
-        for (let i = 0; i < data.length; i += chunkSize) {
-          const chunk = data.slice(i, i + chunkSize);
-          const tx = db.transaction(storeName, "readwrite");
-          chunk.forEach((p: any) => tx.store.put(p));
-          await tx.done;
-          await new Promise(r => setTimeout(r, 0)); // yield
-        }
-        
-        const mTx = db.transaction("dataset_metadata", "readwrite");
-        mTx.store.put({
-          retailer: storeName.replace("Products", "").replace("Reference", "").toUpperCase(),
-          datasetVersion: "v2.0.0",
-          generatedAt: new Date().toISOString(),
-          recordCount: data.length
-        });
-        await mTx.done;
-      }
+  /**
+   * Import a single product store, but only when the stored dataset version differs
+   * from BUNDLED_DATASET_VERSION. The old `count === 0` guard prevented re-import
+   * whenever the bundled JSON was updated without a DB_VERSION bump — silently serving
+   * stale nutrition data. The version comparison fixes this.
+   *
+   * On a version mismatch the store is cleared first to guarantee a clean slate,
+   * then in-memory caches for that retailer are invalidated so subsequent product
+   * lookups read fresh data from IDB.
+   */
+  const importStore = async (retailerKey: string, storeName: string, path: string) => {
+    const metadata = await db.get("dataset_metadata", retailerKey);
+    if (metadata?.datasetVersion === BUNDLED_DATASET_VERSION) {
+      // Already current — nothing to do.
+      return;
     }
+
+    console.log(`[NutriScoreDB] Importing ${storeName} (${BUNDLED_DATASET_VERSION})...`);
+    // @ts-ignore
+    const res = await fetch(chrome.runtime.getURL(path));
+    if (!res.ok) {
+      console.error(`[NutriScoreDB] Failed to fetch ${path}: HTTP ${res.status}`);
+      return;
+    }
+
+    const data = await res.json();
+
+    // Clear before re-import so removed products don't linger.
+    await db.clear(storeName as any);
+
+    const chunkSize = 500;
+    for (let i = 0; i < data.length; i += chunkSize) {
+      const chunk = data.slice(i, i + chunkSize);
+      const tx = db.transaction(storeName as any, "readwrite");
+      chunk.forEach((p: any) => tx.store.put(p));
+      await tx.done;
+      await new Promise(r => setTimeout(r, 0)); // yield to keep SW responsive
+    }
+
+    const mTx = db.transaction("dataset_metadata", "readwrite");
+    mTx.store.put({
+      retailer: retailerKey,
+      datasetVersion: BUNDLED_DATASET_VERSION,
+      generatedAt: new Date().toISOString(),
+      recordCount: data.length,
+    });
+    await mTx.done;
+
+    // Invalidate in-memory caches so the next resolveProductMatch/getAllProducts call
+    // re-populates from the freshly imported IDB data.
+    const cacheKey = retailerKey.toLowerCase() as "carrefour" | "naivas";
+    memCache[cacheKey] = null;
+    lowerIndexCache[cacheKey] = null;
+    normalizedIndexCache[cacheKey] = null;
+    memCacheVersion[cacheKey] = BUNDLED_DATASET_VERSION;
+    console.log(`[NutriScoreDB] ${storeName} import complete (${data.length} records).`);
   };
 
   await Promise.all([
-    importStore(cCount, "carrefourProducts", "data/carrefour_final.json"),
-    importStore(nCount, "naivasProducts", "data/naivas_final.json"),
-    importStore(kCount, "kfctReference", "data/kfct2018_reference_validated.json"),
+    importStore("CARREFOUR", "carrefourProducts", "data/carrefour_products.json"),
+    importStore("NAIVAS",    "naivasProducts",    "data/naivas_products.json"),
   ]);
 }
 
@@ -434,59 +482,115 @@ export function resolveDisplayCategory(record: any): string {
   return "Uncategorized";
 }
 
+/** Result shape returned by computeGradeFromProduct. */
+export interface GradeResult {
+  grade: Grade | "UNKNOWN";
+  status: ScoringStatus;
+  /** Raw plausible field values present in the record (non-null, physically possible). */
+  plausibleFields: { field: string; value: number; unit: string }[];
+}
+
+// ── Canonical enum sets for runtime validation (§8) ──────────────────────────
+const VALID_REVIEW_STATES = new Set<ReviewState>([
+  "REJECTED", "UNVERIFIED", "ESTIMATED", "VERIFIED", "HIGH_CONFIDENCE",
+]);
+const VALID_EVIDENCE_LEVELS = new Set<string>([
+  "direct_label", "retailer_product_page", "manufacturer",
+  "kfct2018_database", "international_fct_database",
+  "derived", "category_reference", "unknown",
+]);
+const VALID_VALUE_SPECIFICITIES = new Set<string>([
+  "product_specific", "pack_variant_specific", "category_specific",
+  "generic_reference", "unknown",
+]);
+
 /**
  * Compute FSA-NPS grade from raw nutrition data.
- * Mirrors the logic in score-engine.js.
+ *
+ * Enforces Gate 2 (§4): all four required fields must be non-null.
+ * MUST NOT substitute 0 for a missing required field.
+ * Returns a GradeResult with an explicit status so callers never have to
+ * reverse-engineer "no grade" from a null or "UNKNOWN" string.
  */
-export function computeGradeFromProduct(p: any): Grade {
-  if (!p || !p.Nutrition) return "UNKNOWN" as Grade;
-  const n = p.Nutrition;
-  const fsaCat = p.Classification?.FSACategoryCode || "GENERAL_FOOD";
+export function computeGradeFromProduct(p: any): GradeResult {
+  const plausibleFields: GradeResult["plausibleFields"] = [];
 
+  if (!p || !p.Nutrition) {
+    return { grade: "UNKNOWN", status: "not_attempted", plausibleFields };
+  }
+
+  const n = p.Nutrition;
+  // Derive FSA scoring table: prefer explicit FSACategoryCode, fall back to the
+  // same NutritionCategory map used in interpretProduct so both functions agree.
+  const fsaCat: string =
+    p.Classification?.FSACategoryCode ||
+    NUTRITION_CATEGORY_TO_FSA[p.Classification?.NutritionCategory] ||
+    "GENERAL_FOOD";
+
+  // Collect raw field values (null = not present on label).
   const energy   = n.EnergyKJ ?? (n.EnergyKcal != null ? n.EnergyKcal * 4.184 : null);
   const sugars   = n.SugarsG       ?? null;
   const satFat   = n.SaturatedFatG ?? null;
-  const sodium   = n.SodiumMG      ?? n.Sodium?.ValueMG ?? null;
+  const sodium   = n.SodiumMG      ?? (n.SaltG != null ? n.SaltG / 2.5 * 1000 : null)
+                                   ?? n.Sodium?.ValueMG ?? null;
   const fibre    = n.FibreG        ?? null;
   const protein  = n.ProteinG      ?? null;
   const fvlPct   = n.FVL?.Percentage ?? null;
 
-  if (energy == null && sugars == null && satFat == null && sodium == null) {
-    return "UNKNOWN" as Grade;
+  // Build plausible-fields list — only include values actually present on the label.
+  const addField = (field: string, val: number | null, unit: string, lo: number, hi: number) => {
+    if (val != null && val >= lo && val <= hi) plausibleFields.push({ field, value: val, unit });
+  };
+  addField("Energy",        energy,  "kJ",  0, 4000);
+  addField("Sugars",        sugars,  "g",   0, 100);
+  addField("Saturated Fat", satFat,  "g",   0, 100);
+  addField("Sodium",        sodium,  "mg",  0, 40_000);
+  addField("Fibre",         fibre,   "g",   0, 100);
+  addField("Protein",       protein, "g",   0, 100);
+
+  // ── Gate 2: energy is the only required field. ───────────────────────────────
+  // A null value on a food label conventionally means zero or negligible — not
+  // "data missing". Blocking the grade because sugars or sodium aren't listed
+  // (common for oils, plain water, meat) produces worse information than
+  // computing the score with those fields treated as 0.
+  if (energy == null) {
+    return { grade: "UNKNOWN", status: "insufficient_data", plausibleFields };
   }
 
-  const safeNum = (val: number | null) => (val == null ? 0 : val);
-  const eVal = safeNum(energy);
-  const sugVal = safeNum(sugars);
-  const satVal = safeNum(satFat);
-  const sodVal = safeNum(sodium);
+  // Null required fields → 0 for scoring (absent on label = negligible).
+  const scoreSugars  = sugars  ?? 0;
+  const scoreSatFat  = satFat  ?? 0;
+  const scoreSodium  = sodium  ?? 0;
 
-  let nEnergy = Math.min(Math.floor(eVal / 335), 10);
-  let nSugars = Math.min(Math.floor(sugVal / 3.4), 15);
-  let nSatFat = Math.min(Math.floor(satVal / 1), 10);
-  let nSodium = Math.min(Math.floor(sodVal / 80), 20);
+  // ── Scoring ────────────────────────────────────────────────────────────────────────────
+  let nEnergy = Math.min(Math.floor(energy / 335), 10);
+  let nSugars = Math.min(Math.floor(scoreSugars / 3.4), 15);
+  let nSatFat = Math.min(Math.floor(scoreSatFat / 1), 10);
+  let nSodium = Math.min(Math.floor(scoreSodium / 80), 20);
 
   if (fsaCat === "BEVERAGE") {
-    nEnergy = eVal <= 0 ? 0 : Math.min(Math.floor(eVal / 30) + 1, 10);
-    nSugars = sugVal <= 0 ? 0 : Math.min(Math.floor(sugVal / 1.5) + 1, 15);
+    nEnergy = energy <= 0 ? 0 : Math.min(Math.floor(energy / 30) + 1, 10);
+    nSugars = scoreSugars <= 0 ? 0 : Math.min(Math.floor(scoreSugars / 1.5) + 1, 15);
   }
   if (fsaCat === "ADDED_FAT") {
-    const totalFat = safeNum(n.FatG) || (satVal * 1.5);
-    const ratio = totalFat > 0 ? (satVal / totalFat) * 100 : 0;
+    const totalFat = (n.FatG ?? 0) || (scoreSatFat * 1.5);
+    const ratio = totalFat > 0 ? (scoreSatFat / totalFat) * 100 : 0;
     nSatFat = Math.min(Math.floor(ratio / 10), 10);
   }
 
   const nPoints = nEnergy + nSugars + nSatFat + nSodium;
 
-  let pFibre   = Math.min(Math.floor(safeNum(fibre) / 0.9), 5);
-  let pProtein = Math.min(Math.floor(safeNum(protein) / 2.4), 7);
+  // Positive-point fields: absence lowers score but does NOT block computation (§4).
+  const safePos = (v: number | null) => (v == null ? 0 : v);
+  let pFibre   = Math.min(Math.floor(safePos(fibre) / 0.9), 5);
+  let pProtein = Math.min(Math.floor(safePos(protein) / 2.4), 7);
   if (fsaCat === "RED_MEAT") pProtein = Math.min(pProtein, 2);
 
   let pFVL = 0;
-  const fvlPctNum = safeNum(fvlPct);
-  if (fvlPctNum > 80) pFVL = 5;
-  else if (fvlPctNum > 60) pFVL = 2;
-  else if (fvlPctNum > 40) pFVL = 1;
+  const fvlNum = safePos(fvlPct);
+  if (fvlNum > 80) pFVL = 5;
+  else if (fvlNum > 60) pFVL = 2;
+  else if (fvlNum > 40) pFVL = 1;
 
   let finalScore: number;
   if (fsaCat === "CHEESE") {
@@ -497,24 +601,56 @@ export function computeGradeFromProduct(p: any): Grade {
     finalScore = nPoints - pFibre - pProtein - pFVL;
   }
 
+  let letter: Grade;
   if (fsaCat === "BEVERAGE") {
-    if (finalScore <= 1) return "B";
-    if (finalScore <= 5) return "C";
-    if (finalScore <= 9) return "D";
-    return "E";
+    if (finalScore <= 1) letter = "B";
+    else if (finalScore <= 5) letter = "C";
+    else if (finalScore <= 9) letter = "D";
+    else letter = "E";
+  } else {
+    if (finalScore <= -1) letter = "A";
+    else if (finalScore <= 2)  letter = "B";
+    else if (finalScore <= 10) letter = "C";
+    else if (finalScore <= 18) letter = "D";
+    else letter = "E";
   }
-  if (finalScore <= -1) return "A";
-  if (finalScore <= 2)  return "B";
-  if (finalScore <= 10) return "C";
-  if (finalScore <= 18) return "D";
-  return "E";
+
+  return { grade: letter, status: "computed", plausibleFields };
 }
 
-// In-memory cache for fast scanning to avoid slow IndexedDB cursors
-let memCache: {
-  carrefour: any[] | null;
-  naivas: any[] | null;
-} = { carrefour: null, naivas: null };
+
+// In-memory cache for fast scanning to avoid slow IndexedDB cursors.
+// Entries are invalidated by importDatasets() whenever BUNDLED_DATASET_VERSION changes,
+// ensuring that a dataset update within a running SW session is immediately visible.
+let memCache: { carrefour: any[] | null; naivas: any[] | null } = { carrefour: null, naivas: null };
+
+/** Tracks the dataset version that each memCache partition was populated from. */
+const memCacheVersion: { carrefour: string | null; naivas: string | null } = { carrefour: null, naivas: null };
+
+const normalizedIndexCache: { carrefour: Map<string, any> | null; naivas: Map<string, any> | null } = { carrefour: null, naivas: null };
+const lowerIndexCache: { carrefour: Map<string, any> | null; naivas: Map<string, any> | null } = { carrefour: null, naivas: null };
+
+function buildNormalizedIndex(cacheArr: any[]) {
+  const idx = new Map<string, any>();
+  for (const p of cacheArr) {
+    const nm = p.Identity?.ProductName;
+    if (!nm) continue;
+    const key = normalizeProductName(nm);
+    if (!idx.has(key)) idx.set(key, p);
+  }
+  return idx;
+}
+
+function buildLowerIndex(cacheArr: any[]) {
+  const idx = new Map<string, any>();
+  for (const p of cacheArr) {
+    const nm = p.Identity?.ProductName;
+    if (!nm) continue;
+    const key = nm.toLowerCase().trim();
+    if (!idx.has(key)) idx.set(key, p);
+  }
+  return idx;
+}
 
 export async function resolveProductMatch(retailer: string, retailerProductId: string | null, url: string | null, productName: string | null): Promise<{ matched: boolean, matchMethod: string, confidence: string, reason?: string, product?: any }> {
   const db = await getDB();
@@ -539,8 +675,8 @@ export async function resolveProductMatch(retailer: string, retailerProductId: s
     // For Carrefour: the cart gives numeric IDs like "55606" but DB keys are UUIDs.
     // Search by matching /p/{id} fragment in the stored RetailerProductUrl.
     if (retailerProductId && isCarrefour) {
-      const pathFragment = `/p/${retailerProductId}`;
-      const found = cacheArr.find(p => (p.Identity?.RetailerProductUrl || "").includes(pathFragment));
+      const regex = new RegExp(`\\/p\\/${retailerProductId}(?:\\?|\\/|$)`);
+      const found = cacheArr.find(p => regex.test(p.Identity?.RetailerProductUrl || ""));
       if (found) {
         return { matched: true, matchMethod: "url_path_fragment", confidence: "high", product: found };
       }
@@ -548,26 +684,28 @@ export async function resolveProductMatch(retailer: string, retailerProductId: s
   }
 
   if (url) {
-    const urlHit = await store.index("by-url").get(url);
+    const urlHit = await (store.index as any)("by-url").get(url);
     if (urlHit) return { matched: true, matchMethod: "url", confidence: "high", product: urlHit };
   }
 
   if (productName) {
-    const nameHit = await store.index("by-name").get(productName);
+    const nameHit = await (store.index as any)("by-name").get(productName);
     if (nameHit) return { matched: true, matchMethod: "exact_name", confidence: "medium", product: nameHit };
-    
     const lower = productName.toLowerCase().trim();
-    const found = cacheArr.find(p => (p.Identity?.ProductName || "").toLowerCase().trim() === lower);
-    if (found) {
-      return { matched: true, matchMethod: "case_insensitive_name", confidence: "medium", product: found };
+    if (isCarrefour && !lowerIndexCache.carrefour) lowerIndexCache.carrefour = buildLowerIndex(memCache.carrefour!);
+    if (!isCarrefour && !lowerIndexCache.naivas) lowerIndexCache.naivas = buildLowerIndex(memCache.naivas!);
+    const lowerIdx = isCarrefour ? lowerIndexCache.carrefour! : lowerIndexCache.naivas!;
+    const foundLower = lowerIdx.get(lower);
+    if (foundLower) {
+      return { matched: true, matchMethod: "case_insensitive_name", confidence: "medium", product: foundLower };
     }
 
     const normSearch = normalizeProductName(productName);
     if (normSearch) {
-      const foundNorm = cacheArr.find(p => {
-        const pName = p.Identity?.ProductName;
-        return pName && normalizeProductName(pName) === normSearch;
-      });
+      if (isCarrefour && !normalizedIndexCache.carrefour) normalizedIndexCache.carrefour = buildNormalizedIndex(memCache.carrefour!);
+      if (!isCarrefour && !normalizedIndexCache.naivas) normalizedIndexCache.naivas = buildNormalizedIndex(memCache.naivas!);
+      const normIdx = isCarrefour ? normalizedIndexCache.carrefour! : normalizedIndexCache.naivas!;
+      const foundNorm = normIdx.get(normSearch);
       if (foundNorm) {
         return { matched: true, matchMethod: "normalized_name", confidence: "low", product: foundNorm };
       }
@@ -585,10 +723,24 @@ export async function getAllProducts(retailer: string): Promise<any[]> {
   const store = tx.store;
   if (isCarrefour && !memCache.carrefour) memCache.carrefour = await store.getAll();
   if (!isCarrefour && !memCache.naivas) memCache.naivas = await store.getAll();
-  return isCarrefour ? memCache.carrefour! : memCache.naivas!;
+  const products = isCarrefour ? memCache.carrefour! : memCache.naivas!;
+
+  // P8 perf fix: batch-read entire price_cache once, merge in-memory.
+  // Replaces N parallel db.get() calls (one per product) with a single getAll() + Map lookup — O(1) per product.
+  const priceEntries = await db.getAll("price_cache");
+  const priceKeys    = await db.getAllKeys("price_cache");
+  const priceMap = new Map<string, number>();
+  priceKeys.forEach((k, i) => priceMap.set(String(k), priceEntries[i]));
+
+  return products.map(prod => {
+    if (prod.price != null && prod.price > 0) return prod;
+    const cached = priceMap.get(String(prod.productId || prod.id || ""));
+    return cached != null ? { ...prod, price: cached } : prod;
+  });
 }
 
-export function normalizeProductName(name: string): string {
+
+function normalizeProductName(name: string): string {
   if (!name) return "";
   return name.toLowerCase()
     .replace(/\s*pack /g, '')
@@ -597,72 +749,158 @@ export function normalizeProductName(name: string): string {
     .trim();
 }
 
+/**
+ * Canonical mapping: 14-tier NutritionCategory vocab → FSA-NPS algorithm variant.
+ * Used as a fallback when the dataset record omits FSACategoryCode (all current records).
+ * FSA-NPS has four scoring tables: GENERAL_FOOD | BEVERAGE | CHEESE | FAT.
+ */
+const NUTRITION_CATEGORY_TO_FSA: Record<string, string> = {
+  // Beverages score on the beverage table.
+  "Beverages":        "BEVERAGE",
+  // Fats & Oils use the added-fat sat-fat ratio adjustment.
+  "Fats & Oils":      "ADDED_FAT",
+  // Dairy defaults to GENERAL_FOOD; cheese sub-type is not captured here at category level.
+  "Dairy":            "GENERAL_FOOD",
+  // All other 14-tier categories map to GENERAL_FOOD.
+  "Cereals & Grains":    "GENERAL_FOOD",
+  "Confectionery":       "GENERAL_FOOD",
+  "Meat & Eggs":         "GENERAL_FOOD",
+  "Condiments & Spices": "GENERAL_FOOD",
+  "Vegetables":          "GENERAL_FOOD",
+  "Fruit":               "GENERAL_FOOD",
+  "Nuts & Seeds":        "GENERAL_FOOD",
+  "Legumes":             "GENERAL_FOOD",
+  "Mixed Dishes":        "GENERAL_FOOD",
+  "Fish & Seafood":      "GENERAL_FOOD",
+  "Starchy Roots":       "GENERAL_FOOD",
+};
+
 export function interpretProduct(record: any): any {
-  if (!record) return { canDisplayGrade: false };
+  if (!record) return { canDisplayGrade: false, scoringStatus: "not_attempted" };
 
   const validation = record.Validation || {};
-  const validationStatus = validation.ReviewState || "pending";
-  
-  if (validationStatus === "manual_review_required") {
-    return { canDisplayGrade: false, validationStatus };
+  const prov = record.NutritionProvenance || {};
+  const rawReviewState: string = validation.ReviewState ?? "";
+
+  const VALID_REVIEW_STATES = new Set<string>([
+    "REJECTED", "UNVERIFIED", "ESTIMATED", "VERIFIED", "HIGH_CONFIDENCE",
+  ]);
+  if (rawReviewState && !VALID_REVIEW_STATES.has(rawReviewState)) {
+    console.error(
+      `[NutriScoreDB] §8 anomaly: unrecognised ReviewState "${rawReviewState}" on record`,
+      record.Identity?.ProductID ?? "(no id)",
+    );
   }
+
+  const rawEvidenceLevel: string = prov.EvidenceLevel ?? "";
+  const rawValueSpecificity: string = prov.ValueSpecificity ?? "";
 
   const classification = record.Classification || {};
   const foodCategory = resolveDisplayCategory(record);
-  const nutrientAlgorithmVariant = classification.FSACategoryCode || null;
+  // Prefer the explicit FSACategoryCode; fall back to NutritionCategory→FSA mapping.
+  // This covers all current records in the dataset, which were built before FSACategoryCode
+  // was introduced as a field.
+  const nutrientAlgorithmVariant: string | null =
+    classification.FSACategoryCode ||
+    NUTRITION_CATEGORY_TO_FSA[classification.NutritionCategory] ||
+    null;
 
+  // §6 — Non-food / unclassifiable: null NOVA.Level without a valid category → Not rated.
+  const novaLevel = classification.NOVA?.Level;
+  const novaConfidence = classification.NOVA?.Confidence ?? null;
+  if (novaLevel == null && !nutrientAlgorithmVariant) {
+    return {
+      canDisplayGrade: false,
+      scoringStatus: "not_attempted",
+      reviewState: rawReviewState || "UNVERIFIED",
+      foodCategory,
+      nutrientAlgorithmVariant,
+      novaLevel,
+      novaConfidence,
+      evidenceLevel: rawEvidenceLevel || "unknown",
+      valueSpecificity: rawValueSpecificity || "unknown",
+    };
+  }
+
+  // §3 Gate 1 — Trust eligibility via ReviewState.
+  const reviewState: ReviewState =
+    VALID_REVIEW_STATES.has(rawReviewState)
+      ? (rawReviewState as ReviewState)
+      : "UNVERIFIED"; // safe default for anomalous values
+
+  if (reviewState === "REJECTED" || reviewState === "UNVERIFIED") {
+    return {
+      canDisplayGrade: false,
+      scoringStatus: "not_attempted",
+      reviewState,
+      foodCategory,
+      nutrientAlgorithmVariant,
+      novaLevel,
+      novaConfidence,
+      evidenceLevel: rawEvidenceLevel || "unknown",
+      valueSpecificity: rawValueSpecificity || "unknown",
+    };
+  }
+
+  // Gate 1 passed (ESTIMATED | VERIFIED | HIGH_CONFIDENCE). Proceed to Gate 2.
+
+  // §3 — Category guard: no grade without an FSA algorithm variant.
   if (!nutrientAlgorithmVariant || foodCategory === "Uncategorized") {
-    return { canDisplayGrade: false, validationStatus, foodCategory, nutrientAlgorithmVariant };
+    return {
+      canDisplayGrade: false,
+      scoringStatus: "not_attempted",
+      reviewState,
+      foodCategory,
+      nutrientAlgorithmVariant,
+      novaLevel,
+      novaConfidence,
+      evidenceLevel: rawEvidenceLevel || "unknown",
+      valueSpecificity: rawValueSpecificity || "unknown",
+    };
   }
 
-  const prov = record.NutritionProvenance || {};
-  let evidenceTier = "unverified";
-  const rawEvidence = prov.EvidenceLevel;
-  
-  if (["retailer_matched_product", "single_ingredient_known_composition"].includes(rawEvidence)) {
-    evidenceTier = "high_confidence";
-  } else if (rawEvidence === "category_reference") {
-    evidenceTier = "estimated";
-  } else if (rawEvidence === "international_fct") {
-    evidenceTier = "high_confidence";
-  } else if (rawEvidence === "manufacturer") {
-    evidenceTier = "verified";
-  } else if (rawEvidence === "rejected") {
-    evidenceTier = "rejected";
-  } else if (rawEvidence === "unverified" || rawEvidence === "recovered_pending_evidence" || rawEvidence === "unresolved" || rawEvidence === "retailer_matched_product_low_confidence" || !rawEvidence) {
-    evidenceTier = "unverified";
-  }
+  // §4 Gate 2 — Energy is the only required datum.
+  // Null sugars/satFat/sodium are treated as 0 in computeGradeFromProduct,
+  // so products are gradeable whenever energy is known.
+  const n = record.Nutrition || {};
+  const gate2Passed = n.EnergyKJ != null || n.EnergyKcal != null;
 
   const checks = validation.ConsistencyChecks || {};
-  const nutrition = record.Nutrition || {};
-  const hasCoreNutrients = nutrition.EnergyKJ != null || 
-                           nutrition.EnergyKcal != null || 
-                           nutrition.SugarsG != null || 
-                           nutrition.SaturatedFatG != null || 
-                           nutrition.SodiumMG != null || 
-                           nutrition.Sodium?.ValueMG != null;
-  
-  let canDisplayGrade = ["validated", "approved", "approved_conditional", "approved_category_fallback"].includes(validationStatus) 
-                          && evidenceTier !== "rejected";
 
-  if (!hasCoreNutrients) {
-    canDisplayGrade = false;
-  }
+  // Map EvidenceLevel → shopper-facing badge tier label.
+  // ValueSpecificity + EvidenceLevel together determine the provenance caption (§5.2).
+  // The tier shown on the badge maps directly from ReviewState (§5.1).
+  const reviewStateToBadgeTier: Record<ReviewState, string> = {
+    HIGH_CONFIDENCE: "high_confidence",
+    VERIFIED:        "confirmed",
+    ESTIMATED:       "estimated",
+    UNVERIFIED:      "not_rated",
+    REJECTED:        "not_rated",
+  };
+  const evidenceTier = reviewStateToBadgeTier[reviewState] ?? "not_rated";
 
   return {
     foodCategory,
     nutrientAlgorithmVariant,
-    validationStatus,
+    reviewState,
+    // Legacy alias kept so badge renderer doesn't break during transition.
+    validationStatus: reviewState,
+    evidenceTier,
+    evidenceLevel: rawEvidenceLevel || "unknown",
+    valueSpecificity: rawValueSpecificity || "unknown",
+    novaLevel,
+    novaConfidence,
     categoryPlausibilityCheck: checks.CategoryPlausibility || "not_checked",
     energyConsistencyCheck: checks.Atwater || "not_checked",
     saltSodiumConsistencyCheck: checks.SaltSodium || "not_checked",
     dataQualityFlags: validation.DataQualityFlags || [],
-    evidenceTier,
-    valueSpecificity: prov.ValueSpecificity || null,
     sourceReference: prov.SourceID ? { sourceId: prov.SourceID, sourceName: prov.SourceName } : null,
-    canDisplayGrade
+    // Gate 2 outcome — callers use scoringStatus to decide display path (§4 rule 5).
+    canDisplayGrade: gate2Passed,
+    scoringStatus: gate2Passed ? "computed" : "insufficient_data" as ScoringStatus,
   };
 }
+
 
 export function resolveTimeframe(timeframeKey: string, now = Date.now()) {
   const start = new Date(now);
@@ -708,7 +946,7 @@ export function resolveTimeframe(timeframeKey: string, now = Date.now()) {
   };
 }
 
-export function generateBucketSlots(
+function generateBucketSlots(
   tf: any
 ): { key: string; ts: number; label: string }[] {
   const { windowStart, windowEnd, bucketUnit, tickLabelFn } = tf;
@@ -741,7 +979,7 @@ export function generateBucketSlots(
   return slots;
 }
 
-export function entryBucketKey(ts: number, bu: string): string {
+function entryBucketKey(ts: number, bu: string): string {
   const d = new Date(ts);
   if (bu === "hour") {
     const s = new Date(d); s.setMinutes(0, 0, 0);
@@ -766,7 +1004,8 @@ export function calculateAnalytics(filteredLedger: any[], totalStoredCount: numb
   let ptsSum = 0;
   const gradePts: Record<string, number> = { A: 1, B: 3, C: 7, D: 12, E: 20 };
   
-  const categoryMap: Record<string, { pts: number; n: number }> = {};
+  // category â†’ { totalSpend, validItems (with price > 0) }
+  const categoryMap: Record<string, { price: number; n: number }> = {};
   
   let diabetes = 0;
   let hypertension = 0;
@@ -774,9 +1013,9 @@ export function calculateAnalytics(filteredLedger: any[], totalStoredCount: numb
   let kidney = 0;
 
   const slots = generateBucketSlots(tf);
-  type Acc = { sodium: number; sugar: number; satFat: number; n: number };
+  type Acc = { sodium: number; nSodium: number; sugar: number; nSugar: number; satFat: number; nSatFat: number; n: number };
   const acc: Record<string, Acc> = {};
-  for (const s of slots) acc[s.key] = { sodium: 0, sugar: 0, satFat: 0, n: 0 };
+  for (const s of slots) acc[s.key] = { sodium: 0, nSodium: 0, sugar: 0, nSugar: 0, satFat: 0, nSatFat: 0, n: 0 };
 
   let validCount = 0;
   let missingCount = 0;
@@ -786,36 +1025,44 @@ export function calculateAnalytics(filteredLedger: any[], totalStoredCount: numb
     counts[e.gradeSnapshot || e.grade] = (counts[e.gradeSnapshot || e.grade] || 0) + 1;
     ptsSum += gradePts[e.gradeSnapshot || e.grade] || 0;
     
-    // Category Insights
-    const m = categoryMap[e.category] ?? (categoryMap[e.category] = { pts: 0, n: 0 });
-    m.pts += gradePts[e.gradeSnapshot || e.grade] ?? 0;
-    m.n += 1;
+    // Category Insights â€” only count items with a real price and a real grade
+    const rowPrice = e.priceSnapshot ?? 0;
+    const rowGrade = e.gradeSnapshot || (e as any).grade || "";
+    if (rowPrice > 0 && rowGrade && rowGrade !== "UNKNOWN") {
+      const m = categoryMap[e.category] ?? (categoryMap[e.category] = { price: 0, n: 0 });
+      m.price += rowPrice;
+      m.n += 1;
+    }
 
     // Health Alerts
     const sugar = e.nutritionSnapshot?.sugarsG ?? e.sugarsG ?? null;
     const sodium = e.nutritionSnapshot?.sodiumMg ?? e.sodiumMg ?? null;
     const satFat = e.nutritionSnapshot?.satFatG ?? e.satFatG ?? null;
+    const potassium = e.nutritionSnapshot?.potassiumMg ?? e.potassiumMg ?? null;
     
     if (sugar !== null) {
       if (Number(sugar) > 22.5) diabetes++;
     }
     if (sodium !== null) {
       if (Number(sodium) > 600) hypertension++;
-      if (Number(sodium) > 600) kidney++;
+    }
+    if ((sodium !== null && Number(sodium) > 600) || (potassium !== null && Number(potassium) > 200)) {
+      kidney++;
     }
     if (satFat !== null || sodium !== null) {
       if (Number(satFat) > 5 || (Number(sodium) > 400 && Number(sodium) <= 600)) cvd++;
     }
 
-    // Nutrient Trends (Missing vs Zero)
-    if (sugar !== null && sodium !== null && satFat !== null) {
+    // Nutrient Trends â€” OR gate: any non-null nutrient contributes to its own bucket average
+    const hasAny = sugar !== null || sodium !== null || satFat !== null;
+    if (hasAny) {
       validCount++;
       const key = entryBucketKey(e.addedAt, tf.bucketUnit);
       if (acc[key]) {
-        acc[key].sodium  += Number(sodium);
-        acc[key].sugar   += Number(sugar);
-        acc[key].satFat  += Number(satFat);
-        acc[key].n       += 1;
+        acc[key].n += 1;
+        if (sodium !== null) { acc[key].sodium += Number(sodium); acc[key].nSodium += 1; }
+        if (sugar  !== null) { acc[key].sugar  += Number(sugar);  acc[key].nSugar  += 1; }
+        if (satFat !== null) { acc[key].satFat += Number(satFat); acc[key].nSatFat += 1; }
       }
     } else {
       missingCount++;
@@ -825,9 +1072,10 @@ export function calculateAnalytics(filteredLedger: any[], totalStoredCount: numb
   const categoryInsights = Object.entries(categoryMap)
     .map(([category, m]) => ({
       category,
-      pts: Math.round(m.pts / m.n),
+      avgPrice: Math.round(m.price / m.n),
+      count: m.n
     }))
-    .sort((a, b) => b.pts - a.pts)
+    .sort((a, b) => b.avgPrice - a.avgPrice)
     .slice(0, 6);
 
   const trendData = slots.map((s) => {
@@ -836,21 +1084,31 @@ export function calculateAnalytics(filteredLedger: any[], totalStoredCount: numb
       ts: s.ts,
       label: s.label,
       id: s.key,
-      sodiumMg: b.n > 0 ? Math.round(b.sodium / b.n) : null,
-      sugarsG: b.n > 0 ? Math.round((b.sugar / b.n) * 10) / 10 : null,
-      satFatG: b.n > 0 ? Math.round((b.satFat / b.n) * 10) / 10 : null,
+      sodiumMg: b.nSodium > 0 ? Math.round(b.sodium / b.nSodium) : null,
+      sugarsG:  b.nSugar  > 0 ? Math.round((b.sugar  / b.nSugar)  * 10) / 10 : null,
+      satFatG:  b.nSatFat > 0 ? Math.round((b.satFat / b.nSatFat) * 10) / 10 : null,
       hasData: b.n > 0,
-      sodium: b.n > 0 ? Math.round(b.sodium / b.n) : 0,
-      sugar: b.n > 0 ? Math.round((b.sugar / b.n) * 10) / 10 : 0,
-      satFat: b.n > 0 ? Math.round((b.satFat / b.n) * 10) / 10 : 0
+      sodium:  b.nSodium > 0 ? Math.round(b.sodium / b.nSodium) : 0,
+      sugar:   b.nSugar  > 0 ? Math.round((b.sugar  / b.nSugar)  * 10) / 10 : 0,
+      satFat:  b.nSatFat > 0 ? Math.round((b.satFat / b.nSatFat) * 10) / 10 : 0
     };
   });
+
+  const GRADE_ORDER: Grade[] = ['A', 'B', 'C', 'D', 'E'];
+  function computeAverageGrade(counts: Record<string, number>): Grade | null {
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    if (total === 0) return null;
+    const gradeValue: Record<string, number> = { A: 1, B: 2, C: 3, D: 4, E: 5 };
+    const weighted = GRADE_ORDER.reduce((sum, g) => sum + (gradeValue[g] as number) * (counts[g] || 0), 0);
+    const avgValue = Math.round(weighted / total);
+    return GRADE_ORDER[Math.min(Math.max(avgValue, 1), 5) - 1];
+  }
 
   return {
     totalStoredEvents: totalStoredCount,
     filteredPeriodEvents: filteredLedger.length,
     basketQuality: {
-      averageGrade: "C", // Simplified for now
+      averageGrade: computeAverageGrade(counts) || "C",
       pts: ptsSum,
       distribution: counts as any
     },
@@ -870,4 +1128,23 @@ export function calculateAnalytics(filteredLedger: any[], totalStoredCount: numb
       kidney
     }
   };
+}
+
+export async function savePrice(productId: string | number, price: number): Promise<void> {
+  if (!productId || price == null) return;
+  const db = await getDB();
+  await db.put("price_cache", price, String(productId));
+}
+
+
+async function getPrice(productId: string | number): Promise<number | null> {
+  if (!productId) return null;
+  const db = await getDB();
+  const price = await db.get("price_cache", String(productId));
+  return price ?? null;
+}
+
+export async function deleteLedgerEntry(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete("shopping_ledger", id);
 }

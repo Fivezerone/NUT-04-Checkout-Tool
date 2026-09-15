@@ -1,0 +1,1 @@
+const str = '@source \'../**/*.{js,ts,jsx,tsx}\'; /* some comment */'; const match = str.match(/\/\*([\s\S]*?)\*\//g); console.log(match);

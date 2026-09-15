@@ -1,0 +1,23 @@
+#!/bin/sh
+# Ensures db.js is generated from db.ts and up-to-date before committing.
+
+# Check if db.ts is being modified
+if git diff --cached --name-only | grep -q "src/ui/src/app/lib/db.ts"; then
+  echo "[Pre-commit] Detected changes to db.ts. Rebuilding db.js..."
+  
+  # Run the build script
+  npm run build:db
+  
+  if [ $? -ne 0 ]; then
+    echo "[Pre-commit] ERROR: npm run build:db failed. Commit aborted."
+    exit 1
+  fi
+  
+  # If db.js changed, stage it automatically
+  if git diff --name-only | grep -q "src/extension/db.js"; then
+    echo "[Pre-commit] db.js was updated. Staging changes..."
+    git add src/extension/db.js
+  fi
+fi
+
+exit 0

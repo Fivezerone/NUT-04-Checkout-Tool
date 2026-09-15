@@ -1,6 +1,20 @@
 // NUT-04 — domain types and FSA-NPS helpers.
 
 export type Grade = "A" | "B" | "C" | "D" | "E";
+
+/** Why a grade could not be computed — carried on the badge result and ledger rows. */
+export type ScoringStatus =
+  | "computed"          // Gate 1 + Gate 2 both passed; grade is valid
+  | "insufficient_data" // Gate 1 passed, Gate 2 failed (missing required field)
+  | "not_attempted";    // Gate 1 failed (REJECTED or UNVERIFIED)
+
+/** Canonical ReviewState values per §2 of NUT-04 directive. */
+export type ReviewState =
+  | "REJECTED"
+  | "UNVERIFIED"
+  | "ESTIMATED"
+  | "VERIFIED"
+  | "HIGH_CONFIDENCE";
 export type DataConfidence = "measured" | "derived" | "fallback";
 
 // Nutrients are per 100g / 100ml. null means "not available" -> renders as em-dash.
@@ -37,7 +51,14 @@ export interface ShoppingLedgerRow {
   retailer: string;
   addedAt: number; // epoch ms
   quantity: number;
-  gradeSnapshot: Grade;
+  /** Letter grade A–E for scored entries, or "UNKNOWN" when no grade could be computed. */
+  gradeSnapshot: Grade | "UNKNOWN";
+  /**
+   * Why the grade is absent for ungraded entries. Only present when gradeSnapshot is
+   * "UNKNOWN"; omitted (or "computed") for graded entries. This is ephemeral display
+   * context — not used for analytics bucketing.
+   */
+  scoringStatus?: ScoringStatus;
   priceSnapshot: number | null;
   category: string;
   status: 'in_cart' | 'purchased' | 'removed';
@@ -45,6 +66,7 @@ export interface ShoppingLedgerRow {
     sodiumMg: number | null;
     sugarsG: number | null;
     satFatG: number | null;
+    potassiumMg?: number | null;
   };
 }
 
@@ -93,7 +115,7 @@ export interface DashboardViewModel {
     pts: number;
     distribution: Record<Grade, number>;
   };
-  categoryInsights: { category: string; pts: number }[];
+  categoryInsights: { category: string; avgPrice: number; count: number }[];
   nutrientTrends: {
     windowStart: number;
     windowEnd: number;
@@ -117,11 +139,11 @@ export const gradeOnColorVar = (g: Grade): string => `var(--ns-on-grade-${(g || 
 
 // Plain-language, low-reading-grade descriptions (Flesch-Kincaid <= 8).
 export const GRADE_LABEL: Record<Grade, string> = {
-  A: "Best choice",
-  B: "Good choice",
-  C: "Okay choice",
-  D: "Eat less often",
-  E: "Least healthy",
+  A: "Everyday Choice",
+  B: "Great Choice",
+  C: "Balanced Choice",
+  D: "Enjoy Occasionally",
+  E: "Limit Intake",
 };
 
 export const NUTRIENT_ROWS: {

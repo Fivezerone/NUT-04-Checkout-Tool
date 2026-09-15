@@ -1,24 +1,32 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Default: Dark Green */
+  --theme-primary: #15803d; /* green-700 */
+  --theme-accent-bg: #f0fdf4; /* green-50 */
+  --theme-border: #bbf7d0; /* green-200 */
+  /* Header theming */
+  --theme-header-bg: #86efac; /* green-300 — richer fill */
+  --theme-header-text: #052e16; /* green-950 — deep contrast */
+  --theme-header-sub: #14532d; /* green-900 */
   --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
+  --background: #F1F5F9;
+  --foreground: #334155;
   --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
+  --card-foreground: #334155;
+  --popover: #ffffff;
+  --popover-foreground: #334155;
+  --primary: #0F172A;
+  --primary-foreground: #ffffff;
+  --secondary: #F8FAFC;
+  --secondary-foreground: #0F172A;
+  --muted: #E2E8F0;
+  --muted-foreground: #64748B;
+  --accent: #E2E8F0;
+  --accent-foreground: #0F172A;
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
+  --border: #E2E8F0;
   --input: transparent;
   --input-background: #f3f3f5;
   --switch-background: #cbced4;
@@ -39,6 +47,33 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+}
+
+:root[data-health-condition="diabetes"] {
+  --theme-primary: #0e7490;
+  --theme-accent-bg: #ecfeff;
+  --theme-border: #a5f3fc;
+  --theme-header-bg: #67e8f9; /* cyan-300 */
+  --theme-header-text: #083344; /* cyan-950 */
+  --theme-header-sub: #155e75; /* cyan-800 */
+}
+
+:root[data-health-condition="hypertension"] {
+  --theme-primary: #d97706;
+  --theme-accent-bg: #fffbeb;
+  --theme-border: #fde68a;
+  --theme-header-bg: #fcd34d; /* amber-300 */
+  --theme-header-text: #451a03; /* amber-950 */
+  --theme-header-sub: #78350f; /* amber-800 */
+}
+
+:root[data-health-condition="kidney"] {
+  --theme-primary: #0d9488;
+  --theme-accent-bg: #f0fdfa;
+  --theme-border: #99f6e4;
+  --theme-header-bg: #5eead4; /* teal-300 */
+  --theme-header-text: #042f2e; /* teal-950 */
+  --theme-header-sub: #134e4a; /* teal-900 */
 }
 
 .dark {
@@ -128,10 +163,7 @@
     @apply bg-background text-foreground;
   }
 
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
+  /* Default typography styles for HTML elements (h1-h4, p, label, button, input). These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them. */
 
   html {
     font-size: var(--font-size);
