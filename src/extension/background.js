@@ -1,23 +1,17 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- *
- * BackgroundServiceWorker ? Component Architecture v2.0
- * Orchestrates: FoodClassifier -> ScoreEngine -> DiseaseEngine
- */
+/* @license SPDX-License-Identifier: Apache-2.0 BackgroundServiceWorker ? Component Architecture v2.0 Orchestrates: NutriScoreDB -> DiseaseEngine */
 
 importScripts(
   "db.js",
-  "engine/food-classifier.js",
-  "engine/score-engine.js",
-  "engine/disease-engine.js",
-  "engine/alternatives-engine.js"
+  "engine/disease-engine.js"
 );
 
 console.log("[NutriScore SW] Component Architecture v2.0 active.");
 
-self.__nutriscorePriceIndex = new Map();
+// P5 perf fix: gate per-message logging behind a flag.
+// Flip to true in DevTools console (self.NUTRISCORE_DEBUG = true) when diagnosing issues.
+const DEBUG = (typeof self !== "undefined" && self.NUTRISCORE_DEBUG === true);
 
+// (Dead cache maps removed per audit)
 let initPromise = null;
 
 function initializeDatabases() {
@@ -42,7 +36,19 @@ function initializeDatabases() {
 
 initializeDatabases();
 
-// resolveBadgeSignal replaced by NutriScoreDB.interpretProduct
+// Map flat Settings flags → patientProfile shape for DiseaseEngine.evaluate().
+// UI key "kidney" maps to engine key "renal" (DISEASE_RULES uses "renal" internally).
+// Hoisted to module scope — was previously defined inside getProductInfo(), which
+// allocated a new closure on every product card scan.
+function buildPatientProfile(s) {
+  return {
+    conditions: {
+      ...(s.diabetes     && { diabetes:     { active: true } }),
+      ...(s.hypertension && { hypertension: { active: true } }),
+      ...(s.kidney       && { renal:        { active: true } }),
+    }
+  };
+}
 
 async function getProductInfo(payload, retailerCode) {
   await initializeDatabases();
@@ -53,15 +59,40 @@ async function getProductInfo(payload, retailerCode) {
     if (NutriScoreDB.savePrice) await NutriScoreDB.savePrice(retailer_product_id, price);
   }
   
-  const settings = await (NutriScoreDB.getSettings ? NutriScoreDB.getSettings() : { diabetes: true, hypertension: true, cardiovascular: true, kidney: true });
+  const settings = await (NutriScoreDB.getSettings ? NutriScoreDB.getSettings() : { diabetes: true, hypertension: true, kidney: true });
 
   const cacheKey = retailer_product_id || url || product_name;
   if (cacheKey && typeof NutriScoreDB !== "undefined" && NutriScoreDB.getCachedProduct) {
     const cached = await NutriScoreDB.getCachedProduct(cacheKey);
     if (cached) {
-      const diseaseResult = DiseaseEngine.evaluate(cached, settings);
-      cached.diseaseWarnings = diseaseResult.warnings;
-      cached.diseaseDisclaimer = diseaseResult.disclaimer;
+      // Re-evaluate diseases in case settings changed
+      try {
+        // Reconstruct a product-shaped object from the cached display fields so
+        // DiseaseEngine.evaluate() receives the { Nutrition: {...} } shape it requires.
+        const cachedProduct = {
+          Identity: { ProductID: cached.productId },
+          Nutrition: {
+            SugarsG:        cached.nutritional_profile_display?.sugars_g   ?? null,
+            SaturatedFatG:  cached.nutritional_profile_display?.sat_fat_g  ?? null,
+            SodiumMG:       cached.nutritional_profile_display?.sodium_mg  ?? null,
+            PotassiumMG:    cached.nutritional_profile_display?.potassium_mg ?? null,
+            // energy_kj stored as kJ; engine uses EnergyKcal (kJ ÷ 4.184)
+            EnergyKcal:     cached.nutritional_profile_display?.energy_kj != null
+                              ? cached.nutritional_profile_display.energy_kj / 4.184
+                              : null,
+            CarbohydratesG: cached.nutritional_profile_display?.carbs_g   ?? null,
+            FibreG:         cached.nutritional_profile_display?.fibre_g   ?? null,
+            ProteinG:       cached.nutritional_profile_display?.protein_g ?? null,
+          }
+        };
+        const diseaseResult = DiseaseEngine.evaluate(cachedProduct, buildPatientProfile(settings));
+        cached.diseaseWarnings  = diseaseResult.warnings;
+        cached.diseaseDisclaimer = diseaseResult.disclaimer;
+      } catch (e) {
+        console.warn("[NutriScore SW] DiseaseEngine (cache path):", e.message);
+        cached.diseaseWarnings  = [];
+        cached.diseaseDisclaimer = "";
+      }
       return cached;
     }
   }
@@ -81,7 +112,6 @@ async function getProductInfo(payload, retailerCode) {
   const interpretation = NutriScoreDB.interpretProduct(groceryProduct);
 
   const nutrition = groceryProduct.Nutrition || {};
-  const classification = groceryProduct.Classification || {};
   const identity = groceryProduct.Identity || {};
 
   const parseNumeric = (val) => {
@@ -90,89 +120,54 @@ async function getProductInfo(payload, retailerCode) {
     return isNaN(parsed) ? null : parsed;
   };
 
-  let fsaCategoryCode = interpretation.nutrientAlgorithmVariant;
-  
-  const calcData = {
-    name:          identity.ProductName || product_name,
-    category:      fsaCategoryCode || "GENERAL_FOOD",
-    is_beverage:   (fsaCategoryCode || "GENERAL_FOOD") === "BEVERAGE",
-    is_raw_food:   false,
-    energy:        parseNumeric(nutrition.EnergyKJ ?? (nutrition.EnergyKcal != null ? nutrition.EnergyKcal * 4.184 : null)),
-    sugars:        parseNumeric(nutrition.SugarsG),
-    sat_fat:       parseNumeric(nutrition.SaturatedFatG),
-    sodium:        parseNumeric(nutrition.SodiumMG ?? nutrition.Sodium?.ValueMG),
-    fiber:         parseNumeric(nutrition.FibreG),
-    protein:       parseNumeric(nutrition.ProteinG),
-    fruits_veg_pct: parseNumeric(nutrition.FVL?.Percentage),
-    potassium:     parseNumeric(nutrition.PotassiumMG ?? nutrition.Potassium?.ValueMG),
-    total_fat:     parseNumeric(nutrition.FatG),
-    carbs:         parseNumeric(nutrition.CarbohydratesG),
-    confidence:    interpretation.evidenceTier,
-  };
-
-  const classResult = FoodClassifier.classify(calcData);
-  const isExcluded = classResult.isExcluded;
-
-  if (!fsaCategoryCode) {
-    fsaCategoryCode = classResult.FSAProductCategoryCode || "GENERAL_FOOD";
-    calcData.category = fsaCategoryCode;
-    calcData.is_beverage = fsaCategoryCode === "BEVERAGE";
+  // Pass groceryProduct directly — it already has the { Nutrition: {...} } shape the
+  // reviewed engine requires. buildPatientProfile() converts flat Settings booleans to
+  // { conditions: { <key>: { active: true } } } and translates kidney → renal.
+  let diseaseResult = { warnings: [], disclaimer: "" };
+  try {
+    diseaseResult = DiseaseEngine.evaluate(groceryProduct, buildPatientProfile(settings));
+  } catch (e) {
+    console.warn("[NutriScore SW] DiseaseEngine:", e.message);
   }
 
-  const diseaseResult = DiseaseEngine.evaluate(calcData, settings);
-
-  let scoreResult;
-  let altsResult = { alternatives: [], disclaimer: "" };
-
-  if (isExcluded) {
-    scoreResult = { LetterGrade: "UNKNOWN", NumericScore: null, breakdown: null, AlgorithmVersion: "FSA-NPS-2023" };
-  } else {
-    scoreResult = ScoreEngine.score(calcData, fsaCategoryCode);
-    
-    // Make sure we have the full list of products for the AlternativesEngine
-    const allProducts = (typeof NutriScoreDB !== "undefined" && NutriScoreDB.getAllProducts)
-      ? await NutriScoreDB.getAllProducts(retailerCode)
-      : [];
-
-    altsResult = AlternativesEngine.getAlternatives(
-      { 
-        productId: identity.ProductID, 
-        fsaCategory: fsaCategoryCode, 
-        score: scoreResult.NumericScore, 
-        grade: scoreResult.LetterGrade,
-        price: payload.price 
-      },
-      allProducts
-    );
+  const isExcluded = !interpretation.canDisplayGrade;
+  let grade = "UNKNOWN";
+  let scoringStatus = interpretation.scoringStatus || "not_attempted";
+  let plausibleFields = [];
+  if (!isExcluded) {
+    const gradeResult = NutriScoreDB.computeGradeFromProduct(groceryProduct);
+    grade = gradeResult.grade;
+    scoringStatus = gradeResult.status;
+    plausibleFields = gradeResult.plausibleFields || [];
   }
-
-  const displayCategory = interpretation.foodCategory;
 
   const result = {
     productId:                   identity.ProductID || groceryProduct.GroceryProductID || payload.retailer_product_id,
-    product_name:                calcData.name,
+    product_name:                identity.ProductName || product_name,
     retailer:                    retailerCode,
-    nutriscore_grade:            scoreResult.LetterGrade || "UNKNOWN",
-    score:                       scoreResult.NumericScore ?? 0,
-    score_details:               scoreResult.breakdown || {},
-    fsaCategory:                 fsaCategoryCode,
-    displayCategory:             displayCategory,
+    nutriscore_grade:            grade,
+    scoringStatus:               scoringStatus,
+    plausibleFields:             plausibleFields,
+    score:                       0,
+    score_details:               {},
+    fsaCategory:                 interpretation.nutrientAlgorithmVariant || "GENERAL_FOOD",
+    displayCategory:             interpretation.foodCategory || "Uncategorized",
     isExcluded:                  isExcluded,
-    algorithmVersion:            scoreResult.AlgorithmVersion || "FSA-NPS-2023",
+    algorithmVersion:            "FSA-NPS-2023",
     diseaseWarnings:             diseaseResult.warnings,
     diseaseDisclaimer:           diseaseResult.disclaimer,
-    alternatives:                altsResult.alternatives,
     nutritional_profile_display: {
-      energy_kj:  nutrition.EnergyKJ,
-      fat_g:      nutrition.FatG,
-      sat_fat_g:  nutrition.SaturatedFatG,
-      carbs_g:    nutrition.CarbohydratesG,
-      sugars_g:   nutrition.SugarsG,
-      fibre_g:    nutrition.FibreG,
-      protein_g:  nutrition.ProteinG,
-      sodium_mg:  nutrition.Sodium?.ValueMG,
+      energy_kj:  parseNumeric(nutrition.EnergyKJ ?? (nutrition.EnergyKcal != null ? nutrition.EnergyKcal * 4.184 : null)),
+      fat_g:      parseNumeric(nutrition.FatG),
+      sat_fat_g:  parseNumeric(nutrition.SaturatedFatG),
+      carbs_g:    parseNumeric(nutrition.CarbohydratesG),
+      sugars_g:   parseNumeric(nutrition.SugarsG),
+      fibre_g:    parseNumeric(nutrition.FibreG),
+      protein_g:  parseNumeric(nutrition.ProteinG),
+      sodium_mg:  parseNumeric(nutrition.SodiumMG ?? nutrition.Sodium?.ValueMG),
+      potassium_mg: parseNumeric(nutrition.PotassiumMG ?? nutrition.Potassium?.ValueMG),
     },
-    confidence:                  calcData.confidence,
+    confidence:                  interpretation.evidenceTier,
     canDisplayGrade:             interpretation.canDisplayGrade,
     validationStatus:            interpretation.validationStatus,
     evidenceTier:                interpretation.evidenceTier,
@@ -188,7 +183,6 @@ async function getProductInfo(payload, retailerCode) {
       matchMethod: matchResult.matchMethod,
       confidence: matchResult.confidence,
     },
-    ...calcData,
   };
 
   if (cacheKey && typeof NutriScoreDB !== "undefined" && NutriScoreDB.saveProduct) {
@@ -199,7 +193,7 @@ async function getProductInfo(payload, retailerCode) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("[NutriScore SW] Action:", message.action);
+  if (DEBUG) console.log("[NutriScore SW] Action:", message.action);
 
   if (message.action === "CHECK_PRODUCT_SCORE") {
     const retailerCode = message.retailer || "NAIVAS";
@@ -209,7 +203,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ status: "SUCCESS", data: prod });
       })
       .catch(err => {
-        console.warn(`[NutriScore SW] Processing failed: ${err.message}`);
+        if (!err.message.startsWith("Product not found")) {
+          console.warn(`[NutriScore SW] Processing failed: ${err.message}`);
+        }
         sendResponse({
           status: "NOT_FOUND",
           data:   { product_name: message.payload.product_name, nutriscore_grade: "UNKNOWN" },
@@ -254,6 +250,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               quantity: item.quantity || 1,
               priceSnapshot: item.priceSnapshot,
               gradeSnapshot: prodInfo.nutriscore_grade,
+              scoringStatus: prodInfo.scoringStatus,
               category: NutriScoreDB.resolveDisplayCategory(p),
               status: "in_cart",
               nutritionSnapshot: {

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Trash2, Droplet, HeartPulse, Heart, ShieldAlert, Activity } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Trash2, Droplet, HeartPulse, Activity, UserCircle2, Check, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -11,11 +11,9 @@ import {
   TableRow,
 } from "./ui/table";
 import { ChartBox } from "./ChartBox";
-import { DonutChart, LineTrend, HBarChart } from "./charts/Charts";
-import { getAllEntries, purgeAll, getSettings, saveSettings, DEFAULT_SETTINGS, type Settings } from "../lib/db";
-import { auth, subscribeToCloudLedger } from "../lib/cloudDb";
-import { onAuthStateChanged, User } from "firebase/auth";
-import { Switch } from "./ui/switch";
+import { DonutChart, LineTrend, HBarChart, StackedHBarChart, type StackedHBar } from "./charts/Charts";
+import { getAllEntries, purgeAll, getSettings, saveSettings, deleteLedgerEntry, DEFAULT_SETTINGS, type Settings } from "../lib/db";
+
 import {
   GRADE_LABEL,
   GRADE_ORDER,
@@ -73,49 +71,73 @@ import { calculateAnalytics, resolveTimeframe } from "../lib/db";
 export function Dashboard({ onBack }: DashboardProps) {
   const [entries, setEntries] = useState<ShoppingLedgerRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(0);
   const [range, setRange] = useState<Range>("month");
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [user, setUser] = useState<User | null>(null);
-  const [isWebsite] = useState(!window.location.protocol.startsWith("chrome-extension"));
-  const basketRef = useRef<HTMLElement>(null);
+  const [profileName, setProfileName] = useState("Guest");
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("Guest");
 
-  async function load() {
-    setLoading(true);
-    if (!isWebsite) {
-      const all = await getAllEntries();
-      setEntries(all);
+  const [sortField, setSortField] = useState<keyof ShoppingLedgerRow>("addedAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  const handleSort = (field: keyof ShoppingLedgerRow) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortOrder("desc");
     }
-    const s = await getSettings();
-    setSettings(s);
-    setLoading(false);
+  };
+
+  async function handleDeleteEntry(id: string) {
+    await deleteLedgerEntry(id);
+    await load(false);
   }
 
-  useEffect(() => {
-    if (isWebsite) {
-      const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-        setUser(currentUser);
-        if (!currentUser) {
-          setEntries([]);
-          setLoading(false);
-        }
-      });
-      return () => unsubscribeAuth();
-    }
-  }, [isWebsite]);
+  const basketRef = useRef<HTMLElement>(null);
 
-  useEffect(() => {
-    if (isWebsite && user) {
-      setLoading(true);
-      const unsubscribeLedger = subscribeToCloudLedger(user.uid, (cloudEntries) => {
-        setEntries(cloudEntries);
-        setLoading(false);
-      });
-      return () => unsubscribeLedger();
+  async function load(showLoading = true) {
+    if (showLoading) setLoading(true);
+    const all = await getAllEntries();
+    setEntries(all);
+    const s = await getSettings();
+    setSettings(s);
+    setProfileName(s.profileName);
+    setNameInput(s.profileName);
+    if (showLoading) setLoading(false);
+  }
+
+
+
+  // Derive which single condition is active from the boolean settings flags.
+  const activeCondition: "diabetes" | "hypertension" | "kidney" | "general" =
+    settings.diabetes ? "diabetes"
+    : settings.hypertension ? "hypertension"
+    : settings.kidney ? "kidney"
+    : "general";
+
+  /** Single-select condition setter — mutually exclusive. Updates Settings flags,
+   *  applies the theme attribute, and persists condition to localStorage profile. */
+  function selectCondition(condition: "diabetes" | "hypertension" | "kidney" | "general") {
+    const next: Settings = {
+      ...settings,
+      diabetes: condition === "diabetes",
+      hypertension: condition === "hypertension",
+      kidney: condition === "kidney",
+    };
+    setSettings(next);
+    saveSettings(next);
+
+    const conditionStr = condition === "general" ? "healthy" : condition;
+    if (condition === "general") {
+      document.documentElement.removeAttribute("data-health-condition");
+    } else {
+      document.documentElement.setAttribute("data-health-condition", condition);
     }
-  }, [isWebsite, user]);
+  }
 
   function updateSetting(key: keyof Settings, value: boolean) {
     setSettings((prev) => {
@@ -138,10 +160,13 @@ export function Dashboard({ onBack }: DashboardProps) {
     }
   }, []);
 
-  // Reset pagination whenever the range changes.
   useEffect(() => {
-    setPage(0);
-  }, [range]);
+    // @ts-ignore
+    if (typeof window !== "undefined" && window.applyPersonalization) {
+      // @ts-ignore
+      window.applyPersonalization();
+    }
+  });
 
   // Entries scoped to the selected duration filter.
   const filtered = useMemo(() => {
@@ -153,15 +178,17 @@ export function Dashboard({ onBack }: DashboardProps) {
   const analytics = useMemo<DashboardViewModel | null>(() => {
     if (!entries.length) return null;
     const tf = resolveTimeframe(range);
-    const oldest = entries.length > 0 ? Math.min(...entries.map((e) => e.addedAt)) : Date.now() - 30 * 86400000;
+    let effectiveTf = tf;
     if (range === "all") {
-      tf.windowStart = oldest;
+      const oldest = entries.length > 0
+        ? Math.min(...entries.map((e) => e.addedAt))
+        : Date.now() - 30 * 86400000;
       const spanDays = (Date.now() - oldest) / 86400000;
-      if (spanDays <= 365) tf.bucketUnit = "week";
-      else if (spanDays <= 365 * 3) tf.bucketUnit = "month";
-      else tf.bucketUnit = "quarter";
+      // Build a new object — never mutate the value returned by resolveTimeframe().
+      const bucketUnit = spanDays <= 365 ? "week" : spanDays <= 365 * 3 ? "month" : "quarter";
+      effectiveTf = { ...tf, windowStart: oldest, bucketUnit };
     }
-    return calculateAnalytics(filtered, entries.length, tf);
+    return calculateAnalytics(filtered, entries.length, effectiveTf);
   }, [filtered, entries.length, range]);
 
   const basketData = useMemo(() => {
@@ -169,7 +196,16 @@ export function Dashboard({ onBack }: DashboardProps) {
     return GRADE_ORDER.map((g) => ({ grade: g, value: analytics.basketQuality.distribution[g] || 0 }));
   }, [analytics]);
 
-  const trendData = analytics?.nutrientTrends.data || [];
+  // Trim leading all-zero buckets so the trend line fills the plot width.
+  // Without this, a week view starting Mon with data only on Sat squashes the
+  // lines into the right edge (the flatline effect).
+  const trendData = useMemo(() => {
+    const raw = analytics?.nutrientTrends.data || [];
+    const firstNonZero = raw.findIndex(
+      (d) => (d.sodium ?? 0) > 0 || (d.sugar ?? 0) > 0 || (d.satFat ?? 0) > 0
+    );
+    return firstNonZero <= 0 ? raw : raw.slice(firstNonZero);
+  }, [analytics]);
   const alertCounts = analytics?.healthAlerts || { diabetes: 0, hypertension: 0, cvd: 0, kidney: 0 };
   
   const drillDownFiltered = useMemo(() => {
@@ -177,35 +213,82 @@ export function Dashboard({ onBack }: DashboardProps) {
     return filtered.filter(e => (e.gradeSnapshot || e.grade) === selectedGrade);
   }, [filtered, selectedGrade]);
 
-  const categoryData = useMemo(() => {
+  const categoryData = useMemo((): StackedHBar[] => {
     if (drillDownFiltered.length === 0) return [];
-    const catMap: Record<string, { pts: number; n: number }> = {};
-    const gradePts: Record<string, number> = { A: 1, B: 3, C: 7, D: 12, E: 20 };
-    
+
+    const VALID_GRADES = new Set(["A", "B", "C", "D", "E"]);
+    const GRADE_COLORS: Record<string, string> = {
+      A: "var(--ns-grade-a)", B: "var(--ns-grade-b)",
+      C: "var(--ns-grade-c)", D: "var(--ns-grade-d)", E: "var(--ns-grade-e)",
+    };
+    const GRADE_ORDER_LOCAL = ["A", "B", "C", "D", "E"];
+
+    // catMap: category → grade → { totalSpend, itemCount }
+    const catMap: Record<string, Record<string, { spend: number; count: number }>> = {};
+
     for (const row of drillDownFiltered) {
-      const g = row.gradeSnapshot || row.grade;
-      const c = row.category || "Uncategorized";
-      const m = catMap[c] ?? (catMap[c] = { pts: 0, n: 0 });
-      m.pts += gradePts[g] ?? 0;
-      m.n += 1;
+      const price = row.priceSnapshot ?? 0;
+      const grade = (row.gradeSnapshot || (row as any).grade || "").toUpperCase();
+
+      // Skip rows with no real price or no valid grade
+      if (price <= 0 || !VALID_GRADES.has(grade)) continue;
+
+      const cat = row.category && row.category !== "Uncategorized" ? row.category : "Other";
+      if (!catMap[cat]) catMap[cat] = {};
+      if (!catMap[cat][grade]) catMap[cat][grade] = { spend: 0, count: 0 };
+      catMap[cat][grade].spend  += price;
+      catMap[cat][grade].count  += 1;
     }
-    
+
     return Object.entries(catMap)
-      .map(([category, m]) => ({
-        category,
-        pts: Math.round(m.pts / m.n),
-      }))
-      .sort((a, b) => b.pts - a.pts)
-      .slice(0, 6);
+      .map(([category, gradeMap]) => {
+        const segments = GRADE_ORDER_LOCAL
+          .filter((g) => (gradeMap[g]?.spend ?? 0) > 0)
+          .map((g) => ({
+            grade: g,
+            price: Math.round(gradeMap[g].spend),
+            color: GRADE_COLORS[g],
+          }));
+
+        // Only include categories that have at least one valid segment
+        if (segments.length === 0) return null;
+
+        const totalPrice  = segments.reduce((s, seg) => s + seg.price, 0);
+        const totalItems  = GRADE_ORDER_LOCAL.reduce((s, g) => s + (gradeMap[g]?.count ?? 0), 0);
+        const label       = `${category} (${totalItems})`;
+
+        return { id: category, label, totalPrice, segments };
+      })
+      .filter((d): d is StackedHBar => d !== null)
+      .sort((a, b) => b.totalPrice - a.totalPrice)
+      .slice(0, 7);
   }, [drillDownFiltered]);
 
-  const pageCount = Math.ceil(drillDownFiltered.length / PAGE_SIZE) || 1;
-  const pageRows = drillDownFiltered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const sortedFiltered = useMemo(() => {
+    const arr = [...drillDownFiltered];
+    arr.sort((a, b) => {
+      let valA = a[sortField];
+      let valB = b[sortField];
+      
+      if (sortField === 'gradeSnapshot' as any) {
+         valA = a.gradeSnapshot || (a as any).grade;
+         valB = b.gradeSnapshot || (b as any).grade;
+      }
+      
+      if (valA == null) valA = "";
+      if (valB == null) valB = "";
+
+      let cmp = 0;
+      if (valA < valB) cmp = -1;
+      if (valA > valB) cmp = 1;
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [drillDownFiltered, sortField, sortOrder]);
 
   async function confirmErase() {
     await purgeAll();
     await load();
-    setPage(0);
     setSelectedGrade(null);
     setShowDeleteConfirm(false);
     toast.success("All your data has been deleted");
@@ -216,42 +299,197 @@ export function Dashboard({ onBack }: DashboardProps) {
   }
 
   return (
-    <div className="min-h-full bg-[#f6f7f9]">
-      <header className="flex items-center justify-between border-b border-black/5 bg-white px-6 py-4">
+    <div className="min-h-full" style={{ backgroundColor: "var(--background)" }}>
+      <header
+        className="flex items-center justify-between px-6 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] relative z-10 transition-colors duration-300"
+        style={{ backgroundColor: "var(--theme-header-bg, #ffffff)" }}
+      >
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onBack}
             aria-label="Back to store"
-            className="rounded-md p-1.5 hover:bg-black/5"
+            className="rounded-md p-1.5 hover:bg-black/10 transition-colors"
           >
-            <ArrowLeft size={18} aria-hidden />
+            <ArrowLeft size={18} aria-hidden style={{ color: "var(--theme-header-text, #0f172a)" }} />
           </button>
           <div>
-            <h1>Shopping Analytics</h1>
-            <p style={{ fontSize: "0.78rem", color: "var(--muted-foreground)" }}>
-              {isWebsite && user ? `Logged in as ${user.email}` : "Based on items added to your cart"}
+            <h1
+              id="user-greeting"
+              className="font-bold transition-colors duration-300"
+              style={{ color: "var(--theme-header-text, #0f172a)" }}
+            >
+              Shopping Analytics
+            </h1>
+            <p
+              id="user-subtitle"
+              style={{ fontSize: "0.78rem", color: "var(--theme-header-sub, #64748b)" }}
+            >
+              Based on items added to your cart
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          {isWebsite && !user && (
-            <a 
-              href="/health.html"
-              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
-            >
-              Sign In to View Dashboard
-            </a>
-          )}
+
+        <div className="flex items-center gap-2 relative">
+          {/* Profile avatar + dropdown trigger */}
           <button
             type="button"
-            onClick={handleErase}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-white hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
-            style={{ backgroundColor: "var(--destructive)" }}
+            onClick={() => { setShowSettings(!showSettings); setEditingName(false); setNameInput(profileName); }}
+            aria-label="Edit profile"
+            title="Edit profile"
+            className="flex items-center justify-center rounded-full hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400"
+            style={{ width: "40px", height: "40px" }}
           >
-            <Trash2 size={16} aria-hidden />
-            <span style={{ fontSize: "0.82rem" }}>Delete all my data</span>
+            <div
+              id="user-avatar-badge"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-colors duration-300"
+              style={{
+                backgroundColor: "var(--theme-primary, #2563eb)",
+                color: "#fff",
+                borderColor: "var(--theme-header-bg, #ffffff)",
+              }}
+            >
+              {profileName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
+            </div>
           </button>
+
+          {/* Profile dropdown */}
+          {showSettings && (
+            <div className="absolute right-0 top-12 z-50 w-76 rounded-xl bg-white p-4 shadow-[0_10px_40px_rgba(0,0,0,0.12)] border border-slate-100" style={{ minWidth: "17rem" }}>
+
+              {/* Edit Profile section */}
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Edit Profile</p>
+              {editingName ? (
+                <div className="flex items-center gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    className="flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-blue-500"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const n = nameInput.trim() || "Guest";
+                        setProfileName(n);
+                        setEditingName(false);
+                        try {
+                          const raw = localStorage.getItem("user_health_profile");
+                          const p = raw ? JSON.parse(raw) : {};
+                          p.name = n;
+                          p.initials = n.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+                          localStorage.setItem("user_health_profile", JSON.stringify(p));
+                        } catch {}
+                      }
+                      if (e.key === "Escape") setEditingName(false);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const n = nameInput.trim() || "Guest";
+                      setProfileName(n);
+                      setEditingName(false);
+                      try {
+                        const raw = localStorage.getItem("user_health_profile");
+                        const p = raw ? JSON.parse(raw) : {};
+                        p.name = n;
+                        p.initials = n.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+                        localStorage.setItem("user_health_profile", JSON.stringify(p));
+                      } catch {}
+                    }}
+                    className="rounded-lg bg-blue-600 px-2.5 py-1.5 text-white hover:bg-blue-700 transition"
+                  >
+                    <Check size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setEditingName(true); setNameInput(profileName); }}
+                  className="w-full flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 mb-4 text-sm text-slate-700 hover:border-blue-400 hover:bg-slate-50 transition"
+                >
+                  <span className="font-medium">{profileName}</span>
+                  <span className="text-xs text-slate-400">tap to edit</span>
+                </button>
+              )}
+
+              {/* Health Focus — wizard-style single-select cards */}
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Health Focus</p>
+              <div className="flex flex-col gap-2 mb-4">
+                {(
+                  [
+                    {
+                      id: "diabetes" as const,
+                      icon: <Droplet size={14} style={{ color: "var(--ns-grade-e)", flexShrink: 0 }} />,
+                      title: "Blood Sugar & Diabetes",
+                    },
+                    {
+                      id: "hypertension" as const,
+                      icon: <HeartPulse size={14} style={{ color: "var(--ns-grade-d)", flexShrink: 0 }} />,
+                      title: "Blood Pressure & Sodium",
+                    },
+                    {
+                      id: "kidney" as const,
+                      icon: <Activity size={14} style={{ color: "#0d9488", flexShrink: 0 }} />,
+                      title: "Renal & Kidney Health",
+                    },
+                    {
+                      id: "general" as const,
+                      icon: <UserCircle2 size={14} style={{ color: "#64748b", flexShrink: 0 }} />,
+                      title: "General Wellness",
+                    },
+                  ] satisfies { id: "diabetes" | "hypertension" | "kidney" | "general"; icon: React.ReactNode; title: string }[]
+                ).map(({ id, icon, title }) => {
+                  const isActive = activeCondition === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => selectCondition(id)}
+                      className="flex w-full items-center justify-between rounded-xl border-2 py-2 px-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-slate-400"
+                      style={{
+                        borderColor: isActive ? "var(--theme-primary)" : "#e2e8f0",
+                        backgroundColor: isActive ? "color-mix(in srgb, var(--theme-primary) 8%, white)" : "#ffffff",
+                      }}
+                      aria-pressed={isActive}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {icon}
+                        <span className="text-xs font-bold text-slate-800 leading-none">{title}</span>
+                      </div>
+                      {/* Radio indicator */}
+                      <div
+                        className="ml-2 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition-colors"
+                        style={{
+                          borderColor: isActive ? "var(--theme-primary)" : "#cbd5e1",
+                          backgroundColor: isActive ? "var(--theme-primary)" : "transparent",
+                        }}
+                      >
+                        {isActive && (
+                          <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Delete data — destructive footer */}
+              <div className="pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={handleErase}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-white hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 transition-opacity"
+                  style={{ backgroundColor: "var(--destructive)" }}
+                >
+                  <Trash2 size={15} aria-hidden />
+                  <span style={{ fontSize: "0.82rem", fontWeight: "600" }}>Delete all my data</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -298,7 +536,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                   className="rounded-md px-3 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
                   style={{
                     fontSize: "0.82rem",
-                    backgroundColor: active ? "var(--primary)" : "transparent",
+                    backgroundColor: active ? "var(--theme-primary)" : "transparent",
                     color: active ? "#fff" : "var(--muted-foreground)",
                   }}
                 >
@@ -313,42 +551,42 @@ export function Dashboard({ onBack }: DashboardProps) {
               className="rounded-xl bg-white p-8 text-center shadow-sm ring-1 ring-black/5"
               style={{ color: "var(--muted-foreground)" }}
             >
-              No items in this time range. Try a wider range.
+              Your cart is empty, add first purchase
             </div>
           ) : null}
 
           <div className="grid gap-4 lg:grid-cols-3">
             {/* Basket quality donut */}
-            <section ref={basketRef} className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-              <h3 className="pb-1">Basket Quality</h3>
-              <p
-                className="pb-2"
-                style={{ fontSize: "0.75rem", color: "var(--muted-foreground)" }}
-              >
-                {selectedGrade
-                  ? `Grade ${selectedGrade}: ${
-                      basketData.find((d) => d.grade === selectedGrade)?.value ?? 0
-                    } items — tap again to clear`
-                  : "Share of items by grade — tap a segment"}
-              </p>
-              <ChartBox height={200}>
-                {(size) => (
-                  <DonutChart
-                    size={size}
-                    selectedId={selectedGrade}
-                    onSelect={(id) =>
-                      setSelectedGrade((cur) => (cur === id ? null : id))
-                    }
-                    data={basketData.map((d) => ({
-                      id: d.grade,
-                      label: `Grade ${d.grade}`,
-                      value: d.value,
-                      color: gradeColorVar(d.grade),
-                    }))}
-                  />
-                )}
-              </ChartBox>
-              <div className="flex flex-wrap justify-center gap-2 pt-2">
+            <section ref={basketRef} className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--theme-header-bg)" }}>
+                <h3 className="font-bold" style={{ color: "var(--theme-header-text)" }}>Basket Quality</h3>
+                <p className="text-xs mt-1" style={{ color: "var(--theme-header-sub)" }}>
+                  {selectedGrade
+                    ? `Grade ${selectedGrade}: ${
+                        basketData.find((d) => d.grade === selectedGrade)?.value ?? 0
+                      } items — tap again to clear`
+                    : "Share of items by grade — tap a segment"}
+                </p>
+              </div>
+              <div className="p-4 flex-1">
+                <ChartBox height={190}>
+                  {(size) => (
+                    <DonutChart
+                      size={size}
+                      selectedId={selectedGrade}
+                      onSelect={(id) =>
+                        setSelectedGrade((cur) => (cur === id ? null : id))
+                      }
+                      data={basketData.map((d) => ({
+                        id: d.grade,
+                        label: `Grade ${d.grade}`,
+                        value: d.value,
+                        color: gradeColorVar(d.grade),
+                      }))}
+                    />
+                  )}
+                </ChartBox>
+                <div className="flex flex-wrap justify-center gap-x-1.5 gap-y-0.5 pt-1.5">
                 {basketData.map((d) => {
                   const active = selectedGrade === d.grade;
                   return (
@@ -358,325 +596,236 @@ export function Dashboard({ onBack }: DashboardProps) {
                       onClick={() =>
                         setSelectedGrade((cur) => (cur === d.grade ? null : d.grade))
                       }
-                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-black"
+                      className="flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-black hover:bg-slate-50"
                       aria-pressed={active}
                       style={{
-                        fontSize: "0.72rem",
+                        fontSize: "0.67rem",
                         backgroundColor: active ? "var(--accent)" : "transparent",
                         opacity: selectedGrade && !active ? 0.5 : 1,
                       }}
                     >
                       <span
                         style={{
-                          width: 10,
-                          height: 10,
+                          width: 8,
+                          height: 8,
                           borderRadius: 2,
                           backgroundColor: gradeColorVar(d.grade),
                           display: "inline-block",
+                          flexShrink: 0,
                         }}
                       />
-                      {d.grade} · {GRADE_LABEL[d.grade]} ({d.value})
+                      <span className={active ? "font-bold text-slate-800" : "text-slate-600"}>{d.grade} · {GRADE_LABEL[d.grade]} ({d.value})</span>
                     </button>
                   );
                 })}
               </div>
+              </div>
             </section>
 
             {/* Nutrient trends line */}
-            <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 lg:col-span-2">
-              <h3 className="pb-1">Nutrient Trends</h3>
-              <p
-                className="pb-2"
-                style={{ fontSize: "0.75rem", color: "var(--muted-foreground)" }}
-              >
-                Average sodium (mg), sugar (g), and saturated fat (g) —{" "}
-                {RANGE_OPTIONS.find((o) => o.value === range)?.label.toLowerCase()}
-              </p>
-              <ChartBox height={220}>
-                {(size) => (
-                  <LineTrend
-                    size={size}
-                    data={trendData}
-                    showSodium={settings.hypertension}
-                    showSugar={settings.diabetes}
-                    showSatFat={settings.cardiovascular}
-                  />
-                )}
-              </ChartBox>
-              <div className="flex flex-wrap gap-4 pt-2">
-                {analytics?.nutrientTrends.validCount !== undefined && (
-                  <span className="w-full text-xs text-gray-500 mb-1 block">
-                    {analytics.nutrientTrends.validCount} records with nutrition data, {analytics.nutrientTrends.missingCount} missing.
+            <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 lg:col-span-2 overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--theme-header-bg)" }}>
+                <h3 className="font-bold" style={{ color: "var(--theme-header-text)" }}>Nutrient Trends</h3>
+                <p className="text-xs mt-1" style={{ color: "var(--theme-header-sub)" }}>
+                  Average intake as % of Daily Limit -{" "}
+                  {RANGE_OPTIONS.find((o) => o.value === range)?.label.toLowerCase()}
+                </p>
+              </div>
+              <div className="p-4 flex-1">
+                <ChartBox height={216}>
+                  {(size) => (
+                    <LineTrend
+                      size={size}
+                      data={trendData}
+                      showSodium={true}
+                      showSugar={true}
+                      showSatFat={false}
+                      primaryKey={
+                        activeCondition === "hypertension" ? "sodium"
+                        : activeCondition === "diabetes"   ? "sugar"
+                        : "sodium"   // general / kidney → default to sodium as primary
+                      }
+                    />
+                  )}
+                </ChartBox>
+                <div id="nutrient-legend-list" className="flex flex-wrap gap-4 pt-2">
+                  <span
+                    className="flex items-center gap-1.5"
+                    style={{ fontSize: "0.72rem" }}
+                  >
+                    <span style={{ width: 14, height: 2.5, backgroundColor: "var(--ns-grade-d)", display: "inline-block", borderRadius: 2 }} />
+                    <span className="text-slate-600">
+                      Sodium
+                      {activeCondition === "hypertension" && <span className="ml-1 text-slate-400">(primary)</span>}
+                    </span>
                   </span>
-                )}
-                <span
-                  className="flex items-center gap-1"
-                  style={{ fontSize: "0.72rem", opacity: settings.hypertension ? 1 : 0.3, transition: "opacity 0.2s" }}
-                >
                   <span
-                    style={{
-                      width: 12, height: 3,
-                      backgroundColor: "var(--ns-grade-d)",
-                      display: "inline-block",
-                    }}
-                  />
-                  Sodium (mg)
-                </span>
-                <span
-                  className="flex items-center gap-1"
-                  style={{ fontSize: "0.72rem", opacity: settings.diabetes ? 1 : 0.3, transition: "opacity 0.2s" }}
-                >
-                  <span
-                    style={{
-                      width: 12, height: 3,
-                      backgroundColor: "var(--ns-grade-e)",
-                      display: "inline-block",
-                    }}
-                  />
-                  Sugar (g)
-                </span>
-                <span
-                  className="flex items-center gap-1"
-                  style={{ fontSize: "0.72rem", opacity: settings.cardiovascular ? 1 : 0.3, transition: "opacity 0.2s" }}
-                >
-                  <span
-                    style={{
-                      width: 12, height: 3,
-                      backgroundColor: "var(--ns-grade-a)",
-                      display: "inline-block",
-                    }}
-                  />
-                  Saturated Fat (g)
-                </span>
+                    className="flex items-center gap-1.5"
+                    style={{ fontSize: "0.72rem" }}
+                  >
+                    <span style={{ width: 14, height: 1.5, backgroundColor: "var(--ns-grade-e)", display: "inline-block", borderRadius: 2, borderTop: "1.5px dashed var(--ns-grade-e)" }} />
+                    <span className="text-slate-600">
+                      Sugar
+                      {activeCondition === "diabetes" && <span className="ml-1 text-slate-400">(primary)</span>}
+                    </span>
+                  </span>
+              </div>
               </div>
             </section>
           </div>
 
           {/* Category insights bar */}
-          <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-            <h3 className="pb-1">Category Insights</h3>
-            <p
-              className="pb-2"
-              style={{ fontSize: "0.75rem", color: "var(--muted-foreground)" }}
-            >
-              Average negative points (P pts) by category — higher is worse
-            </p>
-            <ChartBox height={44 * categoryData.length + 16}>
-              {(size) => (
-                <HBarChart
-                  size={size}
-                  data={categoryData.map((d) => ({
-                    id: d.category,
-                    label: d.category,
-                    value: d.pts,
-                    color:
-                      d.pts >= 12
-                        ? "var(--ns-grade-e)"
-                        : d.pts >= 7
-                          ? "var(--ns-grade-d)"
-                          : "var(--ns-grade-c)",
-                  }))}
-                />
-              )}
-            </ChartBox>
+          <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 overflow-hidden flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--theme-header-bg)" }}>
+              <h3 className="font-bold" style={{ color: "var(--theme-header-text)" }}>Category Insights</h3>
+              <p className="text-xs mt-1" style={{ color: "var(--theme-header-sub)" }}>
+                Average spend by category — coloured by grade (n = items with priced purchases)
+              </p>
+            </div>
+            <div className="p-4 flex-1">
+              <ChartBox height={Math.max(160, 52 * categoryData.length + 36)}>
+                {(size) => (
+                  <StackedHBarChart
+                    size={size}
+                    data={categoryData}
+                  />
+                )}
+              </ChartBox>
+            </div>
           </section>
 
-          {/* Health Alerts & Controls */}
-          <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 lg:col-span-3">
-            <h3 className="flex items-center gap-2 pb-1">
-              <ShieldAlert size={18} className="text-gray-700" aria-hidden />
-              Health Alerts & Controls
-            </h3>
-            <p
-              className="pb-4"
-              style={{ fontSize: "0.75rem", color: "var(--muted-foreground)" }}
-            >
-              Toggle warnings per condition. Counts show how many scanned items triggered each flag.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {/* Diabetes */}
-              <div className="flex flex-col gap-3 rounded-lg border border-black/5 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 font-semibold text-sm">
-                    <Droplet size={16} style={{ color: "var(--ns-grade-e)" }} aria-hidden />
-                    Diabetes
-                  </span>
-                  <Switch
-                    checked={settings.diabetes}
-                    onCheckedChange={(v) => updateSetting("diabetes", v)}
-                    aria-label="Toggle diabetes warnings"
-                  />
+          {/* Health Alerts Summary */}
+          <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 lg:col-span-3 overflow-hidden flex flex-col">
+            <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--theme-header-bg)" }}>
+              <h3 className="flex items-center gap-2 font-bold" style={{ color: "var(--theme-header-text)" }}>
+                <ShieldAlert size={18} aria-hidden style={{ color: "var(--theme-header-text)" }} />
+                Health Alerts
+              </h3>
+            </div>
+            <div className="p-4 flex-1">
+              <div className="flex flex-wrap gap-4">
+                <div id="health-alerts-container"></div>
+              {settings.diabetes && (
+                <div className="flex items-center gap-3 rounded-lg px-4 py-2 border transition-all duration-300" style={{ backgroundColor: "#ecfeff", borderColor: "#a5f3fc" }}>
+                  <Droplet size={18} style={{ color: "#0e7490" }} />
+                  <span className="text-xl font-bold" style={{ color: "#0e7490" }}>{alertCounts.diabetes}</span>
+                  <span className="text-xs font-medium" style={{ color: "#164e63" }}>Sugar &gt; 22.5g</span>
                 </div>
-                <div>
-                  <p style={{ fontSize: "0.72rem", color: "var(--muted-foreground)" }}>Sugar &gt; 22.5g flagged</p>
+              )}
+              {settings.hypertension && (
+                <div className="flex items-center gap-3 rounded-lg px-4 py-2 border transition-all duration-300" style={{ backgroundColor: "#fffbeb", borderColor: "#fde68a" }}>
+                  <HeartPulse size={18} style={{ color: "#d97706" }} />
+                  <span className="text-xl font-bold" style={{ color: "#d97706" }}>{alertCounts.hypertension}</span>
+                  <span className="text-xs font-medium" style={{ color: "#92400e" }}>Sodium &gt; 600mg</span>
                 </div>
-                <span className="text-2xl font-bold" style={{ color: "var(--ns-grade-e)" }}>
-                  {alertCounts.diabetes}
-                  <span style={{ fontSize: "0.75rem", fontWeight: 400, marginLeft: 4, color: "var(--muted-foreground)" }}>items</span>
-                </span>
-              </div>
-
-              {/* Hypertension */}
-              <div className="flex flex-col gap-3 rounded-lg border border-black/5 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 font-semibold text-sm">
-                    <HeartPulse size={16} style={{ color: "var(--ns-grade-d)" }} aria-hidden />
-                    Hypertension
-                  </span>
-                  <Switch
-                    checked={settings.hypertension}
-                    onCheckedChange={(v) => updateSetting("hypertension", v)}
-                    aria-label="Toggle hypertension warnings"
-                  />
+              )}
+              {settings.kidney && (
+                <div className="flex items-center gap-3 rounded-lg px-4 py-2 border transition-all duration-300" style={{ backgroundColor: "#f0fdfa", borderColor: "#99f6e4" }}>
+                  <Activity size={18} style={{ color: "#0d9488" }} />
+                  <span className="text-xl font-bold" style={{ color: "#0d9488" }}>{alertCounts.kidney}</span>
+                  <span className="text-xs font-medium" style={{ color: "#115e59" }}>Sodium &gt; 600mg or high potassium</span>
                 </div>
-                <div>
-                  <p style={{ fontSize: "0.72rem", color: "var(--muted-foreground)" }}>Sodium &gt; 600mg flagged</p>
-                </div>
-                <span className="text-2xl font-bold" style={{ color: "var(--ns-grade-d)" }}>
-                  {alertCounts.hypertension}
-                  <span style={{ fontSize: "0.75rem", fontWeight: 400, marginLeft: 4, color: "var(--muted-foreground)" }}>items</span>
-                </span>
-              </div>
-
-              {/* CVD */}
-              <div className="flex flex-col gap-3 rounded-lg border border-black/5 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 font-semibold text-sm">
-                    <Heart size={16} style={{ color: "var(--ns-grade-e)" }} aria-hidden />
-                    Cardiovascular
-                  </span>
-                  <Switch
-                    checked={settings.cardiovascular}
-                    onCheckedChange={(v) => updateSetting("cardiovascular", v)}
-                    aria-label="Toggle CVD warnings"
-                  />
-                </div>
-                <div>
-                  <p style={{ fontSize: "0.72rem", color: "var(--muted-foreground)" }}>Sat fat &gt; 5g or salt &gt; 400mg</p>
-                </div>
-                <span className="text-2xl font-bold" style={{ color: "var(--ns-grade-e)" }}>
-                  {alertCounts.cvd}
-                  <span style={{ fontSize: "0.75rem", fontWeight: 400, marginLeft: 4, color: "var(--muted-foreground)" }}>items</span>
-                </span>
-              </div>
-
-              {/* Kidney */}
-              <div className="flex flex-col gap-3 rounded-lg border border-black/5 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 font-semibold text-sm">
-                    <Activity size={16} style={{ color: "#7c3aed" }} aria-hidden />
-                    Kidney Disease
-                  </span>
-                  <Switch
-                    checked={settings.kidney}
-                    onCheckedChange={(v) => updateSetting("kidney", v)}
-                    aria-label="Toggle kidney disease warnings"
-                  />
-                </div>
-                <div>
-                  <p style={{ fontSize: "0.72rem", color: "var(--muted-foreground)" }}>Sodium &gt; 600mg or high potassium</p>
-                </div>
-                <span className="text-2xl font-bold" style={{ color: "#7c3aed" }}>
-                  {alertCounts.kidney}
-                  <span style={{ fontSize: "0.75rem", fontWeight: 400, marginLeft: 4, color: "var(--muted-foreground)" }}>items</span>
-                </span>
-              </div>
+              )}
+              {!settings.diabetes && !settings.hypertension && !settings.kidney && (
+                <p className="text-sm text-slate-500">No health alerts enabled. Turn them on in Settings.</p>
+              )}
+            </div>
             </div>
           </section>
 
           {/* Ledger */}
-          <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-            <h3 className="pb-2">Ledger</h3>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Retailer</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Price</TableHead>
-                  <TableHead className="text-right">Status</TableHead>
-                  <TableHead className="text-right">Grade</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pageRows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center">
-                      <span style={{ color: "var(--muted-foreground)" }}>
-                        No items yet.
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  pageRows.map((e) => (
-                    <TableRow key={e.id}>
-                      <TableCell style={{ fontSize: "0.8rem" }}>
-                        {new Date(e.addedAt).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell style={{ fontSize: "0.8rem" }}>{e.name}</TableCell>
-                      <TableCell style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>
-                        {e.retailer}
-                      </TableCell>
-                      <TableCell
-                        style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}
-                      >
-                        {e.category}
-                      </TableCell>
-                      <TableCell className="text-right" style={{ fontSize: "0.8rem" }}>
-                        {e.quantity}
-                      </TableCell>
-                      <TableCell className="text-right" style={{ fontSize: "0.8rem" }}>
-                        {e.priceSnapshot !== null ? `KES ${e.priceSnapshot}` : '—'}
-                      </TableCell>
-                      <TableCell className="text-right" style={{ fontSize: "0.8rem" }}>
-                        {e.status.replace('_', ' ')}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <span
-                          className="inline-grid size-6 place-items-center rounded-md"
-                          style={{
-                            backgroundColor: gradeColorVar(e.gradeSnapshot || e.grade),
-                            color: "#fff",
-                            fontWeight: 700,
-                            fontSize: "0.75rem",
-                          }}
-                        >
-                          {e.gradeSnapshot || e.grade}
+          <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] overflow-hidden flex flex-col border border-slate-100" style={{ maxHeight: "600px" }}>
+            <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300 z-20 relative" style={{ backgroundColor: "var(--theme-header-bg)" }}>
+              <h3 className="font-bold" style={{ color: "var(--theme-header-text)" }}>Ledger</h3>
+            </div>
+            <div className="overflow-y-auto relative" style={{ maxHeight: "500px" }}>
+              <table className="w-full caption-bottom text-sm">
+                <thead className="bg-slate-50 sticky top-0 z-10 shadow-[0_1px_0_#E2E8F0]" style={{ borderTop: "2px solid var(--theme-primary)" }}>
+                  <tr className="border-b border-slate-200">
+                    <th className="h-10 px-2 text-left align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("addedAt")}>Date {sortField === "addedAt" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                    <th className="h-10 px-2 text-left align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("name")}>Product {sortField === "name" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                    <th className="h-10 px-2 text-left align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("retailer")}>Retailer {sortField === "retailer" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                    <th className="h-10 px-2 text-left align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("category")}>Category {sortField === "category" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                    <th className="h-10 px-2 text-right align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("quantity")}>Qty {sortField === "quantity" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                    <th className="h-10 px-2 text-right align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("priceSnapshot")}>Price {sortField === "priceSnapshot" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                    <th className="h-10 px-2 text-right align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("status")}>Status {sortField === "status" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                    <th className="h-10 px-2 text-right align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("gradeSnapshot" as any)}>Grade {sortField === "gradeSnapshot" as any && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                    <th className="w-[40px]"></th>
+                  </tr>
+                </thead>
+                <tbody className="[&_tr:last-child]:border-0">
+                  {sortedFiltered.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} id="ledger-empty-msg" className="text-center py-8">
+                        <span style={{ color: "var(--muted-foreground)" }}>
+                          No items yet.
                         </span>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedFiltered.reduce((acc, e, idx, arr) => {
+                      const dateStr = new Date(e.addedAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+                      const prevDateStr = idx > 0 ? new Date(arr[idx-1].addedAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }) : null;
+                      
+                      if (dateStr !== prevDateStr && sortField === "addedAt") {
+                        acc.push(
+                          <tr key={`divider-${dateStr}`} className="bg-slate-50/50 hover:bg-slate-50/50">
+                            <td colSpan={9} className="py-2 text-xs font-bold text-slate-500 uppercase tracking-wider pl-2">
+                              {dateStr}
+                            </td>
+                          </tr>
+                        );
+                      }
 
-            {filtered.length > PAGE_SIZE && (
-              <div className="flex items-center justify-between pt-3">
-                <button
-                  type="button"
-                  disabled={page === 0}
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  className="rounded-md border border-black/10 px-3 py-1 disabled:opacity-40"
-                  style={{ fontSize: "0.8rem" }}
-                >
-                  Previous
-                </button>
-                <span style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>
-                  Page {page + 1} of {pageCount}
-                </span>
-                <button
-                  type="button"
-                  disabled={page >= pageCount - 1}
-                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                  className="rounded-md border border-black/10 px-3 py-1 disabled:opacity-40"
-                  style={{ fontSize: "0.8rem" }}
-                >
-                  Next
-                </button>
-              </div>
-            )}
+                      acc.push(
+                        <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                          <td className="p-2 align-middle whitespace-nowrap" style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>
+                            {sortField === "addedAt" ? new Date(e.addedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date(e.addedAt).toLocaleDateString()}
+                          </td>
+                          <td className="p-2 align-middle whitespace-nowrap font-medium text-slate-700" style={{ fontSize: "0.8rem" }}>{e.name}</td>
+                          <td className="p-2 align-middle whitespace-nowrap" style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>
+                            {e.retailer}
+                          </td>
+                          <td className="p-2 align-middle whitespace-nowrap" style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>
+                            {e.category}
+                          </td>
+                          <td className="p-2 align-middle whitespace-nowrap text-right" style={{ fontSize: "0.8rem" }}>
+                            {e.quantity}
+                          </td>
+                          <td className="p-2 align-middle whitespace-nowrap text-right" style={{ fontSize: "0.8rem" }}>
+                            {e.priceSnapshot !== null
+                              ? `KES ${Number(e.priceSnapshot).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : '—'}
+                          </td>
+                          <td className="p-2 align-middle whitespace-nowrap text-right" style={{ fontSize: "0.8rem" }}>
+                            {e.status.replace('_', ' ')}
+                          </td>
+                          <td className="p-2 align-middle whitespace-nowrap text-right">
+                            <span
+                              className="inline-grid size-6 place-items-center rounded-md"
+                              style={{
+                                backgroundColor: gradeColorVar(e.gradeSnapshot || (e as any).grade),
+                                color: "#fff",
+                                fontWeight: 700,
+                                fontSize: "0.75rem",
+                              }}
+                            >
+                              {e.gradeSnapshot || (e as any).grade}
+                            </span>
+                          </td>
+                          <td className="p-2 align-middle whitespace-nowrap text-right pr-4">
+                             <button onClick={() => handleDeleteEntry(e.id)} className="text-slate-400 hover:text-red-500 transition-colors" title="Delete entry" aria-label="Delete entry">
+                               <Trash2 size={14} />
+                             </button>
+                          </td>
+                        </tr>
+                      );
+                      return acc;
+                    }, [] as React.ReactNode[])
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         </div>
       )}

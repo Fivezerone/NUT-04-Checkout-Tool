@@ -1,9 +1,4 @@
-/**
- * Naivas Retailer Adapter
- * Implements IRetailerAdapter contract
- * Naivas uses Magento 2 -- cart data is available via the section load API
- * and via DOM selectors on the cart page and mini-cart sidebar.
- */
+/* Naivas Retailer Adapter Implements IRetailerAdapter contract Naivas uses Magento 2 -- cart data is available via the section load API and via DOM selectors on the cart page and mini-cart sidebar. */
 
 const NaivasAdapter = {
 
@@ -12,7 +7,9 @@ const NaivasAdapter = {
   },
 
   getObserveTarget() {
-    return document.body;
+    return document.querySelector(".products.list.items.product-items") || 
+           document.querySelector(".columns") || 
+           document.body;
   },
 
   detectProducts() {
@@ -75,24 +72,23 @@ const NaivasAdapter = {
     return NutriSharedUI.injectBadge(card, productResult, price);
   },
 
-  /**
-   * Walk the DOM with TreeWalker to find all elements that have a wire:click attribute.
-   * Avoids CSS selector colon-escaping bugs entirely.
-   */
+  /* Returns all elements with a wire:click attribute. P6 perf fix: uses querySelectorAll (browser-indexed) instead of a full TreeWalker DOM walk. 'wire:click' contains a colon — CSS.escape handles it safely across browsers. */
   _wireClickElements() {
-    const results = [];
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
-    let node;
-    while ((node = walker.nextNode())) {
-      if (node.hasAttribute('wire:click')) results.push(node);
+    try {
+      return Array.from(document.querySelectorAll("[wire\\:click]"));
+    } catch (e) {
+      // Fallback to TreeWalker if the selector is rejected by an older engine
+      const results = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.hasAttribute('wire:click')) results.push(node);
+      }
+      return results;
     }
-    return results;
   },
 
-  /**
-   * Scrape visible cart items from the Naivas Livewire-based cart UI.
-   * Uses TreeWalker instead of querySelectorAll to avoid CSS colon-escaping issues.
-   */
+  /* Scrape visible cart items from the Naivas Livewire-based cart UI. Uses TreeWalker instead of querySelectorAll to avoid CSS colon-escaping issues. */
   extractCartState() {
     const items = [];
     const seen = new Set();
@@ -151,12 +147,7 @@ const NaivasAdapter = {
     return items;
   },
 
-  /**
-   * Fetch cart contents using multiple strategies:
-   * 1. Livewire v3 wire:snapshot attributes (JSON component data in the DOM)
-   * 2. Livewire v2 window.Livewire JS object
-   * 3. Magento section load API (fallback for hybrid setups)
-   */
+  /* Fetch cart contents using multiple strategies: 1. Livewire v3 wire:snapshot attributes (JSON component data in the DOM) 2. Livewire v2 window.Livewire JS object 3. Magento section load API (fallback for hybrid setups) */
   async fetchCartFromAPI() {
     // --- Strategy 1: Livewire v3 wire:snapshot in DOM ---
     try {
@@ -180,7 +171,9 @@ const NaivasAdapter = {
             }));
         }
       }
-    } catch (e) { /* silent */ }
+    } catch (e) {
+      console.debug("[NutriScore:Naivas] fetchCartFromAPI (Strategy 1: DOM Snapshot) failed:", e);
+    }
 
     // --- Strategy 2: Livewire v2 window.Livewire object ---
     try {
@@ -205,12 +198,14 @@ const NaivasAdapter = {
           }
         }
       }
-    } catch (e) { /* silent */ }
+    } catch (e) {
+      console.debug("[NutriScore:Naivas] fetchCartFromAPI (Strategy 2: window.Livewire) failed:", e);
+    }
 
     // --- Strategy 3: Magento / custom section load API ---
     try {
       const ts = Date.now();
-      const res = await fetch(
+      const res = await NutriSharedUI.fetchWithRetry(
         '/customer/section/load/?sections=cart&force_new_section_timestamp=false&_=' + ts,
         { credentials: 'include', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }
       );
@@ -233,17 +228,15 @@ const NaivasAdapter = {
           }
         }
       }
-    } catch (e) { /* silent — Naivas is not a Magento section-load site */ }
+    } catch (e) {
+      console.debug("[NutriScore:Naivas] fetchCartFromAPI (Strategy 3: Magento) failed:", e);
+    }
 
     return [];
   },
 
 
-  /**
-   * Detect clicks on Naivas "Add to Cart" buttons.
-   * Naivas uses Livewire; add-to-cart anchors have wire:click="addToCart(...)" or similar.
-   * Also handles standard Magento 2 .tocart buttons as a fallback.
-   */
+  /* Detect clicks on Naivas "Add to Cart" buttons. Naivas uses Livewire; add-to-cart anchors have wire:click="addToCart(...)" or similar. Also handles standard Magento 2 .tocart buttons as a fallback. */
   extractCartAction(node) {
     // --- A. Livewire add-to-cart: <a wire:click="addToCart(ID)"> or <button wire:click="addToCart(ID)">
     const wireEl = node.closest('[wire\\:click]');
@@ -314,10 +307,7 @@ const NaivasAdapter = {
     };
   },
 
-  /**
-   * Detect clicks on Naivas remove/delete buttons OR the 'Clear Cart' button.
-   * Returns { retailer, productId, clearAll } or null.
-   */
+  /* Detect clicks on Naivas remove/delete buttons OR the 'Clear Cart' button. Returns { retailer, productId, clearAll } or null. */
   extractRemoveAction(node) {
     let el = node;
     for (let i = 0; i < 6; i++) {
@@ -337,9 +327,7 @@ const NaivasAdapter = {
     return null;
   },
 
-  /**
-   * Returns true when the current page is an order confirmation / success page.
-   */
+  /* Returns true when the current page is an order confirmation / success page. */
   detectOrderConfirmation() {
     const url = window.location.href.toLowerCase();
     const successUrls = [

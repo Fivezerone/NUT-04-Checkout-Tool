@@ -1,9 +1,4 @@
-/**
- * Carrefour Kenya Retailer Adapter
- * Implements IRetailerAdapter contract
- * Primary ID: numeric product ID from anchor href "/p/<id>"
- * Fallback:   name_hash
- */
+/* Carrefour Kenya Retailer Adapter Implements IRetailerAdapter contract Primary ID: numeric product ID from anchor href "/p/<id>" Fallback:   name_hash */
 
 const CarrefourAdapter = {
 
@@ -12,7 +7,9 @@ const CarrefourAdapter = {
   },
 
   getObserveTarget() {
-    return document.body;
+    return document.querySelector(".product-grid") || 
+           document.querySelector("[data-testid='product-grid']") || 
+           document.body;
   },
 
   detectProducts() {
@@ -31,10 +28,11 @@ const CarrefourAdapter = {
                    anchor.closest(".cl-product-card") ||
                    anchor.closest("li[class*='product']") ||
                    anchor.closest("div[class*='product-card']") ||
-                   anchor.closest("div[class*='ProductCard']");
+                   anchor.closest("div[class*='ProductCard']") ||
+                   anchor.closest(".flex-col.relative"); // Matches new Carrefour flex-col card structure
 
         if (!card) card = anchor.parentElement;
-        // If we landed on the narrow text-only inner div (max-w-[134px]), walk up to the real card.
+        // If we landed on the narrow text-only inner div, walk up to the real card.
         if (card && card.parentElement && card.parentElement.style?.gridColumn) {
           card = card.parentElement;
         }
@@ -59,7 +57,7 @@ const CarrefourAdapter = {
 
       // 2. Extract Name
       let name = "";
-      const nameEl = card.querySelector("[data-testid='product-title'], h2, h3, h4, [class*='title'], [class*='name']");
+      const nameEl = card.querySelector("[data-testid='product-title'], h2, h3, h4, [class*='title'], [class*='name'], .line-clamp-2, .line-clamp-1");
       if (nameEl) name = nameEl.textContent?.trim() || "";
       
       if (!name) {
@@ -77,7 +75,7 @@ const CarrefourAdapter = {
 
       // 3. Extract Price
       let priceNumeric = 0;
-      const priceEl = card.querySelector("[data-testid='product-price'], [class*='price'], [class*='Price'], .text-lg.font-bold, .text-xl.font-bold");
+      const priceEl = card.querySelector("[data-testid='product-price'], [class*='price'], [class*='Price'], .items-baseline, .text-lg.font-bold, .text-xl.font-bold");
       if (priceEl) {
         priceNumeric = NutriSharedUI.parsePrice(priceEl.textContent);
       }
@@ -191,11 +189,7 @@ const CarrefourAdapter = {
     return items;
   },
 
-  /**
-   * Fetches cart state from Carrefour APIs silently on page load.
-   * Checks window.__NEXT_DATA__ (Next.js SSR), then falls back to the cart JSON API.
-   * Returns array of cart items without requiring the cart flyout to be open.
-   */
+  /* Fetches cart state from Carrefour APIs silently on page load. Checks window.__NEXT_DATA__ (Next.js SSR), then falls back to the cart JSON API. Returns array of cart items without requiring the cart flyout to be open. */
   async fetchCartFromAPI() {
     // Strategy 1: Read Next.js SSR page data
     try {
@@ -226,7 +220,7 @@ const CarrefourAdapter = {
         '/mafken/en/cart',
       ];
       for (const ep of endpoints) {
-        const res = await fetch(ep, {
+        const res = await NutriSharedUI.fetchWithRetry(ep, {
           credentials: 'include',
           headers: { 'Accept': 'application/json' }
         });
@@ -298,14 +292,38 @@ const CarrefourAdapter = {
     };
   },
 
+  /* Detects immediate per-item remove clicks on Carrefour cart. Traverses up to 6 ancestors for a [data-testid="trash-icon"] parent. When found, returns { retailer, productId, clearAll: false } so the background can remove the item instantly rather than waiting for syncCart(). */
+  extractRemoveAction(node) {
+    let el = node;
+    for (let i = 0; i < 6; i++) {
+      if (!el) break;
+      if (el.matches && el.matches("[data-testid='trash-icon']")) {
+        // Walk up to the nearest cart-item container
+        const card = el.closest(".relative.flex.items-start.gap-md") ||
+                     el.closest("div[class*='relative flex items-start gap-md']") ||
+                     el.parentElement;
+        if (!card) return null;
+
+        let productId = null;
+        const anchor = card.querySelector("a[href*='/p/']");
+        if (anchor) {
+          const match = anchor.href.match(/\/(?:p|product)\/(\d+)/);
+          if (match) productId = match[1];
+        }
+        if (!productId) return null;
+
+        return { retailer: "CARREFOUR", productId, clearAll: false };
+      }
+      el = el.parentElement;
+    }
+    return null;
+  },
+
   escapeHTML(str) {
     return NutriSharedUI.escapeHTML(str);
   },
 
-  /**
-   * Returns true when the current page is an order confirmation page.
-   * Carrefour Kenya uses Next.js; we check __NEXT_DATA__ props and URL patterns.
-   */
+  /* Returns true when the current page is an order confirmation page. Carrefour Kenya uses Next.js; we check __NEXT_DATA__ props and URL patterns. */
   detectOrderConfirmation() {
     const url = window.location.href.toLowerCase();
     // URL-based signals for Carrefour Kenya
