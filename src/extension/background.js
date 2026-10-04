@@ -305,6 +305,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // D-14: open the upgrade/renewal page in a new tab from the SW
+  // (content-script calls sendMessage — cannot open tabs directly)
+  if (message.action === 'OPEN_UPGRADE') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') + '?mode=renew' });
+    return false;
+  }
+
   if (message.action === "CHECK_PRODUCT_SCORE") {
     const retailerCode = message.retailer || "NAIVAS";
 

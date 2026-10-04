@@ -62,6 +62,10 @@ class NutriScoreContentEngine {
         const retailer = this.adapter ? this.adapter.getRetailerCode() : null;
         sendResponse({ count, total, retailer });
       }
+      // D-15d: on theme/tier change, full rescan so badges get fresh productResult
+      if (msg.action === "THEME_CHANGED") {
+        this.rescan();
+      }
     });
 
     // P3: Two separate debounce timers. scanAndInject: 300ms — fires on new product cards appearing (lazy load, SPA nav). syncCart: 1000ms — fires less aggressively; cart state changes much less than DOM mutations.
@@ -190,6 +194,18 @@ class NutriScoreContentEngine {
         }
       });
     }
+  }
+
+  // D-15d: full rescan — clear all caches and re-inject with current mode/tier
+  rescan() {
+    if (typeof NutriSharedUI !== 'undefined' && NutriSharedUI._closeActiveFlyout) {
+      NutriSharedUI._closeActiveFlyout();
+    }
+    this.processedElements = new Set();
+    this.notFoundCache = new Set();
+    document.querySelectorAll('.nutriscore-isolated-root').forEach(n => n.remove());
+    document.querySelectorAll('[data-nutriscore-scanned]').forEach(n => n.removeAttribute('data-nutriscore-scanned'));
+    this.scanAndInject();
   }
 
   scanAndInject() {

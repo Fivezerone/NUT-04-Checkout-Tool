@@ -53,7 +53,8 @@ const NutriSharedUI = {
 
   // --------------------------------------------------------------------------- Feature C — Global Shadow Portal (Part C2) Creates window._nutriscoreGlobalPortal once, appended to document.body. All flyouts are portaled here; badges stay at z-index 10 in their cards. ---------------------------------------------------------------------------
   _ensureGlobalPortal() {
-    if (window._nutriscoreGlobalPortal) return window._nutriscoreGlobalPortal;
+    // D-15c: check isConnected to handle SPA body swaps that detach the portal
+    if (window._nutriscoreGlobalPortal?.isConnected) return window._nutriscoreGlobalPortal;
 
     const portal = document.createElement("div");
     portal.id = "nutriscore-global-portal";
@@ -84,6 +85,12 @@ const NutriSharedUI = {
       window._nutriscoreActiveFlyout.remove();
       window._nutriscoreActiveFlyout = null;
     }
+    // D-15b: always remove the outside-click listener to prevent leaks
+    if (window._nutriscoreOutside) {
+      document.removeEventListener('click', window._nutriscoreOutside, true);
+      window._nutriscoreOutside = null;
+    }
+    window._nutriscoreActiveTrigger = null;
   },
 
   // --------------------------------------------------------------------------- Main badge injection ---------------------------------------------------------------------------
@@ -195,9 +202,12 @@ const NutriSharedUI = {
     trigger.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
 
-      // Single-flyout constraint: close current flyout before opening new one.
+      // D-15a: toggle — if the same badge was already open, just close it
+      const wasOpen = window._nutriscoreActiveTrigger === trigger && !!window._nutriscoreActiveFlyout;
       NutriSharedUI._closeActiveFlyout();
+      if (wasOpen) return;
 
+      window._nutriscoreActiveTrigger = trigger;
       const portal = NutriSharedUI._ensureGlobalPortal();
 
       const flyoutEl = document.createElement("div");
@@ -253,9 +263,8 @@ const NutriSharedUI = {
       if (activeTheme !== "general" && tc) {
         if (!productResult.isPremium) {
           diseaseHTML = `
-            <div style="background:${tc.bg};border:2px solid ${tc.label};border-radius:9999px;padding:6px 14px;margin-bottom:12px;cursor:pointer;transition:opacity 0.2s;display:flex;align-items:center;gap:6px;"
-                 onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'"
-                 onclick="chrome.runtime.sendMessage({action: 'OPEN_UPGRADE'})">
+            <div data-ns-upgrade="1"
+                 style="background:${tc.bg};border:2px solid ${tc.label};border-radius:9999px;padding:6px 14px;margin-bottom:12px;cursor:pointer;transition:opacity 0.2s;display:flex;align-items:center;gap:6px;">
               ${hazardSVG(tc.label)}
               <div style="color:${tc.label};font-size:11px;font-weight:600;flex:1;">Upgrade to Premium for ${this.escapeHTML(modeObj.label)} alerts</div>
             </div>`;
@@ -330,6 +339,17 @@ const NutriSharedUI = {
         });
       }
 
+      // D-14: wire upgrade CTA in the content-script world where chrome.runtime works
+      const upgradeCta = flyoutEl.querySelector('[data-ns-upgrade]');
+      if (upgradeCta) {
+        upgradeCta.addEventListener('click', () => {
+          chrome.runtime.sendMessage({ action: 'OPEN_UPGRADE' }).catch(() => {});
+        });
+        // CSS :hover substitute — inline style toggle in content world
+        upgradeCta.addEventListener('mouseenter', () => { upgradeCta.style.opacity = '0.8'; });
+        upgradeCta.addEventListener('mouseleave', () => { upgradeCta.style.opacity = '1'; });
+      }
+
       // Dynamic Placement — deferred to requestAnimationFrame so getBoundingClientRect()
       // runs after the browser has laid out the flyout's innerHTML content.
       // Previously this was called synchronously (dimensions were always 0×0), which
@@ -363,14 +383,13 @@ const NutriSharedUI = {
         flyoutEl.style.visibility = "visible";
       });
 
-      // Close on outside click
-      const outsideClick = (ev) => {
-        if (!flyoutEl.contains(ev.target) && ev.target !== trigger) {
+      // D-15b: store outside-click listener on window so _closeActiveFlyout can always remove it
+      window._nutriscoreOutside = (ev) => {
+        if (!ev.composedPath().includes(flyoutEl) && !ev.composedPath().includes(trigger)) {
           NutriSharedUI._closeActiveFlyout();
-          document.removeEventListener("click", outsideClick, true);
         }
       };
-      setTimeout(() => document.addEventListener("click", outsideClick, true), 0);
+      setTimeout(() => document.addEventListener('click', window._nutriscoreOutside, true), 0);
     });
 
     // Feature C Part C1: badge z-index is 10 (passive, inherits card stacking).
