@@ -82,6 +82,10 @@ const NutriSharedUI = {
   // Close whatever flyout is currently open (single-flyout constraint, Part C3).
   _closeActiveFlyout() {
     if (window._nutriscoreActiveFlyout) {
+      // D-27: remove Escape handler before removing element
+      if (window._nutriscoreActiveFlyout._nsEscHandler) {
+        document.removeEventListener('keydown', window._nutriscoreActiveFlyout._nsEscHandler);
+      }
       window._nutriscoreActiveFlyout.remove();
       window._nutriscoreActiveFlyout = null;
     }
@@ -199,6 +203,14 @@ const NutriSharedUI = {
 
     // --------------------------------------------------------------------------- Feature C — badge click: portal flyout into global overlay (Part C3) ---------------------------------------------------------------------------
     const trigger = shadow.querySelector(".badge-trigger");
+
+    // D-27: make badge keyboard-accessible
+    trigger.setAttribute('role', 'button');
+    trigger.setAttribute('tabindex', '0');
+    trigger.setAttribute('aria-label', `NutriScore ${grade}${info?.label ? ' — ' + info.label : ''}, tap to open details`);
+    trigger.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger.click(); }
+    });
 
     trigger.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -330,6 +342,22 @@ const NutriSharedUI = {
 
       portal.appendChild(flyoutEl);
       window._nutriscoreActiveFlyout = flyoutEl;
+
+      // D-27: flyout accessibility — role=dialog so screen readers announce it correctly
+      flyoutEl.setAttribute('role', 'dialog');
+      flyoutEl.setAttribute('aria-label', productInfo?.name || 'Product details');
+      flyoutEl.setAttribute('aria-modal', 'true');
+      // Move focus into flyout so SR announces it; first focusable element or the flyout itself
+      const firstFocusable = flyoutEl.querySelector('button,[tabindex="0"]');
+      (firstFocusable || flyoutEl).focus?.();
+
+      // D-27: Escape key closes flyout (auto-removed when flyout closes via _closeActiveFlyout)
+      const escHandler = (e) => {
+        if (e.key === 'Escape') { NutriSharedUI._closeActiveFlyout(); }
+      };
+      document.addEventListener('keydown', escHandler);
+      // Store on flyoutEl so _closeActiveFlyout can remove it
+      flyoutEl._nsEscHandler = escHandler;
 
       // Wire header close button
       const closeBtn = flyoutEl.querySelector("[data-ns-close]");

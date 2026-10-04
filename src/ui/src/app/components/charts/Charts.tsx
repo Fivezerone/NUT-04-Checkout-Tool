@@ -166,12 +166,14 @@ export interface TrendPoint {
 // Daily Value reference amounts (FDA 2000 kcal/day baseline)
 const DV = { sodium: 2300, sugar: 50, satFat: 20 } as const;
 
-// Three series: key → display metadata
+// D-26: neutral chart tokens — never use grade colours for risk nutrients
+// (Sat Fat was coloured green A-grade, implying it's 'good')
+// Each series also has a distinct strokeDasharray for colour-blind users (WCAG 1.4.1)
 const TREND_SERIES = [
-  { key: "sodium" as const, label: "Sodium",  color: "var(--ns-grade-d)" },
-  { key: "sugar"  as const, label: "Sugar",   color: "var(--ns-grade-e)" },
-  { key: "satFat" as const, label: "Sat Fat", color: "var(--ns-grade-a)" },
-] satisfies { key: "sodium" | "sugar" | "satFat"; label: string; color: string }[];
+  { key: "sodium" as const, label: "Sodium",  color: "var(--chart-1, #3b82f6)", dash: "0" },
+  { key: "sugar"  as const, label: "Sugar",   color: "var(--chart-2, #f59e0b)", dash: "6 4" },
+  { key: "satFat" as const, label: "Sat Fat", color: "var(--chart-3, #8b5cf6)", dash: "2 3" },
+] satisfies { key: "sodium" | "sugar" | "satFat"; label: string; color: string; dash: string }[];
 
 // Monotone cubic Hermite interpolation (Fritsch-Carlson algorithm). Produces smooth, organic SVG cubic bezier curves that never overshoot.
 function monotonePath(pts: { x: number; y: number }[]): string {
@@ -294,7 +296,17 @@ export function LineTrend({
       const lname = tooltipRef.current!.querySelector(`.ch-lname-${s.key}`);
       if (lname) lname.setAttribute("x", String(boxX + 20));
       const lval = tooltipRef.current!.querySelector(`.ch-lval-${s.key}`);
-      if (lval) { lval.setAttribute("x", String(boxX + boxW - 8)); lval.textContent = `${rawPct.toFixed(0)}% DV`; }
+      if (lval) {
+        // D-26: show unclamped rawPct in tooltip so hypertension users see real overshoot
+        const rawPctUnclamped = (data[nearest][s.key] / DV[s.key]) * 100;
+        const hasDataPt = data[nearest].hasData !== false && data[nearest][s.key] > 0;
+        lval.setAttribute("x", String(boxX + boxW - 8));
+        lval.textContent = !hasDataPt
+          ? 'No purchases'
+          : rawPctUnclamped > MAX_PCT
+            ? `${Math.round(rawPctUnclamped)}% DV ⚠`
+            : `${Math.round(rawPctUnclamped)}% DV`;
+      }
     });
   };
 

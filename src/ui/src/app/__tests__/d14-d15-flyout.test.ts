@@ -72,7 +72,8 @@ describe('D-15 — Flyout toggle, listener leak, portal stale, rescan', () => {
 
   test('D-15d: content.js has rescan() method', () => {
     expect(contentJs).toContain('rescan()');
-    expect(contentJs).toContain('processedElements = new Set()');
+    // D-16 changed processedElements to WeakSet
+    expect(contentJs).toContain('processedElements = new WeakSet()');
     expect(contentJs).toContain('notFoundCache = new Set()');
     expect(contentJs).toContain("removeAttribute('data-nutriscore-scanned')");
   });

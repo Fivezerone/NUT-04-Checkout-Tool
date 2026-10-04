@@ -325,6 +325,8 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
       return;
     }
 
+    // D-28: no session = email confirmation required (or email already registered).
+    // Do NOT use setError() for this — it's not an error, and the red banner is misleading.
     if (!signUpData?.session) {
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
@@ -332,7 +334,12 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
       });
       if (signInError) {
         setIsSubmitting(false);
-        setError("Account created! Please check your email, confirm your address, then sign in to continue.");
+        // D-28: neutral, non-alarming message that covers both cases:
+        // (a) new account — confirmation email sent, (b) email already registered
+        setError(
+          "If this is a new address, we've sent a confirmation link — check your email then sign in. " +
+          "If you already have an account, use the Log in option instead."
+        );
         return;
       }
     }

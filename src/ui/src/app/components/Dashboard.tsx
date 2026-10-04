@@ -104,18 +104,23 @@ export function Dashboard({ onBack }: DashboardProps) {
 
   async function load(showLoading = true) {
     if (showLoading) setLoading(true);
-    const all = await getAllEntries();
-    setEntries(all);
-    const s = await getSettings();
-    setSettings(s);
-    setProfileName(s.profileName);
-    setNameInput(s.profileName);
-    
-    // Load extension storage data
-    const storageData = await ExtensionStorage.getOnboardingData();
-    setUserData(storageData);
-    
-    if (showLoading) setLoading(false);
+    try {
+      const all = await getAllEntries();
+      setEntries(all);
+      const s = await getSettings();
+      setSettings(s);
+      setProfileName(s.profileName);
+      setNameInput(s.profileName);
+
+      // Load extension storage data
+      const storageData = await ExtensionStorage.getOnboardingData();
+      setUserData(storageData);
+    } catch (err) {
+      // D-30: IDB failure must not leave the spinner on forever
+      console.error('[NutriScore] Dashboard load() failed:', err);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
   }
 
   /**

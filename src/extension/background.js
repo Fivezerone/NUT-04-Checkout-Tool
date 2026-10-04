@@ -322,7 +322,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "CHECK_PRODUCT_SCORE") {
     const retailerCode = message.retailer || "NAIVAS";
 
+    // D-30: guard against malformed messages — payload missing would throw TypeError
     const payload = message.payload;
+    if (!payload) {
+      sendResponse({ status: "ERROR", error: "Missing payload" });
+      return false;
+    }
+
     if (payload.retailer_product_id && payload.price && typeof NutriScoreDB !== "undefined" && NutriScoreDB.savePrice) {
       NutriScoreDB.savePrice(payload.retailer_product_id, payload.price).catch(()=>{});
     }
@@ -337,7 +343,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         sendResponse({
           status: "NOT_FOUND",
-          data: { product_name: message.payload.product_name, nutriscore_grade: "UNKNOWN" },
+          data: { product_name: payload.product_name, nutriscore_grade: "UNKNOWN" },
           error: err.message
         });
       });

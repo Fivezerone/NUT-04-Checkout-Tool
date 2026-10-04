@@ -22,6 +22,15 @@
 }
 .ns-pulse { animation: ns-pulse 1.8s infinite; }
 
+/* D-27: respect user preference for reduced motion (WCAG 2.3.3 / vestibular) */
+@media (prefers-reduced-motion: reduce) {
+  .ns-pulse,
+  .animate-spin,
+  .animate-pulse {
+    animation: none;
+  }
+}
+
 body {
   background-color: var(--background);
   color: var(--foreground);
