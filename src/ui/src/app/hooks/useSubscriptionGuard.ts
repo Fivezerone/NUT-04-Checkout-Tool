@@ -75,13 +75,13 @@ export function useSubscriptionGuard(): UseSubscriptionGuardResult {
 
         // ── Step 4: Handle expiry side-effects ─────────────────────────────
         if (resolved === 'expired') {
-          // 4a. Flip DB status (optimistic UI update)
-          // SEC-003: This client-side write is now just a harmless no-op / UI optimistic update.
-          // The server-side trigger (enforce_billing_state) is the sole authority for expiry.
+          // 4a. Flip DB status (optimistic UI update — subscription_status only)
+          // D-08: is_premium is a billing column — do NOT write it from the client.
+          // The server-side trigger (enforce_billing_state) is the sole authority.
           if (subscription_status !== 'expired') {
             await supabase
               .from('users')
-              .update({ subscription_status: 'expired', is_premium: false })
+              .update({ subscription_status: 'expired' })
               .eq('id', user.id);
           }
 

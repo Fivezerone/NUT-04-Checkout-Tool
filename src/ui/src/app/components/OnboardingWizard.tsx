@@ -85,6 +85,8 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
 
   const [activePaymentRef, setActivePaymentRef] = useState<string | null>(null);
   const [activePaymentMethod, setActivePaymentMethod] = useState<'mpesa' | 'paystack' | null>(null);
+  // D-10: separate error for profile-save failures after payment so we can offer a retry
+  const [finishError, setFinishError] = useState<string | null>(null);
 
   const { status: paymentStatus, setStatus: setPaymentStatus } = usePaymentState({
     transactionRef: activePaymentRef,
@@ -163,15 +165,15 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
         isSubscriptionExpired(paymentReceivedAt, trialStartedAt) || dbStatus === 'expired';
 
       if (expired) {
-        // Sync DB status if the server hasn't written it yet
+        // D-08: subscription_status only — is_premium is a billing column
         if (dbStatus !== 'expired') {
           await supabase
             .from('users')
-            .update({ subscription_status: 'expired', is_premium: false })
+            .update({ subscription_status: 'expired' })
             .eq('id', userId);
         }
-        // Revoke local premium flag
-        await chrome.storage.local.set({ nutriscore_is_premium: false });
+        // D-04/D-08: use savePremiumStatus(false) which clears nutri_entitlement (the key SW reads)
+        await savePremiumStatus(false);
 
         // Keep the session alive so they can process payment on the next step.
         // Redirect to the payment wizard.
@@ -247,17 +249,20 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
         await redirectAfterLogin(session.user.id);
         return;
       }
-      if (initialMode === 'renew') {
-        setStep(5);
-        setWizardMode('signup');
-        return;
-      }
+      // D-09: recover any in-flight payment FIRST, in every mode (including renew).
+      // Without this, a renewing user who already approved an M-Pesa prompt would
+      // never see their payment confirmed and could be double-charged.
       const pendingPayment = await ExtensionStorage.getActivePayment();
       if (pendingPayment.ref && pendingPayment.method) {
         setActivePaymentRef(pendingPayment.ref);
         setActivePaymentMethod(pendingPayment.method);
         setPaymentMethod(pendingPayment.method === 'mpesa' ? "Mobile Money" : "Bank Transfer");
         setStep(5);
+      } else if (initialMode === 'renew') {
+        // D-09: no in-flight payment; go to payment step without touching form state / profile
+        setStep(5);
+        setWizardMode('signup');
+        return;
       } else {
         // Only advance to step 3 if the user is still at an earlier step.
         // Never regress a user who has already progressed beyond step 3
@@ -390,9 +395,16 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     const userId = user?.id;
 
     if (userId) {
+      // D-09: skip the profile upsert entirely in renewal mode.
+      // A renewal has empty wizard state (form fields were never filled), so writing
+      // them would overwrite dob/condition/etc with '' and re-stamp consent_timestamp.
+      const isRenewal = initialMode === 'renew';
+      if (!isRenewal) {
       // Write the full profile to Supabase — this is the source of truth.
       // The user row is created by a DB trigger on auth.users INSERT,
       // so we UPSERT to safely handle both first-write and updates.
+      // D-08: billing columns (is_premium, subscription_status) are OMITTED here —
+      // they must only be written by the server-side enforce_billing_state trigger.
       const now = new Date().toISOString();
       const { error: upsertError } = await supabase.from('users').upsert({
         id: userId,
@@ -409,26 +421,22 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
         onboarding_completed:     true,
         health_mode:              condition !== 'general',
         selected_tags:            [condition, metric].filter(Boolean),
-        is_premium:               tier === "premium",
-        subscription_status:      tier === "premium" ? 'active' : 'basic',
+        // is_premium and subscription_status intentionally NOT set here (D-08)
       }, { onConflict: 'id' });
 
       if (upsertError) {
         // BLOCKING: if we can't write onboarding_completed=true to DB, the dashboard
         // guard will read false and immediately redirect back here — infinite loop.
-        console.error('[finishOnboarding] FATAL: profile UPSERT failed:', JSON.stringify(upsertError));
-        // code 42501 = RLS violation (INSERT policy missing on public.users)
-        const hint = upsertError.code === '42501'
-          ? 'Permission denied — the database INSERT policy for users may be missing.'
-          : upsertError.message;
-        setError(
-          `Payment received (ref: ${paymentRef}), but your profile could not be saved: ${hint} ` +
-          `Please contact support — do NOT pay again.`
+        // D-10: use finishError (not the global error state) so we can offer a retry
+        setFinishError(
+          `Payment received (ref: ${paymentRef}) — your premium is safe. ` +
+          `We could not save your profile yet. Please retry.`
         );
-        // Grant local premium only if we have a verified token — unverified fallbacks are not allowed
+        console.error('[finishOnboarding] profile UPSERT failed:', JSON.stringify(upsertError));
         if (token) await savePremiumStatus(token);
         return; // do NOT redirect — would cause an infinite bounce loop
       }
+      } // end if (!isRenewal)
     }
 
     // Keep a local hint so the popup can show 'Log In' vs 'Sign Up'
@@ -508,7 +516,8 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
       }
 
       const { data, error } = await supabase.functions.invoke('paystack-initiate', {
-        body: { email: email.trim() || "user@example.com", amount: packagePrice },
+        // D-09: always use the verified auth session email, never the form-state fallback
+        body: { email: user?.email || email.trim(), amount: packagePrice },
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (error) throw error;
@@ -1069,7 +1078,19 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
                   <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-3">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                   </div>
-                  <p className="text-sm font-semibold text-green-700">Payment Successful! Redirecting...</p>
+                  {finishError ? (
+                    <>
+                      <p role="alert" className="text-sm text-red-600 mb-3">{finishError}</p>
+                      <button
+                        className="text-xs text-green-700 underline hover:text-green-900 transition"
+                        onClick={() => { setFinishError(null); void finishOnboarding(activePaymentRef!, activePaymentMethod === 'mpesa' ? 'Mobile Money' : 'Card'); }}
+                      >
+                        Retry saving profile
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-sm font-semibold text-green-700">Payment confirmed. Setting up your account…</p>
+                  )}
                 </div>
               )}
             </div>

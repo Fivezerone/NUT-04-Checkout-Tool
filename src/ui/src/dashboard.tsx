@@ -107,12 +107,12 @@ async function checkSubscriptionAndProfile(userId: string, fallbackName: string)
     const days = getDaysRemaining(r.payment_received_at, r.trial_started_at);
 
     // Sync expiry to DB (optimistic UI update)
-    // SEC-003: This client-side write is now just a harmless no-op / UI optimistic update.
-    // The server-side trigger (enforce_billing_state) is the sole authority for expiry.
+    // D-08: subscription_status only — is_premium is a billing column that must
+    // only be written by the server-side enforce_billing_state trigger.
     if (resolved === "expired" && r.subscription_status !== "expired") {
       await supabase
         .from("users")
-        .update({ subscription_status: "expired", is_premium: false })
+        .update({ subscription_status: "expired" })
         .eq("id", userId);
     }
 
