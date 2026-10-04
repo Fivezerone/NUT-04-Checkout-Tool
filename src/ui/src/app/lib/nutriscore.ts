@@ -136,7 +136,10 @@ export interface DashboardViewModel {
 
 export const GRADE_ORDER: Grade[] = ["A", "B", "C", "D", "E"];
 
-export const gradeColorVar = (g: Grade): string => `var(--ns-grade-${(g || "C").toLowerCase()})`;
+export const gradeColorVar = (g: Grade | "UNKNOWN"): string => {
+  if (g === "UNKNOWN") return "#94a3b8"; // neutral slate-400 for unknown
+  return `var(--ns-grade-${(g || "C").toLowerCase()})`;
+};
 export const gradeOnColorVar = (g: Grade): string => `var(--ns-on-grade-${(g || "C").toLowerCase()})`;
 
 // Plain-language, low-reading-grade descriptions (Flesch-Kincaid <= 8).

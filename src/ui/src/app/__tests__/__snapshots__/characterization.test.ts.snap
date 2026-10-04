@@ -95,6 +95,7 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
   "categoryInsights": [],
   "filteredPeriodEvents": 1,
   "healthAlerts": {
+    "cvd": 0,
     "diabetes": 0,
     "hypertension": 0,
     "kidney": 0,

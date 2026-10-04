@@ -1,8 +1,15 @@
 {
   "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "strict": true,
     "jsx": "react-jsx",
-    "moduleResolution": "bundler"
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   },
-  "include": ["src/ui/src"]
+  "include": ["src/ui/src"],
+  "exclude": ["src/ui/src/app/__tests__", "node_modules"]
 }

@@ -1,17 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Trash2, Droplet, HeartPulse, Activity, UserCircle2, Check, ShieldAlert, Scale, Settings2 } from "lucide-react";
+import { ArrowLeft, Trash2, Droplet, HeartPulse, Activity, ShieldAlert, Scale, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "./ui/table";
 import { ChartBox } from "./ChartBox";
-import { DonutChart, LineTrend, HBarChart, StackedHBarChart, type StackedHBar } from "./charts/Charts";
+import { DonutChart, LineTrend, StackedHBarChart, type StackedHBar } from "./charts/Charts";
 import { ExtensionStorage, ChromeExtensionStorage } from "../../services/storage";
 import { getAllEntries, purgeAll, getSettings, saveSettings, deleteLedgerEntry, DEFAULT_SETTINGS, type Settings } from "../lib/db";
 
@@ -19,7 +11,6 @@ import {
   GRADE_LABEL,
   GRADE_ORDER,
   gradeColorVar,
-  type Grade,
   type ShoppingLedgerRow,
   type DashboardViewModel
 } from "../lib/nutriscore";
@@ -235,15 +226,31 @@ export function Dashboard({ onBack }: DashboardProps) {
   const trendData = useMemo(() => {
     const raw = analytics?.nutrientTrends.data || [];
     const firstNonZero = raw.findIndex(
-      (d) => (d.sodium ?? 0) > 0 || (d.sugar ?? 0) > 0 || (d.satFat ?? 0) > 0
+      (d) => (d.sodiumMg ?? 0) > 0 || (d.sugarsG ?? 0) > 0 || (d.satFatG ?? 0) > 0
     );
-    return firstNonZero <= 0 ? raw : raw.slice(firstNonZero);
+    const sliced = firstNonZero <= 0 ? raw : raw.slice(firstNonZero);
+    
+    // Map data to the TrendPoint interface expected by Charts.tsx
+    return sliced.map((d, i) => {
+      const tick = analytics?.nutrientTrends.ticks.find(t => t.ts === d.ts);
+      const dDate = new Date(d.ts);
+      const label = tick?.label || `${dDate.getDate()} ${dDate.toLocaleString('default', { month: 'short' })}`;
+      return {
+        id: `bucket-${d.ts || i}`,
+        ts: d.ts,
+        label,
+        sodium: d.sodiumMg ?? 0,
+        sugar: d.sugarsG ?? 0,
+        satFat: d.satFatG ?? 0,
+        hasData: d.sodiumMg !== null || d.sugarsG !== null || d.satFatG !== null,
+      };
+    });
   }, [analytics]);
-  const alertCounts = analytics?.healthAlerts || { diabetes: 0, hypertension: 0, cvd: 0, kidney: 0 };
+  const alertCounts = analytics?.healthAlerts || { diabetes: 0, hypertension: 0, cvd: 0, kidney: 0, obesity: 0 };
   
   const drillDownFiltered = useMemo(() => {
     if (!selectedGrade) return filtered;
-    return filtered.filter(e => (e.gradeSnapshot || e.grade) === selectedGrade);
+    return filtered.filter(e => e.gradeSnapshot === selectedGrade);
   }, [filtered, selectedGrade]);
 
   const categoryData = useMemo((): StackedHBar[] => {

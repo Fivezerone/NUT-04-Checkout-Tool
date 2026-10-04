@@ -117,7 +117,7 @@ function computeAverageGrade(counts: Record<string, number>): Grade | null {
 
 /** LOGIC-002: accumulator state shape shared across sub-steps */
 type AccBucket = { sodium: number; nSodium: number; sugar: number; nSugar: number; satFat: number; nSatFat: number; n: number };
-type RiskCounters = { diabetes: number; hypertension: number; kidney: number; obesity: number };
+type RiskCounters = { diabetes: number; hypertension: number; kidney: number; obesity: number; cvd: number };
 type AccMap = Record<string, AccBucket>;
 
 /** Sub-step 1: basket quality grade distribution */
@@ -156,6 +156,7 @@ function tallyDiseaseRiskCounters(
   if (riskFlags.hypertension) risk.hypertension++;
   if (riskFlags.renal) risk.kidney++;
   if (riskFlags.obesity) risk.obesity++;
+  if (riskFlags.cvd) risk.cvd++;
 }
 
 /** Sub-step 4: per-bucket nutrient trend accumulation */
@@ -209,7 +210,7 @@ export function calculateAnalytics(filteredLedger: any[], totalStoredCount: numb
   const ptsState = { ptsSum: 0 };
   const gradePts: Record<string, number> = { A: 1, B: 3, C: 7, D: 12, E: 20 };
   const categoryMap: Record<string, { price: number; n: number }> = {};
-  const risk: RiskCounters = { diabetes: 0, hypertension: 0, kidney: 0, obesity: 0 };
+  const risk: RiskCounters = { diabetes: 0, hypertension: 0, kidney: 0, obesity: 0, cvd: 0 };
   const slots = generateBucketSlots(tf);
   const acc: AccMap = {};
   for (const s of slots) acc[s.key] = { sodium: 0, nSodium: 0, sugar: 0, nSugar: 0, satFat: 0, nSatFat: 0, n: 0 };
@@ -268,6 +269,7 @@ export function calculateAnalytics(filteredLedger: any[], totalStoredCount: numb
       hypertension: risk.hypertension,
       kidney: risk.kidney,
       obesity: risk.obesity,
+      cvd: risk.cvd,
     }
   };
 }

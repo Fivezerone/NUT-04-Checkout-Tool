@@ -1,6 +1,6 @@
 // Lightweight, dependency-free SVG charts. Built in-house to avoid Recharts' internal duplicate-key warning (unresolved in 2.15.x) and to keep full control over rendering keys.
 
-import { useState } from "react";
+import { useRef, type MouseEvent } from "react";
 import { EmptyChart, isFiniteNum } from "./EmptyChart";
 
 
@@ -266,10 +266,10 @@ export function LineTrend({
   };
 
   const Y_TICKS = [0, 25, 50, 75, 100];
-  const tooltipRef = React.useRef<SVGGElement>(null);
+  const tooltipRef = useRef<SVGGElement>(null);
   const boxW = 144;
 
-  const handleMove = (e: React.MouseEvent<SVGRectElement>) => {
+  const handleMove = (e: MouseEvent<SVGRectElement>) => {
     if (data.length === 0 || !tooltipRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const px = e.clientX - rect.left + padL;
