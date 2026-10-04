@@ -1,14 +1,13 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Default: Dark Green */
-  --theme-primary: #15803d; /* green-700 */
-  --theme-accent-bg: #f0fdf4; /* green-50 */
-  --theme-border: #bbf7d0; /* green-200 */
-  /* Header theming */
-  --theme-header-bg: #86efac; /* green-300 — richer fill */
-  --theme-header-text: #052e16; /* green-950 — deep contrast */
-  --theme-header-sub: #14532d; /* green-900 */
+  /* Default: General Wellness */
+  --theme-primary: #2E7D32; /* Forest Green */
+  --theme-accent-bg: #e8f5e9;
+  --theme-border: #c8e6c9;
+  --theme-header-bg: #a5d6a7;
+  --theme-header-text: #1b5e20;
+  --theme-header-sub: #2e7d32;
   --font-size: 16px;
   --background: #F1F5F9;
   --foreground: #334155;
@@ -49,32 +48,16 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-:root[data-health-condition="diabetes"] {
-  --theme-primary: #0e7490;
-  --theme-accent-bg: #ecfeff;
-  --theme-border: #a5f3fc;
-  --theme-header-bg: #67e8f9; /* cyan-300 */
-  --theme-header-text: #083344; /* cyan-950 */
-  --theme-header-sub: #155e75; /* cyan-800 */
+:root[data-theme="blue"] {
+  --theme-primary: #2563eb;
+  --theme-accent-bg: #eff6ff;
+  --theme-border: #bfdbfe;
+  --theme-header-bg: #dbeafe;
+  --theme-header-text: #1e3a8a;
+  --theme-header-sub: #1d4ed8;
 }
 
-:root[data-health-condition="hypertension"] {
-  --theme-primary: #d97706;
-  --theme-accent-bg: #fffbeb;
-  --theme-border: #fde68a;
-  --theme-header-bg: #fcd34d; /* amber-300 */
-  --theme-header-text: #451a03; /* amber-950 */
-  --theme-header-sub: #78350f; /* amber-800 */
-}
-
-:root[data-health-condition="kidney"] {
-  --theme-primary: #0d9488;
-  --theme-accent-bg: #f0fdfa;
-  --theme-border: #99f6e4;
-  --theme-header-bg: #5eead4; /* teal-300 */
-  --theme-header-text: #042f2e; /* teal-950 */
-  --theme-header-sub: #134e4a; /* teal-900 */
-}
+@import url("./health-modes.generated.css");
 
 .dark {
   --background: oklch(0.145 0 0);

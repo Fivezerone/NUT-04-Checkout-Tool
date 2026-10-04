@@ -8,14 +8,14 @@
       html, body {
         margin: 0;
         padding: 0;
-        /* Let Chrome size the popup to fit content — no fixed dimensions. */
-        width: fit-content;
+        width: 320px;
         height: fit-content;
-        overflow: hidden;
+        overflow-x: hidden;
       }
     </style>
   </head>
   <body>
+    <script src="/theme-init.js"></script>
     <div id="root"></div>
     <script type="module" src="/src/popup.tsx"></script>
   </body>

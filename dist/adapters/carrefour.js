@@ -1,5 +1,11 @@
 /* Carrefour Kenya Retailer Adapter Implements IRetailerAdapter contract Primary ID: numeric product ID from anchor href "/p/<id>" Fallback:   name_hash */
 
+// ARCH-002: Guard against manifest.json load-order violations.
+if (typeof NutriSharedUI === "undefined") {
+  console.error("[NutriScore] Load-order violation: adapters/shared-ui.js must load before carrefour.js. Check manifest.json content_scripts array.");
+  throw new Error("[NutriScore] carrefour.js: NutriSharedUI not available");
+}
+
 const CarrefourAdapter = {
 
   getRetailerCode() {
@@ -189,63 +195,64 @@ const CarrefourAdapter = {
     return items;
   },
 
-  /* Fetches cart state from Carrefour APIs silently on page load. Checks window.__NEXT_DATA__ (Next.js SSR), then falls back to the cart JSON API. Returns array of cart items without requiring the cart flyout to be open. */
-  async fetchCartFromAPI() {
-    // Strategy 1: Read Next.js SSR page data
-    try {
-      const nextDataScript = document.getElementById('__NEXT_DATA__');
-      if (nextDataScript) {
-        const nextData = JSON.parse(nextDataScript.textContent);
-        const cart = nextData?.props?.pageProps?.initialData?.cart ||
-                     nextData?.props?.pageProps?.cart ||
-                     nextData?.props?.cart;
-        if (cart?.items?.length) {
-          return cart.items.map(item => ({
-            retailer: 'CARREFOUR',
-            productId: String(item.productCode || item.id || item.ean || ''),
-            product_name: item.product?.name || item.name || '',
-            priceSnapshot: item.basePrice || item.totalPrice || item.price || 0,
-            quantity: item.quantity || 1,
-            url: item.product?.url ? `https://www.carrefour.ke${item.product.url}` : null
-          })).filter(i => i.productId);
-        }
+  async _cartFromNextData() {
+    const nextDataScript = document.getElementById('__NEXT_DATA__');
+    if (nextDataScript) {
+      const nextData = JSON.parse(nextDataScript.textContent);
+      const cart = nextData?.props?.pageProps?.initialData?.cart ||
+                   nextData?.props?.pageProps?.cart ||
+                   nextData?.props?.cart;
+      if (cart?.items?.length) {
+        return cart.items.map(item => ({
+          retailer: 'CARREFOUR',
+          productId: String(item.productCode || item.id || item.ean || ''),
+          product_name: item.product?.name || item.name || '',
+          priceSnapshot: item.basePrice || item.totalPrice || item.price || 0,
+          quantity: item.quantity || 1,
+          url: item.product?.url ? `https://www.carrefour.ke${item.product.url}` : null
+        })).filter(i => i.productId);
       }
-    } catch (e) { /* silent */ }
+    }
+    return [];
+  },
 
-    // Strategy 2: Fetch cart JSON API (Carrefour OCC/SAP Commerce style)
-    try {
-      // Try common cart API paths used by Carrefour Kenya (SAP Commerce Cloud)
-      const endpoints = [
-        '/api/cart',
-        '/mafken/en/cart',
-      ];
-      for (const ep of endpoints) {
-        const res = await NutriSharedUI.fetchWithRetry(ep, {
-          credentials: 'include',
-          headers: { 'Accept': 'application/json' }
-        });
-        if (res.ok) {
-          const ct = res.headers.get('content-type') || '';
-          if (ct.includes('json')) {
-            const data = await res.json();
-            const entries = data?.entries || data?.items || data?.cartData?.entries || [];
-            if (entries.length > 0) {
-              return entries.map(e => ({
-                retailer: 'CARREFOUR',
-                productId: String(e.product?.code || e.productCode || e.id || ''),
-                product_name: e.product?.name || e.name || '',
-                priceSnapshot: e.basePrice?.value || e.totalPrice?.value || e.price || 0,
-                quantity: e.quantity || 1,
-                url: e.product?.url ? `https://www.carrefour.ke${e.product.url}` : null
-              })).filter(i => i.productId);
-            }
+  async _cartFromCartApi() {
+    const endpoints = [
+      '/api/cart',
+      '/mafken/en/cart',
+    ];
+    for (const ep of endpoints) {
+      const res = await NutriSharedUI.fetchWithRetry(ep, {
+        credentials: 'include',
+        headers: { 'Accept': 'application/json' }
+      });
+      if (res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('json')) {
+          const data = await res.json();
+          const entries = data?.entries || data?.items || data?.cartData?.entries || [];
+          if (entries.length > 0) {
+            return entries.map(e => ({
+              retailer: 'CARREFOUR',
+              productId: String(e.product?.code || e.productCode || e.id || ''),
+              product_name: e.product?.name || e.name || '',
+              priceSnapshot: e.basePrice?.value || e.totalPrice?.value || e.price || 0,
+              quantity: e.quantity || 1,
+              url: e.product?.url ? `https://www.carrefour.ke${e.product.url}` : null
+            })).filter(i => i.productId);
           }
         }
       }
-    } catch (e) {
-      // Silent catch; fallback to DOM extraction if API is unavailable or blocked
     }
     return [];
+  },
+
+  /* Fetches cart state from Carrefour APIs silently on page load. Checks window.__NEXT_DATA__ (Next.js SSR), then falls back to the cart JSON API. Returns array of cart items without requiring the cart flyout to be open. */
+  async fetchCartFromAPI() {
+    return await NutriSharedUI.firstNonEmpty([
+      this._cartFromNextData.bind(this),
+      this._cartFromCartApi.bind(this)
+    ]);
   },
 
   extractCartAction(node) {

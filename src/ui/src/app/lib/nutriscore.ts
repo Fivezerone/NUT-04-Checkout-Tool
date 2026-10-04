@@ -67,6 +67,7 @@ export interface ShoppingLedgerRow {
     sugarsG: number | null;
     satFatG: number | null;
     potassiumMg?: number | null;
+    energyKcal?: number | null;
   };
 }
 
@@ -129,6 +130,7 @@ export interface DashboardViewModel {
     hypertension: number;
     cvd: number;
     kidney: number;
+    obesity: number;
   };
 }
 

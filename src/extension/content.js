@@ -1,5 +1,13 @@
 /* Content Script Component Layer: Client / Frontend Extension Layer Constraints (Component Diagram v1.0):   - NO business logic, classification, or disease evaluation   - Only: adapter routing, MutationObserver, message relay, badge injection via adapter */
 
+// ARCH-002: Guard against manifest.json load-order violations.
+// shared-ui.js must appear before this file in content_scripts.
+// NOTE: NutriScoreDB lives only in the service worker — never check it here.
+if (typeof NutriSharedUI === "undefined") {
+  console.error("[NutriScore] Load-order violation: NutriSharedUI not available. Check manifest.json content_scripts ordering.");
+  throw new Error("[NutriScore] content.js: NutriSharedUI not available");
+}
+
 class NutriScoreContentEngine {
   constructor() {
     this.adapter          = window.RetailerAdapter || null;
@@ -188,6 +196,7 @@ class NutriScoreContentEngine {
     if (!this.adapter) return;
 
     const products = this.adapter.detectProducts();
+    const batch = [];
 
     products.forEach(prodInfo => {
       const card = prodInfo.domElement;
@@ -203,9 +212,9 @@ class NutriScoreContentEngine {
       card.setAttribute("data-nutriscore-scanned", "pending");
       this.processedElements.add(card);
 
-      const message = {
-        action:   "CHECK_PRODUCT_SCORE",
-        retailer: this.adapter.getRetailerCode(),
+      batch.push({
+        card,
+        cacheKey,
         payload: {
           product_name:        prodInfo.name,
           name_hash:           prodInfo.nameHash || null,
@@ -213,30 +222,49 @@ class NutriScoreContentEngine {
           url:                 prodInfo.url || null,
           price:               prodInfo.price || null
         }
-      };
-
-      chrome.runtime.sendMessage(message, response => {
-        if (chrome.runtime.lastError) {
-          console.warn("[NutriScore] SW message failed:", chrome.runtime.lastError.message);
-          card.removeAttribute("data-nutriscore-scanned");
-          this.processedElements.delete(card);
-          return;
-        }
-
-        if (response && response.status === "SUCCESS" && response.data) {
-          const product = response.data;
-          card.setAttribute("data-nutriscore-scanned", "complete");
-          card.setAttribute("data-nutriscore-grade",   product.nutriscore_grade);
-          // Delegate all UI rendering to the adapter (no logic here)
-          this.adapter.injectBadge(card, product, prodInfo.price);
-        } else {
-          card.setAttribute("data-nutriscore-scanned", "not-found");
-          if (cacheKey) this.notFoundCache.add(cacheKey);
-        }
-        
-        // Notify the popup to refresh its stats (if it is open)
-        chrome.runtime.sendMessage({ action: "POPUP_STATS_UPDATE" }).catch(() => {});
       });
+    });
+
+    if (batch.length === 0) return;
+
+    const message = {
+      action: "CHECK_PRODUCT_SCORES_BATCH",
+      retailer: this.adapter.getRetailerCode(),
+      payloads: batch.map(b => b.payload)
+    };
+
+    chrome.runtime.sendMessage(message, response => {
+      if (chrome.runtime.lastError) {
+        console.warn("[NutriScore] SW message failed:", chrome.runtime.lastError.message);
+        batch.forEach(b => {
+          b.card.removeAttribute("data-nutriscore-scanned");
+          this.processedElements.delete(b.card);
+        });
+        return;
+      }
+
+      if (response && response.status === "SUCCESS" && response.results) {
+        response.results.forEach((res, index) => {
+          const { card, cacheKey, payload } = batch[index];
+          if (res.status === "SUCCESS" && res.data) {
+            const product = res.data;
+            card.setAttribute("data-nutriscore-scanned", "complete");
+            card.setAttribute("data-nutriscore-grade", product.nutriscore_grade);
+            this.adapter.injectBadge(card, product, payload.price);
+          } else {
+            card.setAttribute("data-nutriscore-scanned", "not-found");
+            if (cacheKey) this.notFoundCache.add(cacheKey);
+          }
+        });
+      } else {
+        batch.forEach(b => {
+          b.card.setAttribute("data-nutriscore-scanned", "not-found");
+          if (b.cacheKey) this.notFoundCache.add(b.cacheKey);
+        });
+      }
+      
+      // Notify the popup to refresh its stats (if it is open)
+      chrome.runtime.sendMessage({ action: "POPUP_STATS_UPDATE" }).catch(() => {});
     });
   }
 }

@@ -1,4 +1,4 @@
-﻿# dev-reload.ps1 — NUT-04 Hot-Reload Script
+# dev-reload.ps1 — NUT-04 Hot-Reload Script
 # Performs a clean rebuild and prints instructions + a DevTools snippet to
 # force-reload the Service Worker without leaving the browser.
 #
@@ -10,7 +10,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$ErrorActionPreference = "Stop"
+
+if ($IsLinux -or $IsMacOS) {
+    Write-Warning "This is a Windows convenience script. On Linux/macOS, use 'npm run build' instead."
+    exit 1
+}
 
 # ── 1. Compile db.ts (always first) ───────────────────────────────────────────
 Write-Host "[1/4] Compiling db.ts -> src/extension/db.js ..."
@@ -31,11 +35,10 @@ npx vite build
 if (-not $SkipClean) {
   Write-Host "[3/4] Assembling dist/ (full copy) ..."
   if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
-  New-Item -ItemType Directory -Path "dist" | Out-Null
 } else {
   Write-Host "[3/4] Assembling dist/ (incremental — skipping clean) ..."
 }
-Copy-Item "src\extension\*" -Destination "dist" -Recurse -Force
+npm run build:ext
 
 # ── 4. Stamp & instruct ────────────────────────────────────────────────────────
 $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"

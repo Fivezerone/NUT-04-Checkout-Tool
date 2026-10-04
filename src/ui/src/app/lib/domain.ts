@@ -6,7 +6,7 @@
  *
  * NOTE: resolveTimeframe, generateBucketSlots, entryBucketKey and evaluateHealthAlerts
  * were removed. All analytics/timeframe logic is now exclusively in db.ts (calculateAnalytics,
- * resolveTimeframe) and disease-engine.js (DISEASE_RULES). Import from there.
+ * resolveTimeframe) and nutri-score-engine.js (DISEASE_RULES). Import from there.
  */
 
 import type { ShoppingLedgerRow } from "./nutriscore";
@@ -112,7 +112,7 @@ export function resolveBadgeSignal(record: unknown): BadgeSignal {
 // evaluateHealthAlerts() has been removed.
 // Health alert counts (diabetes, hypertension, cvd, kidney) are now computed
 // exclusively inside calculateAnalytics() in db.ts. That is the single authoritative
-// source; DiseaseEngine.DISEASE_RULES governs the per-product clinical thresholds.
+// source; DiseaseEngine.DISEASE_RULES (in nutri-score-engine.js) governs the per-product clinical thresholds.
 // Re-introducing a parallel implementation risks the silent threshold discrepancies
 // that were identified in the Phase 1 audit.
 export interface HealthAlertCounts {

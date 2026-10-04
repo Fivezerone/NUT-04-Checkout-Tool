@@ -1,0 +1,216 @@
+import { createClient } from '@supabase/supabase-js';
+
+// Vite replaces import.meta.env.VITE_* at build time (NOT process.env).
+// Values are baked into the bundle from the .env file at the project root.
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error(
+    '[NUT-04] Missing Supabase credentials. ' +
+    'Create a .env file at the project root with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY. ' +
+    'See .env.example for the required format.'
+  );
+}
+
+/**
+ * Custom Auth storage adapter for Chrome Extensions (Manifest V3).
+ *
+ * Supabase v2 stores its session JWT under a key derived from the project URL.
+ * We persist it in chrome.storage.local so the session survives across:
+ *   - popup opens/closes (separate JS contexts every time)
+ *   - browser restarts (localStorage is cleared; chrome.storage.local is not)
+ *   - MV3 service-worker wakeups
+ *
+ * Critical correctness notes:
+ *   - `data[key] || null` would coerce an empty string to null — use explicit check instead.
+ *   - Wrap every call in try/catch so a storage quota error doesn't crash the whole auth flow.
+ *   - Guard `typeof chrome` so the module can be imported in vitest without a browser shim.
+ */
+const chromeStorageAdapter = {
+  getItem: async (key: string): Promise<string | null> => {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.storage?.local) return null;
+      const data = await chrome.storage.local.get(key);
+      const value = data[key];
+      // Explicit null/undefined check — empty string is a valid stored value
+      return (value !== undefined && value !== null) ? String(value) : null;
+    } catch {
+      return null;
+    }
+  },
+  setItem: async (key: string, value: string): Promise<void> => {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+      await chrome.storage.local.set({ [key]: value });
+    } catch { /* storage quota or permission error — silently ignore */ }
+  },
+  removeItem: async (key: string): Promise<void> => {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+      await chrome.storage.local.remove(key);
+    } catch { /* silently ignore */ }
+  },
+};
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storage: chromeStorageAdapter,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+});
+
+/**
+ * Explicit session re-hydration for MV3 service workers (call this on wakeup).
+ * In the UI layer, `supabase.auth.getSession()` already triggers this internally.
+ */
+export const rehydrateSession = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session;
+};
+
+/**
+ * Signs the current user out of Supabase and revokes the local premium flag.
+ * Centralised here so all callers (Settings, dashboard guard) use one path.
+ * Does NOT clear chrome.storage.local user_account / user_preferences — only
+ * the auth session and premium status are revoked. This means the user's name
+ * and settings persist for when they log back in.
+ */
+export const signOutUser = async (): Promise<void> => {
+  try {
+    await supabase.auth.signOut();
+  } catch { /* network offline — still clear local flags */ }
+  // Revoke local premium so the background SW stops granting premium access
+  try {
+    await chrome.storage.local.set({ nutriscore_is_premium: false });
+    await chrome.storage.local.remove('nutri_entitlement');
+  } catch { /* ignore */ }
+};
+
+export interface ChromeExtensionStorage {
+  onboarding_completed: boolean;
+  user_account: {
+    fullName: string;
+    email: string;
+    dob?: string;
+    gender?: string;
+  };
+  user_preferences: {
+    healthMode: boolean;
+    notificationFrequency: "realtime" | "daily" | "weekly" | "off";
+    selectedTags: string[];
+    termsAccepted: boolean;
+    privacyAccepted: boolean;
+    consentTimestamp: string | null;
+  };
+  user_payment: {
+    method: string;
+    paymentRef: string;
+    amount: number;
+  };
+  nutriscore_is_premium?: boolean | string;
+}
+
+export const ExtensionStorage = {
+  getOnboardingData: async (): Promise<Partial<ChromeExtensionStorage>> => {
+    const data = await chrome.storage.local.get([
+      'onboarding_completed',
+      'user_account',
+      'user_preferences',
+      'user_payment',
+      'partial_onboarding',
+      'nutriscore_is_premium'
+    ]);
+
+    if (data.onboarding_completed) {
+      return data;
+    }
+
+    // Substitute partial onboarding data so options/settings page reflects it before final checkout
+    const partial = data.partial_onboarding || {};
+    return {
+      onboarding_completed: false,
+      user_account: {
+        fullName: partial.fullName || "Guest",
+        email: partial.email || "",
+        dob: partial.dob || "",
+        gender: partial.gender || ""
+      },
+      user_preferences: {
+        healthMode: partial.condition && partial.condition !== "general",
+        notificationFrequency: partial.notificationFrequency || "realtime",
+        selectedTags: [partial.condition, partial.metric].filter(Boolean),
+        termsAccepted: partial.termsAccepted || false,
+        privacyAccepted: partial.privacyAccepted || false,
+        consentTimestamp: null
+      }
+    };
+  },
+
+  setOnboardingComplete: async (data: Omit<ChromeExtensionStorage, 'onboarding_completed'>): Promise<void> => {
+    await chrome.storage.local.set({
+      onboarding_completed: true,
+      ...data,
+    });
+    // Clean up partial data
+    await chrome.storage.local.remove('partial_onboarding');
+  },
+
+  setPartialOnboardingData: async (data: any): Promise<void> => {
+    await chrome.storage.local.set({ partial_onboarding: data });
+  },
+
+  getPartialOnboardingData: async (): Promise<any> => {
+    const data = await chrome.storage.local.get('partial_onboarding');
+    return data.partial_onboarding || {};
+  },
+
+  updatePreferences: async (preferences: Partial<ChromeExtensionStorage['user_preferences']>): Promise<void> => {
+    const current = await chrome.storage.local.get('user_preferences');
+    await chrome.storage.local.set({
+      user_preferences: { ...(current.user_preferences || {}), ...preferences },
+    });
+  },
+
+  clearAll: async (): Promise<void> => {
+    await chrome.storage.local.clear();
+  },
+
+  setActivePayment: async (ref: string | null, method: 'mpesa' | 'paystack' | null): Promise<void> => {
+    if (!ref || !method) {
+      await chrome.storage.local.remove(['activePaymentRef', 'activePaymentMethod']);
+    } else {
+      await chrome.storage.local.set({ activePaymentRef: ref, activePaymentMethod: method });
+    }
+  },
+
+  getActivePayment: async (): Promise<{ ref: string | null, method: 'mpesa' | 'paystack' | null }> => {
+    const data = await chrome.storage.local.get(['activePaymentRef', 'activePaymentMethod']);
+    return {
+      ref: data.activePaymentRef || null,
+      method: data.activePaymentMethod || null
+    };
+  },
+};
+
+/**
+ * Persists the user's premium status to chrome.storage.local and IndexedDB.
+ */
+export const savePremiumStatus = async (token: string | false): Promise<void> => {
+  await chrome.storage.local.set({ nutriscore_is_premium: token });
+
+  // Also write directly into the `user_settings` IndexedDB store so
+  // background.js can read it via NutriScoreDB.getSettings().
+  if (typeof indexedDB !== 'undefined') {
+    const req = indexedDB.open('nut04-nutriscore');
+    req.onsuccess = () => {
+      try {
+        const db = req.result;
+        const tx = db.transaction('user_settings', 'readwrite');
+        tx.objectStore('user_settings').put(token, 'isPremium');
+      } catch { /* ignore — SW will resolve on next wake */ }
+    };
+  }
+};

@@ -77,7 +77,7 @@ The spec defines six delivery phases with specific exit criteria. Reconciled aga
 
 | Phase | Claimed Exit Criteria | Verified Status |
 |---|---|---|
-| P1 — Foundations | Scraper detects products; 50 fallback entries with fibre values | ✅ Detection implemented; dataset far exceeds 50 entries (9,274 combined, though ~33% of Naivas entries are missing fibre and other core fields — see PRD §5.5) |
+| P1 — Foundations | Scraper detects products; 50 fallback entries with fibre values | ✅ Detection implemented; dataset far exceeds 50 entries (10,518 combined, though ~87.7% of Naivas entries are missing fibre and other core fields — see PRD §5.5) |
 | P2 — Score Engine | 20/20 reference products pass; ≥70% coverage; KNDI validation memo | ❌ Cannot be true as stated — no test suite exists to produce a 20/20 result, and no KNDI memo was found in the reviewed build |
 | P3 — Widget MVP | Badge <2s, CLS=0.00; all thresholds trigger; disclaimer visible in all warning states | 🟡 Thresholds verified correct in source (§3.1 above); render-speed/CLS claims not independently measurable without the missing test harness; disclaimer is present (verbatim text in the API Reference doc) |
 | P4 — Alternatives | ≥3 alternatives with explanation; AI-001 multi-factor ranking confirmed | ✅ Confirmed true — `NutriScoreDB.getAllProducts()` exists and `AlternativesEngine.getAlternatives()` returns real, ranked results, sourced from a live scan-time price cache rather than the (still all-zero) static dataset price field |
@@ -113,9 +113,9 @@ This is new in this revision, reflecting the flexible database design now adopte
 
 | Task | Why | Scale |
 |---|---|---|
-| Remap `EvidenceLevel` values onto the official 7-tier confidence hierarchy | Spec claims this mapping is already done in production; it is not | Naivas uses 9 ad hoc values, Carrefour uses 3, and they don't share a vocabulary — all ~9,274 records need remapping |
-| Backfill the 4 missing provenance fields (`SourceDatabase`, `ValidationMethod`, `Reviewer`, `ValidationDate`) | §10.5.3 mandates 7 fields; only `EvidenceType` matches by name today | Schema-wide addition, ~9,274 records |
-| Close Naivas's core-macronutrient completeness gap | §10.5.4 mandates 100% completeness on `EnergyKJ`/`SugarsG`/`FatG`/`CarbohydratesG` (or documented exemption) | 1,163–1,172 of 3,518 Naivas records (~33%) currently null |
+| Remap `EvidenceLevel` values onto the official 7-tier confidence hierarchy | Spec claims this mapping is already done in production; it is not | Naivas uses 3 distinct values (and 55.6% unknown), Carrefour uses 3 (53.7% unknown) — all ~10,518 records need remapping |
+| Backfill the 4 missing provenance fields (`SourceDatabase`, `ValidationMethod`, `Reviewer`, `ValidationDate`) | §10.5.3 mandates 7 fields; only `EvidenceType` matches by name today | Schema-wide addition, ~10,518 records |
+| Close Naivas's core-macronutrient completeness gap | §10.5.4 mandates 100% completeness on `EnergyKJ`/`SugarsG`/`FatG`/`CarbohydratesG` (or documented exemption) | 3,351 of 3,820 Naivas records (~87.7%) currently null |
 | ~~Fix the KFCT reference-dataset import (filename case mismatch)~~ | **Already resolved — not an open task.** `db.js` imports from `data/kfct2018_reference_validated.json`, and the file ships at that exact lowercase path. The two match; the import runs successfully and the reference layer is functional | — |
 | Re-evaluate the `category_reference` / `category_default` quality gate | §10.5.7 targets <5% category-default records; if `category_reference` is the shipped equivalent, actual figures are 16.2% (Naivas) and 83.7% (Carrefour) | Category-by-category re-matching effort, prioritise by KNPM ineligibility rate per EV-KE-004 (Savoury Snacks, Sweet Biscuits, Ice Cream first) |
 | Add the missing `IsEligibleForScoring`/`ExclusionReason` dataset fields, or formally document the runtime-classifier approach as the intended design | DATA-005 specifies a pre-computed field; the actual mechanism is a runtime check in `FoodClassifier` | Architectural decision + schema addition if the pre-computed approach is preferred |

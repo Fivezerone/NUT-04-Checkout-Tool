@@ -1,0 +1,78 @@
+/* Generated from src/shared/health-modes.mjs - do not edit directly */
+self.NutriHealthModes = {
+  "general": {
+    "id": "general",
+    "label": "General Wellness",
+    "engineKey": null,
+    "chipPrefix": null,
+    "palette": {
+      "primary": "#2E7D32",
+      "accentBg": "#E8F5E9",
+      "border": "#C8E6C9",
+      "headerBg": "#A5D6A7",
+      "headerText": "#1B5E20",
+      "headerSub": "#2E7D32",
+      "detail": "#1B5E20"
+    }
+  },
+  "diabetes": {
+    "id": "diabetes",
+    "label": "Diabetes",
+    "engineKey": "diabetes",
+    "chipPrefix": "Diabetes Risk",
+    "palette": {
+      "primary": "#D32F2F",
+      "accentBg": "#FFEBEE",
+      "border": "#EF9A9A",
+      "headerBg": "#FFCDD2",
+      "headerText": "#212121",
+      "headerSub": "#B71C1C",
+      "detail": "#B71C1C"
+    }
+  },
+  "hypertension": {
+    "id": "hypertension",
+    "label": "Hypertension",
+    "engineKey": "hypertension",
+    "chipPrefix": "Hypertension Risk",
+    "palette": {
+      "primary": "#E65100",
+      "accentBg": "#FFF3E0",
+      "border": "#FFCC80",
+      "headerBg": "#FFE0B2",
+      "headerText": "#212121",
+      "headerSub": "#E65100",
+      "detail": "#7C2D12"
+    }
+  },
+  "kidney": {
+    "id": "kidney",
+    "label": "Kidney Health",
+    "engineKey": "renal",
+    "chipPrefix": "Kidney Risk",
+    "palette": {
+      "primary": "#00796B",
+      "accentBg": "#E0F2F1",
+      "border": "#B2DFDB",
+      "headerBg": "#80CBC4",
+      "headerText": "#004D40",
+      "headerSub": "#00695C",
+      "detail": "#004D40"
+    }
+  },
+  "obesity": {
+    "id": "obesity",
+    "label": "Weight & Obesity",
+    "engineKey": "obesity",
+    "chipPrefix": "Obesity Risk",
+    "palette": {
+      "primary": "#7B1FA2",
+      "accentBg": "#F3E5F5",
+      "border": "#E1BEE7",
+      "headerBg": "#CE93D8",
+      "headerText": "#4A148C",
+      "headerSub": "#6A1B9A",
+      "detail": "#4A148C"
+    }
+  }
+};

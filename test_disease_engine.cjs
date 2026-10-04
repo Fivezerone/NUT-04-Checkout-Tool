@@ -2,7 +2,7 @@ const fs = require('fs');
 const vm = require('vm');
 
 const runTests = () => {
-  const code = fs.readFileSync('./src/extension/engine/disease-engine.js', 'utf8');
+  const code = fs.readFileSync('./src/extension/engine/nutri-score-engine.js', 'utf8');
   
   // Create a mock module object
   const sandbox = {
@@ -97,6 +97,18 @@ const runTests = () => {
   const r5 = DiseaseEngine.evaluate(negProduct, patientProfile);
   console.log("Diabetes Confidence (expect degraded):", r5.diseaseAssessment.diabetes?.dataConfidence);
   
+  console.log("\n--- Test 6: SaltG Fallback for Sodium (Hypertension) ---");
+  const saltProduct = {
+    Identity: { ProductID: "6" },
+    Nutrition: {
+      SaltG: 2,           // 2g salt = 800mg sodium (above 600)
+      SaturatedFatG: 2
+    }
+  };
+  const r6 = DiseaseEngine.evaluate(saltProduct, patientProfile);
+  const hyperAssessment = r6.diseaseAssessment.hypertension;
+  console.log("Hypertension triggers (expect warnings for Sodium):", r6.warnings.some(w => w.condition.includes("sodium")) ? "Found" : "Not Found");
+  console.log("Hypertension Data Confidence (expect high):", hyperAssessment?.dataConfidence);
 };
 
 runTests();

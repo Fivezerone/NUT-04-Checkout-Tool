@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Trash2, Droplet, HeartPulse, Activity, UserCircle2, Check, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Trash2, Droplet, HeartPulse, Activity, UserCircle2, Check, ShieldAlert, Scale, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -12,6 +12,7 @@ import {
 } from "./ui/table";
 import { ChartBox } from "./ChartBox";
 import { DonutChart, LineTrend, HBarChart, StackedHBarChart, type StackedHBar } from "./charts/Charts";
+import { ExtensionStorage, ChromeExtensionStorage } from "../../services/storage";
 import { getAllEntries, purgeAll, getSettings, saveSettings, deleteLedgerEntry, DEFAULT_SETTINGS, type Settings } from "../lib/db";
 
 import {
@@ -22,6 +23,7 @@ import {
   type ShoppingLedgerRow,
   type DashboardViewModel
 } from "../lib/nutriscore";
+import { useTheme } from "../context/ThemeContext";
 
 interface DashboardProps {
   onBack: () => void;
@@ -79,6 +81,7 @@ export function Dashboard({ onBack }: DashboardProps) {
   const [profileName, setProfileName] = useState("Guest");
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("Guest");
+  const [userData, setUserData] = useState<Partial<ChromeExtensionStorage> | null>(null);
 
   const [sortField, setSortField] = useState<keyof ShoppingLedgerRow>("addedAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -107,36 +110,50 @@ export function Dashboard({ onBack }: DashboardProps) {
     setSettings(s);
     setProfileName(s.profileName);
     setNameInput(s.profileName);
+    
+    // Load extension storage data
+    const storageData = await ExtensionStorage.getOnboardingData();
+    setUserData(storageData);
+    
     if (showLoading) setLoading(false);
   }
 
+  /**
+   * M1 fix: single persistence path for profile name edits.
+   * Previously the Enter and button handlers wrote to localStorage("user_health_profile"),
+   * a key nothing else ever reads back. load() always overwrote from IDB on next open,
+   * silently reverting the name. Now all persistence goes through saveSettings() → IDB.
+   */
+  function commitNameEdit(rawInput: string) {
+    const trimmed = rawInput.trim() || "Guest";
+    const initials = trimmed
+      .split(" ")
+      .map((w: string) => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+    const next: Settings = { ...settings, profileName: trimmed, initials };
+    setSettings(next);
+    setProfileName(trimmed);
+    saveSettings(next); // only persistence path that survives reload
+    setEditingName(false);
+  }
 
-
-  // Derive which single condition is active from the boolean settings flags.
-  const activeCondition: "diabetes" | "hypertension" | "kidney" | "general" =
-    settings.diabetes ? "diabetes"
-    : settings.hypertension ? "hypertension"
-    : settings.kidney ? "kidney"
-    : "general";
+  const { activeTheme, setTheme } = useTheme();
 
   /** Single-select condition setter — mutually exclusive. Updates Settings flags,
    *  applies the theme attribute, and persists condition to localStorage profile. */
-  function selectCondition(condition: "diabetes" | "hypertension" | "kidney" | "general") {
+  function selectCondition(condition: "diabetes" | "hypertension" | "kidney" | "obesity" | "general") {
     const next: Settings = {
       ...settings,
       diabetes: condition === "diabetes",
       hypertension: condition === "hypertension",
       kidney: condition === "kidney",
+      obesity: condition === "obesity",
     };
     setSettings(next);
-    saveSettings(next);
-
-    const conditionStr = condition === "general" ? "healthy" : condition;
-    if (condition === "general") {
-      document.documentElement.removeAttribute("data-health-condition");
-    } else {
-      document.documentElement.setAttribute("data-health-condition", condition);
-    }
+    saveSettings(next).catch(console.warn);
+    setTheme(condition);
   }
 
   function updateSetting(key: keyof Settings, value: boolean) {
@@ -154,9 +171,20 @@ export function Dashboard({ onBack }: DashboardProps) {
         load();
       }
     };
+    
+    const storageListener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes.user_account || changes.user_preferences || changes.user_payment) {
+        ExtensionStorage.getOnboardingData().then(data => setUserData(data));
+      }
+    };
+
     if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       chrome.runtime.onMessage.addListener(handleMessage);
-      return () => chrome.runtime.onMessage.removeListener(handleMessage);
+      chrome.storage?.onChanged.addListener(storageListener);
+      return () => {
+        chrome.runtime.onMessage.removeListener(handleMessage);
+        chrome.storage?.onChanged.removeListener(storageListener);
+      };
     }
   }, []);
 
@@ -331,165 +359,17 @@ export function Dashboard({ onBack }: DashboardProps) {
         </div>
 
         <div className="flex items-center gap-2 relative">
-          {/* Profile avatar + dropdown trigger */}
           <button
             type="button"
-            onClick={() => { setShowSettings(!showSettings); setEditingName(false); setNameInput(profileName); }}
-            aria-label="Edit profile"
-            title="Edit profile"
-            className="flex items-center justify-center rounded-full hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400"
-            style={{ width: "40px", height: "40px" }}
+            onClick={() => chrome.runtime.openOptionsPage()}
+            aria-label="Settings"
+            title="Settings"
+            className="flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors focus:outline-none p-2"
           >
-            <div
-              id="user-avatar-badge"
-              className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-colors duration-300"
-              style={{
-                backgroundColor: "var(--theme-primary, #2563eb)",
-                color: "#fff",
-                borderColor: "var(--theme-header-bg, #ffffff)",
-              }}
-            >
-              {profileName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
-            </div>
+            <Settings2 size={20} className="text-slate-600" />
           </button>
-
-          {/* Profile dropdown */}
-          {showSettings && (
-            <div className="absolute right-0 top-12 z-50 w-76 rounded-xl bg-white p-4 shadow-[0_10px_40px_rgba(0,0,0,0.12)] border border-slate-100" style={{ minWidth: "17rem" }}>
-
-              {/* Edit Profile section */}
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Edit Profile</p>
-              {editingName ? (
-                <div className="flex items-center gap-2 mb-4">
-                  <input
-                    type="text"
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    className="flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-blue-500"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const n = nameInput.trim() || "Guest";
-                        setProfileName(n);
-                        setEditingName(false);
-                        try {
-                          const raw = localStorage.getItem("user_health_profile");
-                          const p = raw ? JSON.parse(raw) : {};
-                          p.name = n;
-                          p.initials = n.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
-                          localStorage.setItem("user_health_profile", JSON.stringify(p));
-                        } catch {}
-                      }
-                      if (e.key === "Escape") setEditingName(false);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const n = nameInput.trim() || "Guest";
-                      setProfileName(n);
-                      setEditingName(false);
-                      try {
-                        const raw = localStorage.getItem("user_health_profile");
-                        const p = raw ? JSON.parse(raw) : {};
-                        p.name = n;
-                        p.initials = n.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
-                        localStorage.setItem("user_health_profile", JSON.stringify(p));
-                      } catch {}
-                    }}
-                    className="rounded-lg bg-blue-600 px-2.5 py-1.5 text-white hover:bg-blue-700 transition"
-                  >
-                    <Check size={14} />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => { setEditingName(true); setNameInput(profileName); }}
-                  className="w-full flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 mb-4 text-sm text-slate-700 hover:border-blue-400 hover:bg-slate-50 transition"
-                >
-                  <span className="font-medium">{profileName}</span>
-                  <span className="text-xs text-slate-400">tap to edit</span>
-                </button>
-              )}
-
-              {/* Health Focus — wizard-style single-select cards */}
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Health Focus</p>
-              <div className="flex flex-col gap-2 mb-4">
-                {(
-                  [
-                    {
-                      id: "diabetes" as const,
-                      icon: <Droplet size={14} style={{ color: "var(--ns-grade-e)", flexShrink: 0 }} />,
-                      title: "Blood Sugar & Diabetes",
-                    },
-                    {
-                      id: "hypertension" as const,
-                      icon: <HeartPulse size={14} style={{ color: "var(--ns-grade-d)", flexShrink: 0 }} />,
-                      title: "Blood Pressure & Sodium",
-                    },
-                    {
-                      id: "kidney" as const,
-                      icon: <Activity size={14} style={{ color: "#0d9488", flexShrink: 0 }} />,
-                      title: "Renal & Kidney Health",
-                    },
-                    {
-                      id: "general" as const,
-                      icon: <UserCircle2 size={14} style={{ color: "#64748b", flexShrink: 0 }} />,
-                      title: "General Wellness",
-                    },
-                  ] satisfies { id: "diabetes" | "hypertension" | "kidney" | "general"; icon: React.ReactNode; title: string }[]
-                ).map(({ id, icon, title }) => {
-                  const isActive = activeCondition === id;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => selectCondition(id)}
-                      className="flex w-full items-center justify-between rounded-xl border-2 py-2 px-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-slate-400"
-                      style={{
-                        borderColor: isActive ? "var(--theme-primary)" : "#e2e8f0",
-                        backgroundColor: isActive ? "color-mix(in srgb, var(--theme-primary) 8%, white)" : "#ffffff",
-                      }}
-                      aria-pressed={isActive}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        {icon}
-                        <span className="text-xs font-bold text-slate-800 leading-none">{title}</span>
-                      </div>
-                      {/* Radio indicator */}
-                      <div
-                        className="ml-2 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition-colors"
-                        style={{
-                          borderColor: isActive ? "var(--theme-primary)" : "#cbd5e1",
-                          backgroundColor: isActive ? "var(--theme-primary)" : "transparent",
-                        }}
-                      >
-                        {isActive && (
-                          <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Delete data — destructive footer */}
-              <div className="pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={handleErase}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-white hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 transition-opacity"
-                  style={{ backgroundColor: "var(--destructive)" }}
-                >
-                  <Trash2 size={15} aria-hidden />
-                  <span style={{ fontSize: "0.82rem", fontWeight: "600" }}>Delete all my data</span>
-                </button>
-              </div>
-            </div>
-          )}
+          
+          {/* Removed profile dropdown and trigger as they moved to Settings */}
         </div>
       </header>
 
@@ -545,6 +425,8 @@ export function Dashboard({ onBack }: DashboardProps) {
               );
             })}
           </div>
+
+          {/* User data panels removed */}
 
           {filtered.length === 0 ? (
             <div
@@ -641,8 +523,8 @@ export function Dashboard({ onBack }: DashboardProps) {
                       showSugar={true}
                       showSatFat={false}
                       primaryKey={
-                        activeCondition === "hypertension" ? "sodium"
-                        : activeCondition === "diabetes"   ? "sugar"
+                        activeTheme === "hypertension" ? "sodium"
+                        : activeTheme === "diabetes"   ? "sugar"
                         : "sodium"   // general / kidney → default to sodium as primary
                       }
                     />
@@ -656,7 +538,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                     <span style={{ width: 14, height: 2.5, backgroundColor: "var(--ns-grade-d)", display: "inline-block", borderRadius: 2 }} />
                     <span className="text-slate-600">
                       Sodium
-                      {activeCondition === "hypertension" && <span className="ml-1 text-slate-400">(primary)</span>}
+                      {activeTheme === "hypertension" && <span className="ml-1 text-slate-400">(primary)</span>}
                     </span>
                   </span>
                   <span
@@ -666,7 +548,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                     <span style={{ width: 14, height: 1.5, backgroundColor: "var(--ns-grade-e)", display: "inline-block", borderRadius: 2, borderTop: "1.5px dashed var(--ns-grade-e)" }} />
                     <span className="text-slate-600">
                       Sugar
-                      {activeCondition === "diabetes" && <span className="ml-1 text-slate-400">(primary)</span>}
+                      {activeTheme === "diabetes" && <span className="ml-1 text-slate-400">(primary)</span>}
                     </span>
                   </span>
               </div>
@@ -704,32 +586,79 @@ export function Dashboard({ onBack }: DashboardProps) {
             </div>
             <div className="p-4 flex-1">
               <div className="flex flex-wrap gap-4">
-                <div id="health-alerts-container"></div>
-              {settings.diabetes && (
-                <div className="flex items-center gap-3 rounded-lg px-4 py-2 border transition-all duration-300" style={{ backgroundColor: "#ecfeff", borderColor: "#a5f3fc" }}>
-                  <Droplet size={18} style={{ color: "#0e7490" }} />
-                  <span className="text-xl font-bold" style={{ color: "#0e7490" }}>{alertCounts.diabetes}</span>
-                  <span className="text-xs font-medium" style={{ color: "#164e63" }}>Sugar &gt; 22.5g</span>
-                </div>
-              )}
-              {settings.hypertension && (
-                <div className="flex items-center gap-3 rounded-lg px-4 py-2 border transition-all duration-300" style={{ backgroundColor: "#fffbeb", borderColor: "#fde68a" }}>
-                  <HeartPulse size={18} style={{ color: "#d97706" }} />
-                  <span className="text-xl font-bold" style={{ color: "#d97706" }}>{alertCounts.hypertension}</span>
-                  <span className="text-xs font-medium" style={{ color: "#92400e" }}>Sodium &gt; 600mg</span>
-                </div>
-              )}
-              {settings.kidney && (
-                <div className="flex items-center gap-3 rounded-lg px-4 py-2 border transition-all duration-300" style={{ backgroundColor: "#f0fdfa", borderColor: "#99f6e4" }}>
-                  <Activity size={18} style={{ color: "#0d9488" }} />
-                  <span className="text-xl font-bold" style={{ color: "#0d9488" }}>{alertCounts.kidney}</span>
-                  <span className="text-xs font-medium" style={{ color: "#115e59" }}>Sodium &gt; 600mg or high potassium</span>
-                </div>
-              )}
-              {!settings.diabetes && !settings.hypertension && !settings.kidney && (
-                <p className="text-sm text-slate-500">No health alerts enabled. Turn them on in Settings.</p>
-              )}
-            </div>
+                {(() => {
+                  type AlertMode = { count: number; icon: React.ReactNode; label: string; detail: string; bg: string; border: string; iconColor: string; textColor: string; mutedColor: string };
+                  const modeAlert: AlertMode | null = (() => {
+                    if (activeTheme === "diabetes") return {
+                      count: alertCounts.diabetes,
+                      icon: <Droplet size={22} />,
+                      label: "Blood Sugar",
+                      detail: "Sugar > 22.5g/100g",
+                      bg: "var(--theme-accent-bg)", border: "var(--theme-border)", iconColor: "var(--theme-primary)", textColor: "var(--theme-primary)", mutedColor: "var(--theme-header-sub)"
+                    };
+                    if (activeTheme === "hypertension") return {
+                      count: alertCounts.hypertension,
+                      icon: <HeartPulse size={22} />,
+                      label: "Blood Pressure",
+                      detail: "Sodium > 600mg/100g",
+                      bg: "var(--theme-accent-bg)", border: "var(--theme-border)", iconColor: "var(--theme-primary)", textColor: "var(--theme-primary)", mutedColor: "var(--theme-header-sub)"
+                    };
+                    if (activeTheme === "kidney") return {
+                      count: alertCounts.kidney,
+                      icon: <Activity size={22} />,
+                      label: "Kidney Health",
+                      detail: "Sodium > 600mg or high potassium",
+                      bg: "var(--theme-accent-bg)", border: "var(--theme-border)", iconColor: "var(--theme-primary)", textColor: "var(--theme-primary)", mutedColor: "var(--theme-header-sub)"
+                    };
+                    if (activeTheme === "obesity") return {
+                      count: alertCounts.obesity,
+                      icon: <Scale size={22} />,
+                      label: "Weight & Obesity",
+                      detail: "High energy, sugar or sat. fat",
+                      bg: "var(--theme-accent-bg)", border: "var(--theme-border)", iconColor: "var(--theme-primary)", textColor: "var(--theme-primary)", mutedColor: "var(--theme-header-sub)"
+                    };
+                    // general: show all non-zero counts
+                    return null;
+                  })();
+
+                  if (modeAlert) {
+                    return (
+                      <div className="flex items-center gap-4 rounded-xl px-5 py-3 border transition-all duration-300 w-full" style={{ backgroundColor: modeAlert.bg, borderColor: modeAlert.border }}>
+                        <span style={{ color: modeAlert.iconColor }}>{modeAlert.icon}</span>
+                        <div className="flex-1">
+                          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: modeAlert.mutedColor }}>{modeAlert.label}</div>
+                          <div className="text-xs" style={{ color: modeAlert.mutedColor }}>{modeAlert.detail}</div>
+                        </div>
+                        <span className="text-3xl font-bold tabular-nums" style={{ color: modeAlert.textColor }}>{modeAlert.count}</span>
+                        <span className="text-xs" style={{ color: modeAlert.mutedColor }}>items</span>
+                      </div>
+                    );
+                  }
+
+                  // General mode: show all counts that are non-zero
+                  const generalAlerts = [
+                    { count: alertCounts.diabetes, label: "Sugar", detail: "> 22.5g", icon: <Droplet size={18} />, iconColor: "var(--theme-primary)" },
+                    { count: alertCounts.hypertension, label: "Sodium", detail: "> 600mg", icon: <HeartPulse size={18} />, iconColor: "var(--theme-primary)" },
+                    { count: alertCounts.kidney, label: "Kidney", detail: "Na/K flags", icon: <Activity size={18} />, iconColor: "var(--theme-primary)" },
+                    { count: alertCounts.obesity, label: "Calories", detail: "High energy", icon: <Scale size={18} />, iconColor: "var(--theme-primary)" },
+                  ].filter(a => a.count > 0);
+
+                  if (generalAlerts.length === 0) {
+                    return <p className="text-sm text-slate-500">No nutritional alerts in this period.</p>;
+                  }
+
+                  return generalAlerts.map(a => (
+                    <div key={a.label} className="flex items-center gap-3 rounded-lg px-4 py-2 border transition-all duration-300" style={{ backgroundColor: "#F1F5F9", borderColor: "#CBD5E1" }}>
+                      <span style={{ color: a.iconColor }}>{a.icon}</span>
+                      <span className="text-xl font-bold" style={{ color: "#0F172A" }}>{a.count}</span>
+                      <div>
+                        <div className="text-xs font-semibold text-slate-700">{a.label}</div>
+                        <div className="text-xs text-slate-500">{a.detail}</div>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
             </div>
           </section>
 
@@ -830,33 +759,7 @@ export function Dashboard({ onBack }: DashboardProps) {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl ring-1 ring-black/10">
-            <h2 className="mb-2 text-lg font-bold text-gray-900">Delete all your data?</h2>
-            <p className="mb-6 text-sm text-gray-500">
-              This removes every saved item from this device. You cannot undo this.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(false)}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmErase}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
-              >
-                Yes, delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Delete confirmation modal moved to Options */}
     </div>
   );
 }

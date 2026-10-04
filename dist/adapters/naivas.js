@@ -1,5 +1,13 @@
 /* Naivas Retailer Adapter Implements IRetailerAdapter contract Naivas uses Magento 2 -- cart data is available via the section load API and via DOM selectors on the cart page and mini-cart sidebar. */
 
+// ARCH-002: Guard against manifest.json load-order violations.
+// shared-ui.js must appear before this file in the content_scripts array.
+if (typeof NutriSharedUI === "undefined") {
+  console.error("[NutriScore] Load-order violation: adapters/shared-ui.js must load before naivas.js. Check manifest.json content_scripts array.");
+  // Bail out so content script does not crash with confusing 'NutriSharedUI is not defined'.
+  throw new Error("[NutriScore] naivas.js: NutriSharedUI not available");
+}
+
 const NaivasAdapter = {
 
   getRetailerCode() {
@@ -147,16 +155,37 @@ const NaivasAdapter = {
     return items;
   },
 
-  /* Fetch cart contents using multiple strategies: 1. Livewire v3 wire:snapshot attributes (JSON component data in the DOM) 2. Livewire v2 window.Livewire JS object 3. Magento section load API (fallback for hybrid setups) */
-  async fetchCartFromAPI() {
-    // --- Strategy 1: Livewire v3 wire:snapshot in DOM ---
-    try {
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
-      let node;
-      while ((node = walker.nextNode())) {
-        if (!node.hasAttribute('wire:snapshot')) continue;
-        const snapshot = JSON.parse(node.getAttribute('wire:snapshot'));
-        const data = snapshot?.data || {};
+  async _cartFromLivewireV3Snapshot() {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!node.hasAttribute('wire:snapshot')) continue;
+      const snapshot = JSON.parse(node.getAttribute('wire:snapshot'));
+      const data = snapshot?.data || {};
+      const rawItems = data.cartItems || data.cart_items
+        || data.cart?.items || data.items || [];
+      if (rawItems.length > 0) {
+        return rawItems
+          .filter(i => i.id || i.product_id || i.productId)
+          .map(i => ({
+            retailer: 'NAIVAS',
+            productId: String(i.id || i.product_id || i.productId),
+            product_name: i.name || i.product_name || i.title || '',
+            priceSnapshot: parseFloat(i.price || i.subtotal || 0),
+            quantity: i.quantity || i.qty || 1
+          }));
+      }
+    }
+    return [];
+  },
+
+  async _cartFromLivewireV2Object() {
+    if (window.Livewire) {
+      const components = Object.values(
+        window.Livewire.components?.componentsById || {}
+      );
+      for (const component of components) {
+        const data = component.data || {};
         const rawItems = data.cartItems || data.cart_items
           || data.cart?.items || data.items || [];
         if (rawItems.length > 0) {
@@ -165,74 +194,51 @@ const NaivasAdapter = {
             .map(i => ({
               retailer: 'NAIVAS',
               productId: String(i.id || i.product_id || i.productId),
-              product_name: i.name || i.product_name || i.title || '',
-              priceSnapshot: parseFloat(i.price || i.subtotal || 0),
+              product_name: i.name || i.product_name || '',
+              priceSnapshot: parseFloat(i.price || 0),
               quantity: i.quantity || i.qty || 1
             }));
         }
       }
-    } catch (e) {
-      console.debug("[NutriScore:Naivas] fetchCartFromAPI (Strategy 1: DOM Snapshot) failed:", e);
     }
-
-    // --- Strategy 2: Livewire v2 window.Livewire object ---
-    try {
-      if (window.Livewire) {
-        const components = Object.values(
-          window.Livewire.components?.componentsById || {}
-        );
-        for (const component of components) {
-          const data = component.data || {};
-          const rawItems = data.cartItems || data.cart_items
-            || data.cart?.items || data.items || [];
-          if (rawItems.length > 0) {
-            return rawItems
-              .filter(i => i.id || i.product_id || i.productId)
-              .map(i => ({
-                retailer: 'NAIVAS',
-                productId: String(i.id || i.product_id || i.productId),
-                product_name: i.name || i.product_name || '',
-                priceSnapshot: parseFloat(i.price || 0),
-                quantity: i.quantity || i.qty || 1
-              }));
-          }
-        }
-      }
-    } catch (e) {
-      console.debug("[NutriScore:Naivas] fetchCartFromAPI (Strategy 2: window.Livewire) failed:", e);
-    }
-
-    // --- Strategy 3: Magento / custom section load API ---
-    try {
-      const ts = Date.now();
-      const res = await NutriSharedUI.fetchWithRetry(
-        '/customer/section/load/?sections=cart&force_new_section_timestamp=false&_=' + ts,
-        { credentials: 'include', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }
-      );
-      if (res.ok) {
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('json')) {
-          const data = await res.json();
-          const rawItems = data?.cart?.items || [];
-          if (rawItems.length > 0) {
-            return rawItems
-              .filter(i => i.item_id || i.product_id)
-              .map(i => ({
-                retailer: 'NAIVAS',
-                productId: String(i.product_id || i.item_id),
-                product_name: i.product_name || i.name || '',
-                priceSnapshot: NutriSharedUI.parsePrice(String(i.product_price || i.price || '0')),
-                quantity: i.qty || 1,
-                url: i.product_url || null
-              }));
-          }
-        }
-      }
-    } catch (e) {
-      console.debug("[NutriScore:Naivas] fetchCartFromAPI (Strategy 3: Magento) failed:", e);
-    }
-
     return [];
+  },
+
+  async _cartFromMagentoSections() {
+    const ts = Date.now();
+    const res = await NutriSharedUI.fetchWithRetry(
+      '/customer/section/load/?sections=cart&force_new_section_timestamp=false&_=' + ts,
+      { credentials: 'include', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }
+    );
+    if (res.ok) {
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('json')) {
+        const data = await res.json();
+        const rawItems = data?.cart?.items || [];
+        if (rawItems.length > 0) {
+          return rawItems
+            .filter(i => i.item_id || i.product_id)
+            .map(i => ({
+              retailer: 'NAIVAS',
+              productId: String(i.product_id || i.item_id),
+              product_name: i.product_name || i.name || '',
+              priceSnapshot: NutriSharedUI.parsePrice(String(i.product_price || i.price || '0')),
+              quantity: i.qty || 1,
+              url: i.product_url || null
+            }));
+        }
+      }
+    }
+    return [];
+  },
+
+  /* Fetch cart contents using multiple strategies: 1. Livewire v3 wire:snapshot attributes (JSON component data in the DOM) 2. Livewire v2 window.Livewire JS object 3. Magento section load API (fallback for hybrid setups) */
+  async fetchCartFromAPI() {
+    return await NutriSharedUI.firstNonEmpty([
+      this._cartFromLivewireV3Snapshot.bind(this),
+      this._cartFromLivewireV2Object.bind(this),
+      this._cartFromMagentoSections.bind(this)
+    ]);
   },
 
 
