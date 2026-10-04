@@ -209,8 +209,10 @@ function DashboardRoot() {
         }
 
         // ── 3. Check onboarding completion ────────────────────────────────────
-        const local = await chrome.storage.local.get('onboarding_completed');
-        if (!result.onboardingCompleted && !local.onboarding_completed) {
+        // D-22: key per userId so Account-A's flag cannot skip onboarding for Account-B
+        const oBKey = `onboarding_completed_${session.user.id}`;
+        const local = await chrome.storage.local.get(oBKey);
+        if (!result.onboardingCompleted && !local[oBKey]) {
           window.location.href = chrome.runtime.getURL("onboarding.html");
           return;
         }

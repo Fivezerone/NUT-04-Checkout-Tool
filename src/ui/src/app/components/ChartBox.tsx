@@ -23,7 +23,11 @@ export function ChartBox({ height, children }: ChartBoxProps) {
 
   return (
     <div ref={ref} style={{ width: "100%", height }}>
-      {width > 0 ? children({ width, height }) : null}
+      {width > 0
+        ? children({ width, height })
+        // D-25: skeleton while width===0 (display:none tab, first paint) — no blank gap
+        : <div aria-hidden="true" className="animate-pulse rounded bg-muted" style={{ height }} />
+      }
     </div>
   );
 }

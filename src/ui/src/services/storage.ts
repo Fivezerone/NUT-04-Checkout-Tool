@@ -71,21 +71,35 @@ export const rehydrateSession = async () => {
   return session;
 };
 
+// D-22: all user-linked storage keys that must be cleared on sign-out.
+// partial_onboarding holds name/email/DOB/gender/condition/M-Pesa in cleartext.
+// onboarding_completed must be cleared so it cannot bypass onboarding for the next account.
+const USER_STORAGE_KEYS = [
+  'partial_onboarding',
+  'user_account',
+  'user_preferences',
+  'user_payment',
+  'onboarding_completed',
+  'activePaymentRef',
+  'activePaymentMethod',
+  'nutri_entitlement',
+  'nutriscore_is_premium',
+] as const;
+
 /**
- * Signs the current user out of Supabase and revokes the local premium flag.
+ * Signs the current user out of Supabase and clears ALL user-linked local storage.
  * Centralised here so all callers (Settings, dashboard guard) use one path.
- * Does NOT clear chrome.storage.local user_account / user_preferences — only
- * the auth session and premium status are revoked. This means the user's name
- * and settings persist for when they log back in.
+ * D-22: partial_onboarding (PII) and onboarding_completed are now included so
+ * shared-PC users don't see previous user's health data or skip onboarding.
  */
 export const signOutUser = async (): Promise<void> => {
   try {
     await supabase.auth.signOut();
   } catch { /* network offline — still clear local flags */ }
-  // Revoke local premium so the background SW stops granting premium access
   try {
-    await chrome.storage.local.set({ nutriscore_is_premium: false });
-    await chrome.storage.local.remove('nutri_entitlement');
+    await chrome.storage.local.remove([...USER_STORAGE_KEYS]);
+    // Also clear theme from localStorage (not chrome.storage)
+    try { localStorage.removeItem('nutriscore_theme'); } catch { /* sandboxed page */ }
   } catch { /* ignore */ }
 };
 
@@ -159,7 +173,11 @@ export const ExtensionStorage = {
   },
 
   setPartialOnboardingData: async (data: any): Promise<void> => {
-    await chrome.storage.local.set({ partial_onboarding: data });
+    // D-22: strip fields that must not persist in cleartext storage
+    // mpesaPhone, dob and gender are only needed transiently during signup.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { mpesaPhone: _m, dob: _d, gender: _g, ...safeData } = data || {};
+    await chrome.storage.local.set({ partial_onboarding: safeData });
   },
 
   getPartialOnboardingData: async (): Promise<any> => {

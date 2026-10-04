@@ -229,7 +229,8 @@ async function getProductInfo(payload, retailerCode) {
   };
 
   if (cacheKey && typeof NutriScoreDB !== "undefined" && NutriScoreDB.saveProduct) {
-    NutriScoreDB.saveProduct(cacheKey, result).catch(e => console.warn("[NutriScore SW] IndexedDB save:", e.message));
+    // D-20: clone before enrichment so tier/isPremium/activeTheme don't race into the cache
+    NutriScoreDB.saveProduct(cacheKey, structuredClone(result)).catch(() => {});
   }
 
   return await appendPremiumAssessment(result, retailerCode, productId, settings.activeTheme, tier);
@@ -548,75 +549,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // ── OAuth Login via chrome.identity.launchWebAuthFlow ──────────────────────
-  // Triggered from the React UI (OnboardingWizard) with a pre-built Supabase
-  // OAuth URL. We execute the auth flow here in the SW so it survives popup
-  // closure. On success, we return the raw tokens to the UI so it can call
-  // supabase.auth.setSession() and hydrate the chromeStorageAdapter.
-  if (message.action === "oauth_login") {
-    (async () => {
-      try {
-        const { authUrl } = message;
-        if (!authUrl) throw new Error("No authUrl provided in oauth_login message.");
-
-        // Log the exact URL so you can verify the redirect_to param matches
-        // what's registered in Supabase → Auth → URL Configuration → Redirect URLs.
-        // Check this in: chrome://extensions → Service Worker → Inspect → Console
-        console.log("[NutriScore SW] Starting OAuth flow. authUrl:", authUrl);
-
-        // launchWebAuthFlow opens a browser-managed auth popup. 'interactive: true'
-        // shows the Google account picker. When Supabase redirects back to the
-        // chrome extension's redirect URL, Chrome intercepts it and returns the
-        // full URL here — without ever opening a visible new tab.
-        const responseUrl = await chrome.identity.launchWebAuthFlow({
-          url: authUrl,
-          interactive: true,
-        });
-
-        if (!responseUrl) {
-          throw new Error("OAuth flow cancelled: auth window was closed prematurely.");
-        }
-
-        const url = new URL(responseUrl);
-
-        // Check for a provider-level error in the query string first.
-        // Supabase forwards OAuth errors as query params (e.g. ?error=access_denied).
-        const queryParams = new URLSearchParams(url.search);
-        const oauthError = queryParams.get("error_description") || queryParams.get("error");
-        if (oauthError) {
-          throw new Error(`OAuth provider error: ${oauthError}`);
-        }
-
-        // Supabase appends the session as a URI fragment (#) for implicit grant.
-        // Example: https://<ext-id>.chromiumapp.org/#access_token=...&refresh_token=...
-        const hashParams = new URLSearchParams(url.hash.substring(1));
-        const access_token = hashParams.get("access_token");
-        const refresh_token = hashParams.get("refresh_token");
-        const expires_in = hashParams.get("expires_in");
-
-        if (!access_token) {
-          throw new Error("Access token missing from redirect URL. Check Supabase redirect config.");
-        }
-
-        console.log("[NutriScore SW] OAuth flow successful. Returning tokens to UI.");
-        sendResponse({ success: true, access_token, refresh_token, expires_in });
-
-      } catch (err) {
-        // Common case: user closed the popup window. Treat gracefully.
-        const isUserCancelled =
-          err.message?.includes("cancelled") ||
-          err.message?.includes("closed") ||
-          err.message?.includes("The user did not approve access");
-
-        if (isUserCancelled) {
-          console.log("[NutriScore SW] OAuth flow cancelled by user.");
-        } else {
-          console.error("[NutriScore SW] OAuth flow failed:", err.message);
-        }
-        sendResponse({ success: false, error: err.message });
-      }
-    })();
-    // Return true to keep the message channel open while the async flow runs.
-    return true;
-  }
+  // D-21: oauth_login handler REMOVED.
+  // It had zero callers, returned raw access/refresh tokens to any extension sender,
+  // and logged the full auth URL. Re-implement with sender origin validation if needed.
 });

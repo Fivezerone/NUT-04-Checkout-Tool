@@ -1,6 +1,8 @@
 // Lightweight, dependency-free SVG charts. Built in-house to avoid Recharts' internal duplicate-key warning (unresolved in 2.15.x) and to keep full control over rendering keys.
 
 import { useState } from "react";
+import { EmptyChart, isFiniteNum } from "./EmptyChart";
+
 
 interface Size {
   width: number;
@@ -61,12 +63,9 @@ export function DonutChart({
     </>
   );
 
-  if (total === 0) {
-    return (
-      <svg width={width} height={height}>
-        <circle cx={cx} cy={cy} r={r} fill="#f2f2f2" />
-      </svg>
-    );
+  // D-25: replace blank grey disc with accessible empty state message
+  if (total === 0 || !data.some(d => isFiniteNum(d.value) && d.value > 0)) {
+    return <EmptyChart w={width} h={height} msg="No graded items yet" />;
   }
 
   const nonZero = data.filter((d) => d.value > 0);
@@ -301,13 +300,14 @@ export function LineTrend({
 
   const handleLeave = () => { if (tooltipRef.current) tooltipRef.current.style.display = "none"; };
 
-  if (data.length === 0) {
-    return (
-      <svg width={width} height={height}>
-        <text x={width / 2} y={height / 2} textAnchor="middle" fontSize={11}
-          fill="var(--muted-foreground)">No data for this period</text>
-      </svg>
-    );
+  // D-25: empty array OR all-zero data (draws a meaningless empty grid)
+  const hasAnyData = data.some(d =>
+    (isFiniteNum(d.sodium) && d.sodium > 0) ||
+    (isFiniteNum(d.sugar) && d.sugar > 0) ||
+    (isFiniteNum(d.satFat) && d.satFat > 0)
+  );
+  if (data.length === 0 || !hasAnyData) {
+    return <EmptyChart w={width} h={height} msg="No nutrient data for this period" />;
   }
 
   return (

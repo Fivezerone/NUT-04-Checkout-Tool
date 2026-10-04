@@ -57,7 +57,8 @@
   --theme-header-sub: #1d4ed8;
 }
 
-@import url("./health-modes.generated.css");
+/* D-23: health-modes.generated.css is now imported in index.css before theme.css.
+   @import must precede all non-@import rules; browsers silently ignored it here. */
 
 .dark {
   --background: oklch(0.145 0 0);
