@@ -49,9 +49,11 @@ function initializeDatabases() {
     initPromise = (async () => {
       try {
         if (typeof NutriCatalogSync !== "undefined") {
-          // Entitlement refresh takes ~100ms and updates the clock guard.
+          // D-17: entitlement refresh is non-blocking — catalog must be ready for scoring
+          // even if the entitlement call stalls on slow/mobile data.
+          // NutriEntitlement.refresh() has its own internal timeout (D-06).
           if (typeof NutriEntitlement !== "undefined") {
-            await NutriEntitlement.refresh();
+            void NutriEntitlement.refresh();
           }
           await NutriCatalogSync.ensureReady();
           console.log("[NutriScore SW] Catalog synced and ready.");
@@ -125,15 +127,17 @@ function buildNutritionalProfileDisplay(nutrition) {
     const parsed = parseFloat(val);
     return isNaN(parsed) ? null : parsed;
   };
+  // D-19: round kJ to avoid float noise (e.g. EnergyKcal * 4.184 = 1255.2000000000002)
+  const round0 = (v) => (v == null ? null : Math.round(v));
   return {
-    energy_kj: parseNumeric(nutrition.EnergyKJ ?? (nutrition.EnergyKcal != null ? nutrition.EnergyKcal * 4.184 : null)),
-    fat_g: parseNumeric(nutrition.FatG),
-    sat_fat_g: parseNumeric(nutrition.SaturatedFatG),
-    carbs_g: parseNumeric(nutrition.CarbohydratesG),
-    sugars_g: parseNumeric(nutrition.SugarsG),
-    fibre_g: parseNumeric(nutrition.FibreG),
-    protein_g: parseNumeric(nutrition.ProteinG),
-    sodium_mg: parseNumeric(nutrition.SodiumMG ?? nutrition.Sodium?.ValueMG),
+    energy_kj:    round0(parseNumeric(nutrition.EnergyKJ ?? (nutrition.EnergyKcal != null ? nutrition.EnergyKcal * 4.184 : null))),
+    fat_g:        parseNumeric(nutrition.FatG),
+    sat_fat_g:    parseNumeric(nutrition.SaturatedFatG),
+    carbs_g:      parseNumeric(nutrition.CarbohydratesG),
+    sugars_g:     parseNumeric(nutrition.SugarsG),
+    fibre_g:      parseNumeric(nutrition.FibreG),
+    protein_g:    parseNumeric(nutrition.ProteinG),
+    sodium_mg:    parseNumeric(nutrition.SodiumMG ?? nutrition.Sodium?.ValueMG),
     potassium_mg: parseNumeric(nutrition.PotassiumMG ?? nutrition.Potassium?.ValueMG),
   };
 }
@@ -204,11 +208,13 @@ async function getProductInfo(payload, retailerCode) {
     isExcluded: isExcluded,
     algorithmVersion: "FSA-NPS-2023",
     nutritional_profile_display: buildNutritionalProfileDisplay(nutrition),
-    confidence: interpretation.evidenceTier,
-    canDisplayGrade: interpretation.canDisplayGrade,
-    validationStatus: interpretation.validationStatus,
-    evidenceTier: interpretation.evidenceTier,
-    valueSpecificity: interpretation.valueSpecificity,
+    confidence:                    interpretation.evidenceTier,
+    canDisplayGrade:               interpretation.canDisplayGrade,
+    validationStatus:              interpretation.validationStatus,
+    evidenceTier:                  interpretation.evidenceTier,
+    // D-19: copy evidenceLevel so flyout shows correct provenance (not always 'Unknown')
+    evidenceLevel:                 interpretation.evidenceLevel,
+    valueSpecificity:              interpretation.valueSpecificity,
     categoryPlausibilityCheck: interpretation.categoryPlausibilityCheck,
     energyConsistencyCheck: interpretation.energyConsistencyCheck,
     saltSodiumConsistencyCheck: interpretation.saltSodiumConsistencyCheck,

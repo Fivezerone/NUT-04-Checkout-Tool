@@ -11,7 +11,9 @@ if (typeof NutriSharedUI === "undefined") {
 class NutriScoreContentEngine {
   constructor() {
     this.adapter          = window.RetailerAdapter || null;
-    this.processedElements = new Set();
+    // D-16: WeakSet so DOM nodes can be GC'd on infinite scroll (no memory leak)
+    this.processedElements = new WeakSet();
+    this.notFoundCache    = new Set();
     this.observer         = null;
     this.debounceTimer    = null;   // scan debounce — 300ms
     this.cartDebounceTimer = null;  // P3: cart debounce — 1000ms (separate, longer)
@@ -19,6 +21,11 @@ class NutriScoreContentEngine {
     this.lastCartHadItems = false;
     this.orderDetected    = false;
     this.lastHref         = location.href;
+  }
+
+  // D-16: guard against 'Extension context invalidated' after extension update
+  _safeSend(msg, cb) {
+    try { return chrome.runtime.sendMessage(msg, cb); } catch { return undefined; }
   }
 
   init() {
@@ -50,7 +57,8 @@ class NutriScoreContentEngine {
       if (!isRemove && this.adapter.extractCartAction) {
         const item = this.adapter.extractCartAction(e.target);
         if (item) {
-          chrome.runtime.sendMessage({ action: "LOG_CART_ADD", payload: item });
+          // D-16: use safeSend to survive extension context invalidation
+          this._safeSend({ action: "LOG_CART_ADD", payload: item });
         }
       }
     });
@@ -70,20 +78,29 @@ class NutriScoreContentEngine {
 
     // P3: Two separate debounce timers. scanAndInject: 300ms — fires on new product cards appearing (lazy load, SPA nav). syncCart: 1000ms — fires less aggressively; cart state changes much less than DOM mutations.
     this.observer = new MutationObserver(mutations => {
-      if (mutations.some(m => m.addedNodes.length > 0 || m.removedNodes.length > 0)) {
-        // Scan debounce: 300ms
-        if (this.debounceTimer) clearTimeout(this.debounceTimer);
-        this.debounceTimer = setTimeout(() => {
-          this.scanAndInject();
-          this.checkOrderConfirmation();
-        }, 300);
+      // D-16: ignore mutations caused by our own injected nodes to prevent feedback loop
+      const relevant = mutations.some(m =>
+        [...m.addedNodes, ...m.removedNodes].some(n =>
+          !(n.nodeType === 1 && (
+            n.classList?.contains('nutriscore-isolated-root') ||
+            n.id === 'nutriscore-global-portal'
+          ))
+        )
+      );
+      if (!relevant) return;
 
-        // Cart debounce: 1000ms — separate, longer window prevents thrashing on image loads / Livewire pings
-        if (this.cartDebounceTimer) clearTimeout(this.cartDebounceTimer);
-        this.cartDebounceTimer = setTimeout(() => {
-          this.syncCart();
-        }, 1000);
-      }
+      // Scan debounce: 300ms
+      if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      this.debounceTimer = setTimeout(() => {
+        this.scanAndInject();
+        this.checkOrderConfirmation();
+      }, 300);
+
+      // Cart debounce: 1000ms — separate, longer window prevents thrashing on image loads / Livewire pings
+      if (this.cartDebounceTimer) clearTimeout(this.cartDebounceTimer);
+      this.cartDebounceTimer = setTimeout(() => {
+        this.syncCart();
+      }, 1000);
     });
 
     const observeTarget = (this.adapter.getObserveTarget && this.adapter.getObserveTarget()) || document.body;
@@ -91,7 +108,6 @@ class NutriScoreContentEngine {
 
     this._startNavMonitor();
 
-    this.notFoundCache = new Set();
     this.scanAndInject();
     this.syncCart(true);
     this.checkOrderConfirmation();
@@ -201,7 +217,8 @@ class NutriScoreContentEngine {
     if (typeof NutriSharedUI !== 'undefined' && NutriSharedUI._closeActiveFlyout) {
       NutriSharedUI._closeActiveFlyout();
     }
-    this.processedElements = new Set();
+    // D-16: WeakSet cannot be iterated — create a new one for rescan
+    this.processedElements = new WeakSet();
     this.notFoundCache = new Set();
     document.querySelectorAll('.nutriscore-isolated-root').forEach(n => n.remove());
     document.querySelectorAll('[data-nutriscore-scanned]').forEach(n => n.removeAttribute('data-nutriscore-scanned'));
@@ -249,7 +266,8 @@ class NutriScoreContentEngine {
       payloads: batch.map(b => b.payload)
     };
 
-    chrome.runtime.sendMessage(message, response => {
+    // D-16: use safeSend so 'Extension context invalidated' after an update doesn't crash
+    this._safeSend(message, response => {
       if (chrome.runtime.lastError) {
         console.warn("[NutriScore] SW message failed:", chrome.runtime.lastError.message);
         batch.forEach(b => {
@@ -266,17 +284,24 @@ class NutriScoreContentEngine {
             const product = res.data;
             card.setAttribute("data-nutriscore-scanned", "complete");
             card.setAttribute("data-nutriscore-grade", product.nutriscore_grade);
-            this.adapter.injectBadge(card, product, payload.price);
+            // D-16: per-item try/catch so one bad card DOM doesn't abort the whole batch
+            try { this.adapter.injectBadge(card, product, payload.price); }
+            catch (e) { console.warn('[NutriScore] injectBadge failed:', e); this.processedElements.delete(card); }
           } else {
-            card.setAttribute("data-nutriscore-scanned", "not-found");
-            if (cacheKey) this.notFoundCache.add(cacheKey);
+            // D-16: only cache DEFINITIVE not-found; treat infra errors as retryable
+            const definitive = /^Product not found/i.test(res.error || '');
+            card.setAttribute('data-nutriscore-scanned', definitive ? 'not-found' : 'error');
+            if (definitive && cacheKey) this.notFoundCache.add(cacheKey);
+            else this.processedElements.delete(card);
           }
         });
       } else {
+        // Batch infrastructure failure — all retryable (do NOT cache as not-found)
         batch.forEach(b => {
-          b.card.setAttribute("data-nutriscore-scanned", "not-found");
-          if (b.cacheKey) this.notFoundCache.add(b.cacheKey);
+          b.card.setAttribute('data-nutriscore-scanned', 'error');
+          this.processedElements.delete(b.card);
         });
+      }
       }
       
       // Notify the popup to refresh its stats (if it is open)

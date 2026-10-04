@@ -99,7 +99,15 @@ export function getDB() {
       },
       blocking(currentVersion, blockedVersion, _event) {
         console.warn(`[NutriScoreDB] IndexedDB connection (v${currentVersion}) is blocking a newer version (${blockedVersion}). Closing this connection.`);
-        if (dbPromise) dbPromise.then(db => db.close());
+        // D-18: null dbPromise so the next caller gets a fresh openDB() instead of
+        // a closed connection that throws InvalidStateError on every subsequent call.
+        const p = dbPromise;
+        dbPromise = null;
+        p?.then(db => db.close());
+      },
+      terminated() {
+        // D-18: unexpected termination (e.g. browser killed the connection) — reset
+        dbPromise = null;
       },
       upgrade(db, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {

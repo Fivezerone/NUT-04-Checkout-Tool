@@ -137,7 +137,8 @@ const NutriSharedUI = {
     ];
 
     const rows = rawRows
-      .filter(r => r.val != null && r.val !== "" && Number(r.val) !== 0)
+      // D-19: preserve zero values (e.g. 0g sugar, 0mg sodium) — they are nutritionally significant
+      .filter(r => r.val !== null && r.val !== undefined && r.val !== '')
       .map(r => ({ label: r.label, value: `${this.escapeHTML(String(r.val))} ${r.unit}` }));
 
     const nutriRowsHTML = rows.map(r => `
