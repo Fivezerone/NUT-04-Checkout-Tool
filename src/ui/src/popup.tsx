@@ -31,34 +31,41 @@ function PopupRoot() {
   /** Run both async checks in parallel so there is exactly ONE state transition
    *  (no flash from 'new'→'loggedIn' or 'returning'→'loggedIn'). */
   async function resolveAuthState() {
-    const [storageData, { data: { session } }] = await Promise.all([
-      ExtensionStorage.getOnboardingData(),
-      supabase.auth.getSession(),
-    ]);
+    try {
+      const [storageData, { data: { session } }] = await Promise.all([
+        ExtensionStorage.getOnboardingData(),
+        supabase.auth.getSession(),
+      ]);
 
-    if (storageData.onboarding_completed) {
-      if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
-        chrome.runtime.sendMessage({ action: "CHECK_TIER" }, (response) => {
-          const isPremium = response?.tier === "premium";
+      if (storageData.onboarding_completed) {
+        if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+          chrome.runtime.sendMessage({ action: "CHECK_TIER" }, (response) => {
+            const isPremium = response?.tier === "premium";
+            setUserData({ ...storageData, nutriscore_is_premium: isPremium });
+          });
+        } else {
+          // Fallback or dev mode normalizer
+          const isPremium = storageData.nutriscore_is_premium === true || (typeof storageData.nutriscore_is_premium === 'string' && storageData.nutriscore_is_premium.length > 10);
           setUserData({ ...storageData, nutriscore_is_premium: isPremium });
-        });
-      } else {
-        // Fallback or dev mode normalizer
-        const isPremium = storageData.nutriscore_is_premium === true || (typeof storageData.nutriscore_is_premium === 'string' && storageData.nutriscore_is_premium.length > 10);
-        setUserData({ ...storageData, nutriscore_is_premium: isPremium });
+        }
       }
-    }
 
-    if (session) {
-      if (!storageData.onboarding_completed) {
-        setAuthState('incomplete');
+      if (session) {
+        if (!storageData.onboarding_completed) {
+          setAuthState('incomplete');
+        } else {
+          setAuthState('loggedIn');
+        }
+      } else if (storageData.onboarding_completed) {
+        setAuthState('returning');
       } else {
-        setAuthState('loggedIn');
+        setAuthState('new');
       }
-    } else if (storageData.onboarding_completed) {
+    } catch (e) {
+      // D-11: never leave popup stuck at 'checking' — fall back to returning so
+      // the user can at least open the dashboard and investigate.
+      console.warn('[popup] resolveAuthState error (showing returning state):', e);
       setAuthState('returning');
-    } else {
-      setAuthState('new');
     }
   }
 

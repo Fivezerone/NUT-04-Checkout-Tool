@@ -67,9 +67,13 @@ function applyPersonalization(profile: UserProfile) {
 
 // ── Subscription + profile check (Supabase is sole source of truth) ────────────
 
-type AuthState = 'checking' | 'unauthenticated' | 'active' | 'trialing' | 'basic';
+type AuthState = 'checking' | 'unauthenticated' | 'active' | 'trialing' | 'basic' | 'offline';
+
+// D-11: definitive JWT error codes that warrant a sign-out
+const DEFINITIVE_AUTH_ERRORS = new Set(['PGRST301', '401', '403']);
 
 interface SubscriptionResult {
+  kind: 'ok' | 'transient';
   subStatus: AuthState;
   daysRemaining: number;
   profile: UserProfile | null;
@@ -77,6 +81,7 @@ interface SubscriptionResult {
 }
 
 async function checkSubscriptionAndProfile(userId: string, fallbackName: string): Promise<SubscriptionResult> {
+  const TRANSIENT: SubscriptionResult = { kind: 'transient', subStatus: 'offline', daysRemaining: 0, profile: null, onboardingCompleted: false };
   try {
     const { data: row, error } = await supabase
       .from("users")
@@ -89,17 +94,22 @@ async function checkSubscriptionAndProfile(userId: string, fallbackName: string)
 
     if (error) {
       if (error.code === 'PGRST116') {
-        return { 
-          subStatus: "trialing", 
-          daysRemaining: 30, 
+        return {
+          kind: 'ok',
+          subStatus: "trialing",
+          daysRemaining: 30,
           profile: buildProfile(fallbackName, 'general', 'General'),
-          onboardingCompleted: false 
+          onboardingCompleted: false
         };
       }
-      // Real DB error — sign out and force re-login. Do not allow stale local access.
-      console.error("[checkSubscription] DB error:", JSON.stringify(error, null, 2));
-      await signOutUser();
-      return { subStatus: "unauthenticated", daysRemaining: 0, profile: null, onboardingCompleted: false };
+      // D-11: only sign out on definitive JWT/auth errors; treat everything else as transient
+      if (DEFINITIVE_AUTH_ERRORS.has(error.code)) {
+        console.error("[checkSubscription] Definitive auth error — signing out:", error.code);
+        await signOutUser();
+        return { kind: 'ok', subStatus: "unauthenticated", daysRemaining: 0, profile: null, onboardingCompleted: false };
+      }
+      console.warn("[checkSubscription] Transient DB error (session preserved):", error.code, error.message);
+      return TRANSIENT;
     }
 
     const r = row as any;
@@ -121,7 +131,7 @@ async function checkSubscriptionAndProfile(userId: string, fallbackName: string)
       if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
         window.location.href = chrome.runtime.getURL("onboarding.html") + "?mode=renew";
       }
-      return { subStatus: "unauthenticated", daysRemaining: 0, profile: null, onboardingCompleted: false };
+      return { kind: 'ok', subStatus: "unauthenticated", daysRemaining: 0, profile: null, onboardingCompleted: false };
     }
 
     const profile = buildProfile(
@@ -130,17 +140,17 @@ async function checkSubscriptionAndProfile(userId: string, fallbackName: string)
       r.metric   || "General"
     );
 
-    return { 
-      subStatus: resolved as AuthState, 
-      daysRemaining: days, 
-      profile, 
-      onboardingCompleted: !!r.onboarding_completed 
+    return {
+      kind: 'ok',
+      subStatus: resolved as AuthState,
+      daysRemaining: days,
+      profile,
+      onboardingCompleted: !!r.onboarding_completed
     };
   } catch (err) {
-    console.error("[checkSubscription] Unexpected error:", err);
-    // Hard failure — sign out and send to login rather than guessing.
-    await signOutUser();
-    return { subStatus: "unauthenticated", daysRemaining: 0, profile: null, onboardingCompleted: false };
+    // D-11: network/AbortError → transient (keep session!); don't sign out
+    console.warn("[checkSubscription] Network error — offline state (session preserved):", err);
+    return TRANSIENT;
   }
 }
 
@@ -160,69 +170,83 @@ function DashboardRoot() {
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [ready, setReady] = useState(false);
+  // D-11: increment to re-trigger init() from the retry button
+  const [bootKey, setBootKey] = useState(0);
 
   useEffect(() => {
     async function init() {
-      // ── 1. Verify Supabase session ────────────────────────────────────────
-      const { data: { user } } = await supabase.auth.getUser();
+      try {
+        // D-11: use getSession() (reads from local cache — no network call)
+        // instead of getUser() which makes a network request and returns {user:null} offline.
+        const { data: { session } } = await supabase.auth.getSession();
 
-      if (!user) {
-        setAuthState("unauthenticated");
-        setReady(true);
-        return;
-      }
-
-      // ── 2. Load profile + check subscription from Supabase (single query) ──
-      //    Supabase is the sole source of truth for account data.
-      //    If the subscription is expired, checkSubscriptionAndProfile() signs
-      //    the user out and redirects — no render needed in that case.
-      const fallbackName =
-        user.user_metadata?.full_name ||
-        user.email?.split('@')[0] ||
-        "User";
-
-      const { subStatus, profile: fetchedProfile } =
-        await checkSubscriptionAndProfile(user.id, fallbackName);
-
-      if (subStatus === "unauthenticated") {
-        // Either was expired (already redirected) or DB hard-failed.
-        // Show login in case the redirect hasn't fired yet.
-        setAuthState("unauthenticated");
-        setReady(true);
-        return;
-      }
-
-      // ── 3. Check onboarding completion in Supabase ────────────────────────
-      //    The DB is the gate; we use it to sync the local UI hint.
-      //    We also check local storage to defeat DB read-replica lag which
-      //    can bounce the user back to the wizard immediately after payment.
-      const local = await chrome.storage.local.get('onboarding_completed');
-      if (!fetchedProfile?.onboardingCompleted && !local.onboarding_completed) {
-        window.location.href = chrome.runtime.getURL("onboarding.html");
-        return;
-      }
-      
-      // Sync DB state to local storage for the popup
-      await chrome.storage.local.set({ onboarding_completed: true });
-
-      if (subStatus === "active") {
-        try {
-          const { data } = await supabase.functions.invoke('get-premium-token');
-          if (data?.token) await savePremiumStatus(data.token);
-        } catch (err) {
-          console.warn('Failed to fetch premium token:', err);
+        if (!session) {
+          setAuthState("unauthenticated");
+          setReady(true);
+          return;
         }
-      } else {
-        await savePremiumStatus(false);
-      }
 
-      setProfile(fetchedProfile);
-      setAuthState(subStatus);
-      setReady(true);
+        const fallbackName =
+          session.user.user_metadata?.full_name ||
+          session.user.email?.split('@')[0] ||
+          "User";
+
+        const result = await checkSubscriptionAndProfile(session.user.id, fallbackName);
+
+        // D-11: transient errors (network down) → offline state, NOT sign-out
+        if (result.kind === 'transient') {
+          setAuthState('offline');
+          setReady(true);
+          return;
+        }
+
+        if (result.subStatus === "unauthenticated") {
+          // Either was expired (already redirected) or definitive auth failure.
+          setAuthState("unauthenticated");
+          setReady(true);
+          return;
+        }
+
+        // ── 3. Check onboarding completion ────────────────────────────────────
+        const local = await chrome.storage.local.get('onboarding_completed');
+        if (!result.onboardingCompleted && !local.onboarding_completed) {
+          window.location.href = chrome.runtime.getURL("onboarding.html");
+          return;
+        }
+
+        await chrome.storage.local.set({ onboarding_completed: true });
+
+        if (result.subStatus === "active") {
+          try {
+            const { data } = await supabase.functions.invoke('get-premium-token');
+            if (data?.token) await savePremiumStatus(data.token);
+          } catch (err) {
+            console.warn('Failed to fetch premium token:', err);
+          }
+        } else {
+          await savePremiumStatus(false);
+        }
+
+        setProfile(result.profile);
+        setAuthState(result.subStatus);
+        setReady(true);
+      } catch (e) {
+        // D-11: top-level guard — never leave a blank white page on any error
+        console.error('[DashboardRoot] init() uncaught error:', e);
+        setAuthState('offline');
+        setReady(true);
+      }
     }
 
     init();
-  }, []);
+  }, [bootKey]);  // D-11: re-run when bootKey changes (retry after offline)
+
+  // D-11: retry from offline — reset state and re-run init()
+  const retryInit = () => {
+    setReady(false);
+    setAuthState('checking');
+    setBootKey(k => k + 1);
+  };
 
   // Apply DOM-level personalization whenever profile changes
   useEffect(() => {
@@ -234,7 +258,26 @@ function DashboardRoot() {
   };
 
   // ── Loading ────────────────────────────────────────────────────────────────
-  if (!ready) return null;
+  // D-11: never return null — blank white page on any error is unacceptable
+  if (!ready) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <p className="text-sm text-muted-foreground">Loading…</p>
+    </div>
+  );
+
+  // D-11: offline / transient failure — show retry instead of blank page or sign-out
+  if (authState === 'offline') return (
+    <ThemeProvider>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-6 text-center">
+        <p className="text-sm font-semibold">Could not connect to NutriScore servers.</p>
+        <p className="text-xs text-muted-foreground">Check your connection, then tap Retry. Your account is safe.</p>
+        <button
+          className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition"
+          onClick={retryInit}
+        >Retry</button>
+      </div>
+    </ThemeProvider>
+  );
 
   // ── Unauthenticated (or just signed out) — show login modal ─────────────
   if (authState === "unauthenticated") {
