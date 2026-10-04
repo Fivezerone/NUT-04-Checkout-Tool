@@ -42,7 +42,11 @@ self.NutriEntitlement = (() => {
   // ── Clock-rollback guard ───────────────────────────────────────────────────
   async function updateTimeGuard(serverNow) {
     const stored = (await chrome.storage.local.get(TIME_GUARD_KEY))[TIME_GUARD_KEY] ?? {};
-    const maxLocalSeen = Math.max(stored.maxLocalSeen ?? 0, Date.now());
+    let maxLocalSeen = Math.max(stored.maxLocalSeen ?? 0, Date.now());
+    // D-07: a trusted server clock caps the high-water mark so a once-wrong
+    // clock self-heals on the next successful refresh() rather than locking
+    // the user out permanently.
+    if (serverNow) maxLocalSeen = Math.min(maxLocalSeen, serverNow + CLOCK_SKEW_MS);
     await chrome.storage.local.set({
       [TIME_GUARD_KEY]: { maxLocalSeen, lastServerNow: serverNow ?? stored.lastServerNow }
     });
@@ -147,37 +151,51 @@ self.NutriEntitlement = (() => {
         NUTRI_CONFIG.SUPABASE_URL,
         NUTRI_CONFIG.SUPABASE_ANON_KEY
       );
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session }, error } = await supabase.auth.getSession();
+
       if (!session) {
-        await clear();
-        return "basic";
+        // D-06: Only revoke on a DEFINITIVE auth failure.
+        // Transient failures (network down, token refresh race) must NOT wipe premium.
+        const definitive = error &&
+          /refresh_token_not_found|invalid_grant|session_not_found/i.test(
+            error.code || error.message || ''
+          );
+        if (!error || definitive) await clear();
+        return (await resolveTier(null)).tier === 'premium' ? 'premium' : 'basic';
       }
 
       const res = await fetch(
         `${NUTRI_CONFIG.SUPABASE_URL}/functions/v1/entitlement`,
         {
-          method: "POST",
+          method: 'POST',
+          signal: AbortSignal.timeout(5000), // D-06: 5s timeout prevents indefinite hang
           headers: {
-            "Authorization": `Bearer ${session.access_token}`,
-            "Content-Type": "application/json",
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
           },
         }
       );
 
+      // D-06: non-ok means a transient server error — keep whatever token we have
+      if (!res.ok) return 'unchanged';
+
       const data = await res.json();
-      await updateTimeGuard(data.server_now ? new Date(data.server_now).getTime() : null);
+      await updateTimeGuard(data.server_now ? Date.parse(data.server_now) : null);
 
-      if (data.tier === "premium" && data.token) {
+      if (data.tier === 'premium' && data.token) {
         await chrome.storage.local.set({ [STORAGE_KEY]: data.token });
-        return "premium";
+        return 'premium';
       }
-
-      // Basic — delete token and premium assessment data
-      await clear();
-      return "basic";
+      // Only an explicit 'basic' response revokes the token
+      if (data.tier === 'basic') {
+        await clear();
+        return 'basic';
+      }
+      return 'unchanged';
     } catch (e) {
-      console.error("[NutriEntitlement] refresh failed:", e.message);
-      return "basic";
+      // D-06: catch means a network/abort error — do NOT wipe the token
+      console.error('[NutriEntitlement] refresh error (token preserved):', e.message);
+      return 'unchanged';
     }
   }
 

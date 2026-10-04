@@ -23,6 +23,24 @@ console.log("[NutriScore SW] Component Architecture v2.0 active.");
 // Flip to true in DevTools console (self.NUTRISCORE_DEBUG = true) when diagnosing issues.
 const DEBUG = (typeof self !== "undefined" && self.NUTRISCORE_DEBUG === true);
 
+// D-05: module-level Supabase singleton — never create more than one client per SW lifetime.
+let _sb;
+const sb = () => (_sb ??= NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY));
+
+// D-05: 30-second tier memo — one resolveTier call per batch, not per item.
+let _tier, _tierAt = 0;
+async function currentTier() {
+  if (_tier && Date.now() - _tierAt < 30_000) return _tier;
+  try {
+    const { data: { session } } = await sb().auth.getSession();
+    _tier = (await NutriEntitlement.resolveTier(session?.user?.id)).tier;
+  } catch {
+    _tier = 'basic';
+  }
+  _tierAt = Date.now();
+  return _tier;
+}
+
 // (Dead cache maps removed per audit)
 let initPromise = null;
 
@@ -127,18 +145,10 @@ async function getProductInfo(payload, retailerCode) {
 
   const settings = await (NutriScoreDB.getSettings ? NutriScoreDB.getSettings() : { diabetes: true, hypertension: true, kidney: true, activeTheme: "general" });
   
-  // Resolve entitlement tier via verifier instead of user settings
+  // D-05: use singleton client + memoised tier (eliminates N-parallel-client refresh storm)
   let tier = "basic";
   if (typeof NutriEntitlement !== "undefined") {
-    // We pass null for sessionUserId here because in getProductInfo we don't have
-    // the auth session directly. NutriEntitlement checks the stored valid JWT.
-    // However, it's safer if we can just read the current tier if valid.
-    // Since resolveTier requires session.user.id in the strict implementation,
-    // we fetch it from Supabase auth first:
-    const supabase = NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
-    const { data: { session } } = await supabase.auth.getSession();
-    const res = await NutriEntitlement.resolveTier(session?.user?.id);
-    tier = res.tier;
+    tier = await currentTier();
   }
   settings.isPremium = (tier === "premium");
 
@@ -264,8 +274,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       let tier = "basic";
       if (typeof NutriEntitlement !== "undefined") {
         try {
-          const supabase = NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
-          const { data: { session } } = await supabase.auth.getSession();
+          const { data: { session } } = await sb().auth.getSession();
           const res = await NutriEntitlement.resolveTier(session?.user?.id);
           tier = res.tier;
         } catch (err) {
@@ -284,6 +293,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       let tier = 'basic';
       if (typeof NutriEntitlement !== 'undefined') {
         try {
+          // D-05: invalidate tier memo on refresh so the next currentTier() call re-resolves
+          _tierAt = 0;
           tier = await NutriEntitlement.refresh();
         } catch (err) {
           console.warn('[NutriScore SW] REFRESH_ENTITLEMENT error:', err);
