@@ -54,56 +54,20 @@ export const usePaymentState = ({
         table: 'payments',
         filter: `transaction_ref=eq.${transactionRef}`
       }, (payload) => {
+        // D-03: treat Realtime as a hint only — verify via the authoritative endpoint
         if (payload.new.status === 'completed') {
-          handleSuccess();
+          void pollStatusOnce();        // defined below; clears timer, runs one verified check
         } else if (payload.new.status === 'failed') {
-          handleFailure("Payment failed or was cancelled.");
+          handleFailure('Payment failed or was cancelled.');
         }
       })
-      .subscribe();
-
-    // 2. FALLBACK PATH: Active Polling
-    const pollStatus = async () => {
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const { data: { user } } = await supabase.auth.getUser();
-        const accessToken = sessionData.session?.access_token;
-        if (!accessToken || !user) return; // Wait for session
-
-        const { data, error } = await supabase.functions.invoke('payment-status', {
-          body: { transaction_ref: transactionRef, method },
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-
-        if (error) throw error;
-        
-        if (data?.status === 'completed') {
-          handleSuccess(data.token);
-          return;
-        } else if (data?.status === 'failed') {
-          handleFailure("Payment failed or timed out.");
-          return;
+      .subscribe((s: string) => {
+        if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') {
+          console.warn(`[usePaymentState] Realtime degraded (${s}), polling only`);
         }
+      });
 
-        // Still pending: schedule next poll with exponential backoff
-        // Cap polling at 2 minutes total backoff per interval
-        if (backoffRef.current < 120_000) {
-          pollTimerRef.current = setTimeout(pollStatus, backoffRef.current);
-          backoffRef.current *= 1.5; // increase by 1.5x
-        } else {
-          handleFailure("Payment verification timed out. If you paid, contact support.");
-        }
-      } catch (err) {
-        console.error("Polling error:", err);
-        // On transient network error, try again
-        pollTimerRef.current = setTimeout(pollStatus, backoffRef.current);
-      }
-    };
-
-    // Start first poll
-    pollTimerRef.current = setTimeout(pollStatus, backoffRef.current);
-
-    // Helpers
+    // Helpers (defined first so pollStatus can reference them)
     const handleSuccess = (token?: string) => {
       setStatus('success');
       supabase.removeChannel(channel);
@@ -117,6 +81,61 @@ export const usePaymentState = ({
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       onErrorRef.current(msg);
     };
+
+    // 2. FALLBACK PATH: Active Polling (with attempt cap)
+    const MAX_ATTEMPTS = 14; // 14 × backoff growth → ~10 min total
+    let attempts = 0;
+    const pollStatus = async () => {
+      attempts++;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('NO_SESSION');
+
+        const { data, error } = await supabase.functions.invoke('payment-status', {
+          body: { transaction_ref: transactionRef, method },
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+
+        if (error) throw error;
+
+        if (data?.status === 'completed') {
+          handleSuccess(data.token);
+          return;
+        }
+        if (data?.status === 'failed' || data?.status === 'cancelled') {
+          handleFailure('Payment failed or was cancelled.');
+          return;
+        }
+      } catch (err: any) {
+        if (err?.message === 'NO_SESSION') {
+          handleFailure(
+            'Your session expired. Sign in again — if you paid, your premium will still activate.'
+          );
+          return;
+        }
+        console.error('[usePaymentState] Polling error:', err);
+      }
+
+      if (attempts >= MAX_ATTEMPTS) {
+        handleFailure(
+          `We could not confirm your payment yet. If you were charged, contact support with ref ${transactionRef}.`
+        );
+        return;
+      }
+
+      backoffRef.current = Math.min(backoffRef.current * 1.5, 30_000);
+      pollTimerRef.current = setTimeout(pollStatus, backoffRef.current);
+    };
+
+    // D-03: one-shot verification triggered by Realtime 'completed' hint.
+    // Cancels any pending backoff timer so the check fires immediately.
+    const pollStatusOnce = async () => {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      await pollStatus();
+    };
+
+    // Start first poll
+    pollTimerRef.current = setTimeout(pollStatus, backoffRef.current);
 
     return () => {
       supabase.removeChannel(channel);

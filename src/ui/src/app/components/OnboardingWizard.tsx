@@ -90,7 +90,11 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     transactionRef: activePaymentRef,
     method: activePaymentMethod,
     onSuccess: async (ref, method, token) => {
-      await savePremiumStatus(token || 'LEGACY_TRUE');
+      if (!token) {
+        setError('Payment confirmed but entitlement is still syncing. Please wait a moment then try again.');
+        return;
+      }
+      await savePremiumStatus(token);
       finishOnboarding(ref, method === 'mpesa' ? "Mobile Money" : "Card", token);
     },
     onError: async (msg) => {
@@ -421,8 +425,8 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
           `Payment received (ref: ${paymentRef}), but your profile could not be saved: ${hint} ` +
           `Please contact support — do NOT pay again.`
         );
-        // Grant local premium so they aren't completely locked out while resolving
-        await savePremiumStatus(token || 'LEGACY_TRUE');
+        // Grant local premium only if we have a verified token — unverified fallbacks are not allowed
+        if (token) await savePremiumStatus(token);
         return; // do NOT redirect — would cause an infinite bounce loop
       }
     }

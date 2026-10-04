@@ -196,21 +196,26 @@ export const ExtensionStorage = {
 };
 
 /**
- * Persists the user's premium status to chrome.storage.local and IndexedDB.
+ * D-04: Persists the user's premium token to chrome.storage.local under the
+ * key the SW reads (`nutri_entitlement`), then signals the SW to adopt it
+ * immediately — eliminating the activation lag where badges stay "basic" until
+ * the next SW wake cycle.
+ *
+ * Previously wrote to `nutriscore_is_premium` (a dead UI-only key) and to
+ * IndexedDB `isPremium` (no longer read by the SW). Both writes are removed.
  */
 export const savePremiumStatus = async (token: string | false): Promise<void> => {
-  await chrome.storage.local.set({ nutriscore_is_premium: token });
+  try {
+    if (token) {
+      await chrome.storage.local.set({ nutri_entitlement: token });
+    } else {
+      await chrome.storage.local.remove('nutri_entitlement');
+    }
+  } catch { /* quota error — SW will re-fetch on next wake */ }
 
-  // Also write directly into the `user_settings` IndexedDB store so
-  // background.js can read it via NutriScoreDB.getSettings().
-  if (typeof indexedDB !== 'undefined') {
-    const req = indexedDB.open('nut04-nutriscore');
-    req.onsuccess = () => {
-      try {
-        const db = req.result;
-        const tx = db.transaction('user_settings', 'readwrite');
-        tx.objectStore('user_settings').put(token, 'isPremium');
-      } catch { /* ignore — SW will resolve on next wake */ }
-    };
-  }
+  // Signal the SW to refresh its in-memory tier immediately.
+  // Fire-and-forget: ignore the response and don't throw if the SW is sleeping.
+  try {
+    await chrome.runtime.sendMessage({ action: 'REFRESH_ENTITLEMENT' });
+  } catch { /* SW may be sleeping — it will pick up the token on next wake */ }
 };

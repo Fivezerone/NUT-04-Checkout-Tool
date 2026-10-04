@@ -190,5 +190,21 @@ self.NutriEntitlement = (() => {
     // premium_assessments are cleared by catalog-sync.js via NutriScoreDB.clearPremium()
   }
 
-  return { resolveTier, refresh, clear, verifyToken };
+  /**
+   * Accept a token pushed from the UI (e.g. right after payment).
+   * Verifies it before storing so the SW never trusts an unverified string.
+   *
+   * @param {string} token — the JWT from the payment-status / entitlement edge function
+   * @param {string} uid   — the current session user.id (for sub verification)
+   * @returns {Promise<boolean>} true if the token was valid and stored
+   */
+  async function adopt(token, uid) {
+    const r = await verifyToken(token, uid);
+    if (r.valid) {
+      await chrome.storage.local.set({ [STORAGE_KEY]: token });
+    }
+    return r.valid;
+  }
+
+  return { resolveTier, refresh, clear, verifyToken, adopt };
 })();

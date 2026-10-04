@@ -277,6 +277,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // D-04: UI calls this right after savePremiumStatus() to trigger immediate
+  // token adoption in the SW, eliminating activation lag.
+  if (message.action === 'REFRESH_ENTITLEMENT') {
+    (async () => {
+      let tier = 'basic';
+      if (typeof NutriEntitlement !== 'undefined') {
+        try {
+          tier = await NutriEntitlement.refresh();
+        } catch (err) {
+          console.warn('[NutriScore SW] REFRESH_ENTITLEMENT error:', err);
+        }
+      }
+      sendResponse({ tier });
+    })();
+    return true;
+  }
+
   if (message.action === "CHECK_PRODUCT_SCORE") {
     const retailerCode = message.retailer || "NAIVAS";
 
