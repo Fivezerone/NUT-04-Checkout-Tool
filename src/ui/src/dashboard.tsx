@@ -5,6 +5,7 @@ window.React = React;
 import { createRoot } from "react-dom/client";
 import { Dashboard } from "./app/components/Dashboard";
 import { OnboardingWizard, type UserProfile } from "./app/components/OnboardingWizard";
+import { SubscriptionExpiredPage } from "./app/components/SubscriptionExpiredPage";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "./app/context/ThemeContext";
 import { supabase, signOutUser, savePremiumStatus } from "./services/storage";
@@ -67,7 +68,7 @@ function applyPersonalization(profile: UserProfile) {
 
 // ── Subscription + profile check (Supabase is sole source of truth) ────────────
 
-type AuthState = 'checking' | 'unauthenticated' | 'active' | 'trialing' | 'basic' | 'offline';
+type AuthState = 'checking' | 'unauthenticated' | 'active' | 'trialing' | 'basic' | 'offline' | 'expired';
 
 // D-11: definitive JWT error codes that warrant a sign-out
 const DEFINITIVE_AUTH_ERRORS = new Set(['PGRST301', '401', '403']);
@@ -126,12 +127,11 @@ async function checkSubscriptionAndProfile(userId: string, fallbackName: string)
         .eq("id", userId);
     }
 
-    if (resolved === "expired" || resolved === "basic") {
-      // Expired or Basic — redirect to onboarding/renew to upgrade
-      if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
-        window.location.href = chrome.runtime.getURL("onboarding.html") + "?mode=renew";
-      }
-      return { kind: 'ok', subStatus: "unauthenticated", daysRemaining: 0, profile: null, onboardingCompleted: false };
+    // D-12: treat 'expired' and 'basic' differently.
+    // 'expired': surface SubscriptionExpiredPage in the render (never redirect here).
+    // 'basic': surface BasicDashboard — basic users must NOT be sent to the renew flow.
+    if (resolved === "expired") {
+      return { kind: 'ok', subStatus: 'expired' as AuthState, daysRemaining: 0, profile: null, onboardingCompleted: true };
     }
 
     const profile = buildProfile(
@@ -140,6 +140,7 @@ async function checkSubscriptionAndProfile(userId: string, fallbackName: string)
       r.metric   || "General"
     );
 
+    // 'basic' returns its real subStatus so the dashboard can render a tier-appropriate view
     return {
       kind: 'ok',
       subStatus: resolved as AuthState,
@@ -284,6 +285,35 @@ function DashboardRoot() {
     return (
       <ThemeProvider>
         <OnboardingWizard initialMode="login" onComplete={handleOnboardingComplete} />
+      </ThemeProvider>
+    );
+  }
+
+  // D-12: expired — show the polished SubscriptionExpiredPage (not a redirect)
+  if (authState === 'expired') {
+    return (
+      <ThemeProvider>
+        <SubscriptionExpiredPage />
+      </ThemeProvider>
+    );
+  }
+
+  // D-12: basic — show an upgrade prompt inline (not a redirect loop)
+  if (authState === 'basic') {
+    return (
+      <ThemeProvider>
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-6 text-center">
+          <p className="text-sm font-semibold">You're on the Basic plan.</p>
+          <p className="text-xs text-muted-foreground">Upgrade to Premium to unlock NutriScore analysis and health alerts.</p>
+          <button
+            className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition"
+            onClick={() => {
+              if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+                window.location.href = chrome.runtime.getURL('onboarding.html') + '?mode=renew';
+              }
+            }}
+          >Upgrade to Premium</button>
+        </div>
       </ThemeProvider>
     );
   }
