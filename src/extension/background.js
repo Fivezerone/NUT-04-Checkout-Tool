@@ -41,6 +41,13 @@ async function currentTier() {
   return _tier;
 }
 
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes['nutri_supabase_session']) {
+    sb().auth.getSession(); // trigger re-read from storage
+    _tierAt = 0; // invalidate tier memo
+  }
+});
+
 // (Dead cache maps removed per audit)
 let initPromise = null;
 

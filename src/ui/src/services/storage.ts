@@ -53,9 +53,12 @@ const chromeStorageAdapter = {
   },
 };
 
+import { SESSION_STORAGE_KEY } from '../../../shared/session-key.mjs';
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: chromeStorageAdapter,
+    storageKey: SESSION_STORAGE_KEY,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
@@ -75,6 +78,7 @@ export const rehydrateSession = async () => {
 // partial_onboarding holds name/email/DOB/gender/condition/M-Pesa in cleartext.
 // onboarding_completed must be cleared so it cannot bypass onboarding for the next account.
 const USER_STORAGE_KEYS = [
+  SESSION_STORAGE_KEY,
   'partial_onboarding',
   'user_account',
   'user_preferences',

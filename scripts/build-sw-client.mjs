@@ -1,5 +1,6 @@
 import * as esbuild from 'esbuild';
 import fs from 'fs';
+import { SESSION_STORAGE_KEY } from '../src/shared/session-key.mjs';
 
 const code = `
 import { createClient } from '@supabase/supabase-js';
@@ -33,6 +34,7 @@ self.NutriSupabase = {
   create: (url, key) => createClient(url, key, {
     auth: {
       storage: chromeStorageAdapter,
+      storageKey: '${SESSION_STORAGE_KEY}',
       autoRefreshToken: false,
       persistSession: true,
       detectSessionInUrl: false,
