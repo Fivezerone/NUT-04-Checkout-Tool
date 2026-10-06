@@ -1,14 +1,22 @@
-﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? ""
+  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map(s => s.trim())
+  const allow = allowed.includes(origin) ? origin : allowed[0] ?? "*"
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Vary": "Origin",
+  }
 }
 
 serve(async (req) => {
+  const headers = corsHeaders(req)
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders })
+    return new Response("ok", { headers })
   }
 
   try {
@@ -37,7 +45,7 @@ serve(async (req) => {
     // If already finalized, return immediately
     if (payment.status !== "pending") {
       return new Response(JSON.stringify({ status: payment.status }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         status: 200,
       })
     }
@@ -118,13 +126,13 @@ serve(async (req) => {
       const result = grantResult as { result: string }
       if (result?.result === "amount_mismatch") {
         return new Response(JSON.stringify({ status: "amount_mismatch" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...headers, "Content-Type": "application/json" },
           status: 200,
         })
       }
 
       return new Response(JSON.stringify({ status: "completed" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...headers, "Content-Type": "application/json" },
         status: 200,
       })
     }
@@ -134,12 +142,12 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ status: finalStatus }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...headers, "Content-Type": "application/json" },
       status: 200,
     })
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...headers, "Content-Type": "application/json" },
       status: 400,
     })
   }

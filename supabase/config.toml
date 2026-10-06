@@ -416,27 +416,35 @@ enabled = true
 
 [functions.payment-status]
 enabled = true
-verify_jwt = false
-import_map = "./functions/payment-status/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
-entrypoint = "./functions/payment-status/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/payment-status/*.html" ]
-
-[functions.debug-payments]
-enabled = false
 verify_jwt = true
-import_map = "./functions/debug-payments/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
-entrypoint = "./functions/debug-payments/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/debug-payments/*.html" ]
+entrypoint = "./functions/payment-status/index.ts"
+
+[functions.mpesa-initiate]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/mpesa-initiate/index.ts"
+
+[functions.paystack-initiate]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/paystack-initiate/index.ts"
 
 [functions.entitlement]
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/entitlement/index.ts"
+
+[functions.mpesa-webhook]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/mpesa-webhook/index.ts"
+
+[functions.paystack-webhook]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/paystack-webhook/index.ts"
+
+[functions.paystack-redirect]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/paystack-redirect/index.ts"
