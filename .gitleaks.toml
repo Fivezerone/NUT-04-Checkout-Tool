@@ -1,0 +1,5 @@
+title = "NUT-04 Gitleaks Config"
+[allowlist]
+paths = [
+    '''\.env\.example$'''
+]
