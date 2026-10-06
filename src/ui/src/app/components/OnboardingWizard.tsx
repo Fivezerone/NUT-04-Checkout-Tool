@@ -11,7 +11,7 @@ import { ExtensionStorage, supabase, savePremiumStatus, signOutUser } from "../.
 import { usePaymentState } from "../hooks/usePaymentState";
 import { isSubscriptionExpired } from "../lib/subscriptionUtils";
 import { HEALTH_MODES } from "../../../../shared/health-modes.mjs";
-
+import { persistOnboarding } from "../lib/persistOnboarding";
 /** Canonical user profile shape used by the dashboard greeting and settings. */
 export interface UserProfile {
   name: string;
@@ -401,54 +401,11 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     const { data: { user } } = await supabase.auth.getUser();
     const userId = user?.id;
 
-    if (userId) {
-      // D-09: skip the profile upsert entirely in renewal mode.
-      // A renewal has empty wizard state (form fields were never filled), so writing
-      // them would overwrite dob/condition/etc with '' and re-stamp consent_timestamp.
-      const isRenewal = initialMode === 'renew';
-      if (!isRenewal) {
-      // Write the full profile to Supabase — this is the source of truth.
-      // The user row is created by a DB trigger on auth.users INSERT,
-      // so we UPSERT to safely handle both first-write and updates.
-      // D-08: billing columns (is_premium, subscription_status) are OMITTED here —
-      // they must only be written by the server-side enforce_billing_state trigger.
-      const now = new Date().toISOString();
-      const { error: upsertError } = await supabase.from('users').upsert({
-        id: userId,
-        full_name:            fullName  || user?.user_metadata?.full_name || 'User',
-        email:                email     || user?.email || '',
-        dob,
-        gender,
-        condition,
-        metric,
-        notification_frequency:  notificationFrequency,
-        terms_accepted:           termsAccepted,
-        privacy_accepted:         privacyAccepted,
-        consent_timestamp:        now,
-        onboarding_completed:     true,
-        health_mode:              condition !== 'general',
-        selected_tags:            [condition, metric].filter(Boolean),
-        // is_premium and subscription_status intentionally NOT set here (D-08)
-      }, { onConflict: 'id' });
-
-      if (upsertError) {
-        // BLOCKING: if we can't write onboarding_completed=true to DB, the dashboard
-        // guard will read false and immediately redirect back here — infinite loop.
-        // D-10: use finishError (not the global error state) so we can offer a retry
-        setFinishError(
-          `Payment received (ref: ${paymentRef}) — your premium is safe. ` +
-          `We could not save your profile yet. Please retry.`
-        );
-        console.error('[finishOnboarding] profile UPSERT failed:', JSON.stringify(upsertError));
-        if (token) await savePremiumStatus(token);
-        return; // do NOT redirect — would cause an infinite bounce loop
-      }
-      } // end if (!isRenewal)
-    }
-
-    // Keep a local hint so the popup can show 'Log In' vs 'Sign Up'
-    // without a DB round-trip on every open.
-    await chrome.storage.local.set({ onboarding_completed: true });
+    await persistOnboarding({
+      paymentRef, method, token, userId, user, fullName, email, dob, gender,
+      condition, metric, notificationFrequency, termsAccepted, privacyAccepted,
+      initialMode, setFinishError
+    });
 
     // CRITICAL FIX: Clear the pending payment trap. If we don't do this, any
     // future visit to onboarding.html will forcibly jump to Step 4 and loop.
