@@ -270,41 +270,33 @@ class NutriScoreContentEngine {
     this._safeSend(message, response => {
       if (chrome.runtime.lastError) {
         console.warn("[NutriScore] SW message failed:", chrome.runtime.lastError.message);
-        batch.forEach(b => {
-          b.card.removeAttribute("data-nutriscore-scanned");
-          this.processedElements.delete(b.card);
-        });
+        batch.forEach(({ card }) => { card.removeAttribute("data-nutriscore-scanned"); this.processedElements.delete(card); });
         return;
       }
 
-      if (response && response.status === "SUCCESS" && response.results) {
+      if (response?.status === "SUCCESS" && Array.isArray(response.results)) {
         response.results.forEach((res, index) => {
-          const { card, cacheKey, payload } = batch[index];
+          const item = batch[index];
+          if (!item) return;
+          const { card, cacheKey, payload } = item;
+
           if (res.status === "SUCCESS" && res.data) {
             const product = res.data;
             card.setAttribute("data-nutriscore-scanned", "complete");
-            card.setAttribute("data-nutriscore-grade", product.nutriscore_grade);
-            // D-16: per-item try/catch so one bad card DOM doesn't abort the whole batch
+            card.setAttribute("data-nutriscore-grade", product.nutriscore_grade || "UNKNOWN");
             try { this.adapter.injectBadge(card, product, payload.price); }
-            catch (e) { console.warn('[NutriScore] injectBadge failed:', e); this.processedElements.delete(card); }
+            catch (e) { console.warn("[NutriScore] injectBadge failed:", e); card.removeAttribute("data-nutriscore-scanned"); this.processedElements.delete(card); }
           } else {
-            // D-16: only cache DEFINITIVE not-found; treat infra errors as retryable
-            const definitive = /^Product not found/i.test(res.error || '');
-            card.setAttribute('data-nutriscore-scanned', definitive ? 'not-found' : 'error');
+            const definitive = /^Product not found/i.test(res.error || "");
+            card.setAttribute("data-nutriscore-scanned", definitive ? "not-found" : "error");
             if (definitive && cacheKey) this.notFoundCache.add(cacheKey);
             else this.processedElements.delete(card);
           }
         });
       } else {
-        // Batch infrastructure failure — all retryable (do NOT cache as not-found)
-        batch.forEach(b => {
-          b.card.setAttribute('data-nutriscore-scanned', 'error');
-          this.processedElements.delete(b.card);
-        });
-      }
+        batch.forEach(({ card }) => { card.setAttribute("data-nutriscore-scanned", "error"); this.processedElements.delete(card); });
       }
       
-      // Notify the popup to refresh its stats (if it is open)
       chrome.runtime.sendMessage({ action: "POPUP_STATS_UPDATE" }).catch(() => {});
     });
   }
