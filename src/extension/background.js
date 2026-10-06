@@ -48,33 +48,29 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// (Dead cache maps removed per audit)
-let initPromise = null;
-
-function initializeDatabases() {
-  if (!initPromise) {
-    initPromise = (async () => {
-      try {
-        if (typeof NutriCatalogSync !== "undefined") {
-          // D-17: entitlement refresh is non-blocking — catalog must be ready for scoring
-          // even if the entitlement call stalls on slow/mobile data.
-          // NutriEntitlement.refresh() has its own internal timeout (D-06).
-          if (typeof NutriEntitlement !== "undefined") {
-            void NutriEntitlement.refresh();
-          }
-          await NutriCatalogSync.ensureReady();
-          console.log("[NutriScore SW] Catalog synced and ready.");
-        }
-      } catch (err) {
-        console.error("[NutriScore SW] Init failed:", err);
-        initPromise = null;
-        throw err;
-      }
-    })();
+let storageReadyPromise = null;
+function ensureStorageReady() {
+  if (!storageReadyPromise) {
+    storageReadyPromise = (async () => {
+      if (typeof NutriScoreDB === "undefined") throw new Error("LOCAL_DB_UNAVAILABLE");
+      await NutriScoreDB.ensureReady?.();
+    })().catch(e => { storageReadyPromise = null; throw e; });
   }
-  return initPromise;
+  return storageReadyPromise;
 }
 
+async function ensureCatalogReady() {
+  await ensureStorageReady();
+  try {
+    if (typeof NutriEntitlement !== "undefined") {
+      void NutriEntitlement.refresh();
+    }
+    await NutriCatalogSync?.ensureReady?.();
+    console.log("[NutriScore SW] Catalog synced and ready.");
+  } catch (e) {
+    console.warn("[NutriScore SW] catalog unavailable; local DB remains usable:", e);
+  }
+}
 
 // ── M2/L2: Alarm-driven retry & cache eviction ────────────────────────────────
 // Registered synchronously at the top level so the listener is always attached
@@ -82,19 +78,23 @@ function initializeDatabases() {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "retry-cart-sync") {
     // Drain any pending cart-sync jobs persisted before the previous SW was killed.
-    await initializeDatabases();
-    if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.getPendingCartSyncs) return;
-    const pending = await NutriScoreDB.getPendingCartSyncs();
-    if (!pending?.length) return;
-    for (const job of pending) {
-      try {
-        await NutriScoreDB.syncCart(job.retailer, job.items);
-        await NutriScoreDB.clearPendingCartSync(job.id);
-        chrome.runtime.sendMessage({ action: "CART_UPDATED" }).catch(() => { });
-        console.log(`[NutriScore SW] Alarm retry succeeded for pending cart-sync job ${job.id}.`);
-      } catch (e) {
-        console.warn("[NutriScore SW] Alarm cart-sync retry failed, will try again on next alarm:", e.message);
+    try {
+      await ensureStorageReady();
+      if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.getPendingCartSyncs) return;
+      const pending = await NutriScoreDB.getPendingCartSyncs();
+      if (!pending?.length) return;
+      for (const job of pending) {
+        try {
+          await NutriScoreDB.syncCart(job.retailer, job.items);
+          await NutriScoreDB.clearPendingCartSync(job.id);
+          chrome.runtime.sendMessage({ action: "CART_UPDATED" }).catch(() => { });
+          console.log(`[NutriScore SW] Alarm retry succeeded for pending cart-sync job ${job.id}.`);
+        } catch (e) {
+          console.warn("[NutriScore SW] Alarm cart-sync retry failed, will try again on next alarm:", e.message);
+        }
       }
+    } catch (e) {
+      console.warn("[NutriScore SW] Alarm retry aborted (DB init failed):", e.message);
     }
     return;
   }
@@ -102,9 +102,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "cache-eviction") {
     // Evict product_cache entries older than 7 days.
     // Moved from the hot cacheProduct() write path (was a Math.random() < 0.05 coin-flip).
-    await initializeDatabases();
-    if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.evictStaleCacheEntries) return;
     try {
+      await ensureStorageReady();
+      if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.evictStaleCacheEntries) return;
       await NutriScoreDB.evictStaleCacheEntries();
     } catch (e) {
       console.warn("[NutriScore SW] Cache eviction alarm failed:", e.message);
@@ -113,7 +113,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-initializeDatabases();
+ensureCatalogReady();
 
 // Register the low-frequency cache-eviction alarm once. chrome.alarms.create is
 // idempotent when the alarm already exists, so this is safe to call on every SW wake.
@@ -150,7 +150,7 @@ function buildNutritionalProfileDisplay(nutrition) {
 }
 
 async function getProductInfo(payload, retailerCode) {
-  await initializeDatabases();
+  await ensureStorageReady();
 
   const { product_name, name_hash, retailer_product_id, url, price } = payload;
 
@@ -390,8 +390,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "LOG_CART_ADD") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.logCartEvent) {
           throw new Error("DB not initialized");
         }
@@ -464,8 +464,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "SYNC_CART_STATE") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.syncCart) {
           throw new Error("DB not initialized or syncCart missing");
         }
@@ -502,8 +502,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "REMOVE_CART_ITEM") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         const { retailer, productId } = message.payload;
         console.log(`[NutriScore SW] Removing cart item ${productId} for ${retailer}`);
         if (NutriScoreDB.removeCartItem) {
@@ -519,8 +519,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "CART_CLEARED") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         const retailer = message.retailer;
         console.log(`[NutriScore SW] Cart cleared for ${retailer}`);
         if (NutriScoreDB.clearCartItems) {
@@ -536,8 +536,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "ORDER_PLACED") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         const retailer = message.retailer;
         console.log(`[NutriScore SW] Order placed for ${retailer} -- marking items purchased`);
         if (NutriScoreDB.markCartPurchased) {

@@ -9,6 +9,11 @@ interface Size {
   height: number;
 }
 
+const finiteNonNegative = (v: unknown) => { 
+  const n = Number(v); 
+  return Number.isFinite(n) && n > 0 ? n : 0; 
+};
+
 // ---------- Donut ----------
 
 export interface DonutSlice {
@@ -19,7 +24,7 @@ export interface DonutSlice {
 }
 
 export function DonutChart({
-  data,
+  data: rawData,
   size,
   selectedId,
   onSelect,
@@ -29,6 +34,7 @@ export function DonutChart({
   selectedId?: string | null;
   onSelect?: (id: string) => void;
 }) {
+  const data = rawData.map(s => ({ ...s, value: finiteNonNegative(s.value) }));
   const { width, height } = size;
   const total = data.reduce((s, d) => s + d.value, 0);
   const cx = width / 2;
@@ -206,7 +212,7 @@ function monotonePath(pts: { x: number; y: number }[]): string {
 }
 
 export function LineTrend({
-  data, size,
+  data: rawData, size,
   showSodium = true, showSugar = true, showSatFat = false,
   primaryKey = "sodium",
 }: {
@@ -218,6 +224,12 @@ export function LineTrend({
   /** Which series is the primary (solid thick) line; others are dashed secondary. */
   primaryKey?: "sodium" | "sugar" | "satFat";
 }) {
+  const data = rawData.map(s => ({
+    ...s,
+    sodium: finiteNonNegative(s.sodium),
+    sugar: finiteNonNegative(s.sugar),
+    satFat: finiteNonNegative(s.satFat)
+  }));
   const { width, height } = size;
   const padL = 44, padR = 16, padT = 14, padB = 28;
   const plotW = Math.max(1, width - padL - padR);
@@ -420,7 +432,8 @@ export interface HBar {
   color: string;
 }
 
-export function HBarChart({ data, size }: { data: HBar[]; size: Size }) {
+export function HBarChart({ data: rawData, size }: { data: HBar[]; size: Size }) {
+  const data = rawData.map(s => ({ ...s, value: finiteNonNegative(s.value) }));
   const { width, height } = size;
   const labelW = 150;
   const gap = 8;
