@@ -1,4 +1,4 @@
-﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { getPlan } from "../_shared/plan.ts"
 
@@ -52,7 +52,14 @@ serve(async (req) => {
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14)
     const password = btoa(`${shortcode}${passkey}${timestamp}`)
 
-    const callbackUrl = Deno.env.get("MPESA_CALLBACK_URL")!
+    const clientReference = `NUT04-${crypto.randomUUID()}`;
+    const { data: payment, error: paymentError } = await supabase.from('payments')
+      .insert({ user_id: user.id, amount, plan: plan.code, payment_method: 'mpesa', client_reference: clientReference, status: 'pending' })
+      .select('id, client_reference').single();
+      
+    if (paymentError || !payment) throw new Error('Unable to start payment.');
+
+    const callbackUrl = `${Deno.env.get('MPESA_CALLBACK_URL')!}?payment_id=${encodeURIComponent(payment.id)}`;
 
     const stkPayload = {
       BusinessShortCode: shortcode,
@@ -64,7 +71,7 @@ serve(async (req) => {
       PartyB: shortcode,
       PhoneNumber: phone,
       CallBackURL: callbackUrl,
-      AccountReference: "NUT04 Checkout",
+      AccountReference: clientReference,
       TransactionDesc: "Premium Subscription",
     }
 
@@ -78,23 +85,17 @@ serve(async (req) => {
     })
     const stkData = await stkResponse.json()
 
-    if (stkData.ResponseCode !== "0") {
+    if (!stkResponse.ok || stkData.ResponseCode !== "0") {
+      await supabase.from('payments').update({ status: 'failed' }).eq('id', payment.id);
       throw new Error(stkData.errorMessage || "STK Push failed")
     }
 
-    // Save pending payment with plan and server-authoritative amount
-    const { error: insertError } = await supabase.from("payments").insert({
-      user_id: user.id,
-      amount: amount,
-      plan: plan.code,
-      payment_method: "mpesa",
-      transaction_ref: stkData.CheckoutRequestID,
-      status: "pending",
-    })
-
-    if (insertError) {
-      console.error("Failed to insert payment record:", insertError)
-      throw new Error("Failed to initialize payment record.")
+    const { error: updateError } = await supabase.from('payments')
+      .update({ transaction_ref: stkData.CheckoutRequestID })
+      .eq('id', payment.id);
+      
+    if (updateError) {
+      console.warn("M-Pesa initiate: failed to link CheckoutRequestID to payment", payment.id);
     }
 
     return new Response(JSON.stringify(stkData), {
