@@ -1,20 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-
-function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") ?? ""
-  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map(s => s.trim())
-  const allow = allowed.includes(origin) ? origin : allowed[0] ?? "*"
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-    "Vary": "Origin",
-  }
-}
-
+import { corsHeaders, jsonError } from "../_shared/cors.ts"
 serve(async (req) => {
   const headers = corsHeaders(req)
+  if (!headers) return new Response("Forbidden", { status: 403 })
+
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers })
   }
@@ -24,13 +14,13 @@ serve(async (req) => {
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey)
 
-    const authHeader = req.headers.get("Authorization")!
-    if (!authHeader) throw new Error("Unauthorized: missing auth header")
+    const authHeader = req.headers.get("Authorization")
+    if (!authHeader) return jsonError(401, "UNAUTHORIZED", headers)
     const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""))
-    if (authError || !user) throw new Error("Unauthorized")
+    if (authError || !user) return jsonError(401, "UNAUTHORIZED", headers)
 
     const { transaction_ref, method } = await req.json()
-    if (!transaction_ref || !method) throw new Error("Missing transaction_ref or method")
+    if (!transaction_ref || !method) return jsonError(400, "INVALID_REQUEST", headers)
 
     // 1. Check local DB — resolve by transaction_ref AND user_id to prevent cross-user enumeration
     const { data: payment } = await supabase
@@ -40,7 +30,7 @@ serve(async (req) => {
       .eq("user_id", user.id)
       .single()
 
-    if (!payment) throw new Error("Payment not found")
+    if (!payment) return jsonError(400, "INVALID_REQUEST", headers)
 
     // If already finalized, return immediately
     if (payment.status !== "pending") {
@@ -146,9 +136,8 @@ serve(async (req) => {
       status: 200,
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...headers, "Content-Type": "application/json" },
-      status: 400,
-    })
+    const requestId = crypto.randomUUID()
+    console.error("[payment-status]", { requestId, error })
+    return jsonError(500, "INTERNAL_ERROR", headers)
   }
 })

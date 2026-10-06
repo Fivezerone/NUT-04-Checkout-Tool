@@ -1,21 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { getPlan } from "../_shared/plan.ts"
-
-function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") ?? ""
-  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map(s => s.trim())
-  const allow = allowed.includes(origin) ? origin : allowed[0] ?? "*"
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-    "Vary": "Origin",
-  }
-}
-
+import { corsHeaders, jsonError } from "../_shared/cors.ts"
 serve(async (req) => {
   const headers = corsHeaders(req)
+  if (!headers) return new Response("Forbidden", { status: 403 })
+
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers })
   }
@@ -26,14 +16,15 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey)
 
     // Authenticate the user from the JWT
-    const authHeader = req.headers.get("Authorization")!
+    const authHeader = req.headers.get("Authorization")
+    if (!authHeader) return jsonError(401, "UNAUTHORIZED", headers)
     const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""))
-    if (authError || !user) throw new Error("Unauthorized")
+    if (authError || !user) return jsonError(401, "UNAUTHORIZED", headers)
 
     // P1: Read price from plans table — ignore any client-supplied amount
     const body = await req.json()
     const { phone } = body
-    if (!phone) throw new Error("Phone number required")
+    if (!phone) return jsonError(400, "INVALID_REQUEST", headers)
 
     const plan = await getPlan(supabase)
     const amount = plan.price_kes  // Server-authoritative price
@@ -111,9 +102,8 @@ serve(async (req) => {
       status: 200,
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...headers, "Content-Type": "application/json" },
-      status: 400,
-    })
+    const requestId = crypto.randomUUID()
+    console.error("[mpesa-initiate]", { requestId, error })
+    return jsonError(500, "INTERNAL_ERROR", headers)
   }
 })

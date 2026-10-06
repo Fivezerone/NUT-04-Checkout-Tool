@@ -21,6 +21,15 @@ export interface UserProfile {
   isFirstTime?: boolean;
 }
 
+const PAYMENT_MESSAGES: Record<string, string> = {
+  UNAUTHORIZED: "Your session has expired. Please sign in again.", 
+  INVALID_REQUEST: "Please check the payment details.",
+  PAYMENT_UNAVAILABLE: "The payment service is temporarily unavailable.", 
+  PAYMENT_PENDING: "Payment is still being verified.",
+  PAYMENT_FAILED: "The payment was not completed.", 
+  INTERNAL_ERROR: "We could not complete the payment. Please try again." 
+};
+
 /**
  * Controls the initial view shown by the wizard:
  *   - 'signup'  (default) — full multi-step registration
@@ -463,7 +472,8 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     } catch (error: any) {
       console.error(error);
       setPaymentStatus("error");
-      setError(error.message || "Failed to initiate M-Pesa STK Push. Please try again.");
+      const code = error.message || "";
+      setError(PAYMENT_MESSAGES[code] || "Failed to initiate M-Pesa STK Push. Please try again.");
     }
   };
 
@@ -506,7 +516,8 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     } catch (error: any) {
       console.error(error);
       setPaymentStatus("error");
-      setError(error.message || "Failed to initiate Paystack payment. Please try again.");
+      const code = error.message || "";
+      setError(PAYMENT_MESSAGES[code] || "Failed to initiate Paystack payment. Please try again.");
     }
   };
 

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * entitlement Edge Function
  *
  * Issues a signed ES256 JWT when the caller is premium.
@@ -13,24 +13,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { importJWK, SignJWT } from "https://esm.sh/jose@5"
-
-// CORS: restrict to the extension origin in production.
-// Chrome extension origin is chrome-extension://<id>; we also allow the
-// dashboard origin for local dev. Both are set via the ALLOWED_ORIGINS secret.
-function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") ?? ""
-  const allowed = (Deno.env.get("ALLOWED_ORIGINS") ?? "").split(",").map(s => s.trim())
-  const allow = allowed.includes(origin) ? origin : allowed[0] ?? "*"
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Vary": "Origin",
-  }
-}
+import { corsHeaders, jsonError } from "../_shared/cors.ts"
 
 serve(async (req) => {
   const headers = corsHeaders(req)
+  if (!headers) return new Response("Forbidden", { status: 403 })
 
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers })
@@ -43,11 +30,11 @@ serve(async (req) => {
 
     // Defense in depth: verify the caller's JWT (Supabase already did, but re-check)
     const authHeader = req.headers.get("Authorization")
-    if (!authHeader) throw new Error("Unauthorized")
+    if (!authHeader) return jsonError(401, "UNAUTHORIZED", headers)
     const { data: { user }, error: authError } = await supabase.auth.getUser(
       authHeader.replace("Bearer ", "")
     )
-    if (authError || !user) throw new Error("Unauthorized")
+    if (authError || !user) return jsonError(401, "UNAUTHORIZED", headers)
 
     const serverNow = new Date().toISOString()
 
@@ -101,9 +88,8 @@ serve(async (req) => {
       { headers: { ...headers, "Content-Type": "application/json" }, status: 200 }
     )
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { headers: { ...headers, "Content-Type": "application/json" }, status: error.message === "Unauthorized" ? 401 : 500 }
-    )
+    const requestId = crypto.randomUUID()
+    console.error("[entitlement]", { requestId, error })
+    return jsonError(500, "ENTITLEMENT_INTERNAL_ERROR", headers)
   }
 })
