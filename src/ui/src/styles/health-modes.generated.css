@@ -1,47 +1,47 @@
 /* Generated from src/shared/health-modes.mjs - do not edit directly */
 
 :root[data-health-condition="general"] {
-  --theme-primary: #2E7D32;
-  --theme-accent-bg: #E8F5E9;
-  --theme-border: #C8E6C9;
-  --theme-header-bg: #A5D6A7;
-  --theme-header-text: #1B5E20;
-  --theme-header-sub: #2E7D32;
+  --condition-primary: #2E7D32;
+  --condition-accent-bg: #E8F5E9;
+  --condition-border: #C8E6C9;
+  --condition-header-bg: #A5D6A7;
+  --condition-header-text: #1B5E20;
+  --condition-header-sub: #2E7D32;
 }
 
 :root[data-health-condition="diabetes"] {
-  --theme-primary: #D32F2F;
-  --theme-accent-bg: #FFEBEE;
-  --theme-border: #EF9A9A;
-  --theme-header-bg: #FFCDD2;
-  --theme-header-text: #212121;
-  --theme-header-sub: #B71C1C;
+  --condition-primary: #D32F2F;
+  --condition-accent-bg: #FFEBEE;
+  --condition-border: #EF9A9A;
+  --condition-header-bg: #FFCDD2;
+  --condition-header-text: #212121;
+  --condition-header-sub: #B71C1C;
 }
 
 :root[data-health-condition="hypertension"] {
-  --theme-primary: #E65100;
-  --theme-accent-bg: #FFF3E0;
-  --theme-border: #FFCC80;
-  --theme-header-bg: #FFE0B2;
-  --theme-header-text: #212121;
-  --theme-header-sub: #E65100;
+  --condition-primary: #E65100;
+  --condition-accent-bg: #FFF3E0;
+  --condition-border: #FFCC80;
+  --condition-header-bg: #FFE0B2;
+  --condition-header-text: #212121;
+  --condition-header-sub: #E65100;
 }
 
 :root[data-health-condition="kidney"] {
-  --theme-primary: #00796B;
-  --theme-accent-bg: #E0F2F1;
-  --theme-border: #B2DFDB;
-  --theme-header-bg: #80CBC4;
-  --theme-header-text: #004D40;
-  --theme-header-sub: #00695C;
+  --condition-primary: #00796B;
+  --condition-accent-bg: #E0F2F1;
+  --condition-border: #B2DFDB;
+  --condition-header-bg: #80CBC4;
+  --condition-header-text: #004D40;
+  --condition-header-sub: #00695C;
 }
 
 :root[data-health-condition="obesity"] {
-  --theme-primary: #7B1FA2;
-  --theme-accent-bg: #F3E5F5;
-  --theme-border: #E1BEE7;
-  --theme-header-bg: #CE93D8;
-  --theme-header-text: #4A148C;
-  --theme-header-sub: #6A1B9A;
+  --condition-primary: #7B1FA2;
+  --condition-accent-bg: #F3E5F5;
+  --condition-border: #E1BEE7;
+  --condition-header-bg: #CE93D8;
+  --condition-header-text: #4A148C;
+  --condition-header-sub: #6A1B9A;
 }
 

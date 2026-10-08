@@ -1,6 +1,7 @@
 import { BarChart3, LogIn, Settings2 } from "lucide-react";
 import { ChromeExtensionStorage, ExtensionStorage } from "../../services/storage";
 import { HEALTH_MODES } from "../../../../shared/health-modes.mjs";
+import { getSettings, saveSettings } from "../lib/db";
 
 interface PopupProps {
   siteActive: boolean;
@@ -39,9 +40,24 @@ export function Popup({
   const displayName = userData?.user_account?.fullName?.split(' ')[0] ?? null;
   const handleToggleHealthMode = () => {
     if (!userData?.user_preferences) return;
+    const isNowActive = !userData.user_preferences.healthMode;
     ExtensionStorage.updatePreferences({
-      healthMode: !userData.user_preferences.healthMode
+      healthMode: isNowActive
     });
+    
+    // Sync the toggled theme to IndexedDB for Dashboard / content script usage
+    const selectedDisease = (userData.user_preferences.selectedTags && userData.user_preferences.selectedTags[0]) || "general";
+    // If the user turns OFF the health mode toggle, we revert to general wellness. 
+    // If ON, we use the selected disease.
+    const newTheme = isNowActive && selectedDisease !== "general" ? selectedDisease : "general";
+    
+    getSettings().then(settings => {
+      saveSettings({ ...settings, activeTheme: newTheme as any }).catch(console.warn);
+    });
+    
+    if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ action: "THEME_CHANGED", theme: newTheme }).catch(() => {});
+    }
   };
 
   const handleNotificationChange = (freq: any) => {
@@ -153,7 +169,7 @@ export function Popup({
                 type="button"
                 onClick={onOpenDashboard}
                 className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-white transition-all hover:opacity-90 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black font-semibold tracking-wide"
-                style={{ backgroundColor: "var(--theme-primary, #2563eb)" }}
+                style={{ backgroundColor: "var(--shell-primary, #2563eb)" }}
               >
                 <BarChart3 size={16} aria-hidden />
                 <span style={{ fontSize: "0.88rem" }}>View Shopping Analytics</span>
@@ -180,7 +196,7 @@ export function Popup({
               type="button"
               onClick={onOpenAuth}
               className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-white transition-all hover:opacity-90 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black font-semibold tracking-wide"
-              style={{ backgroundColor: "var(--theme-primary, #2563eb)" }}
+              style={{ backgroundColor: "var(--shell-primary, #2563eb)" }}
             >
               <LogIn size={16} aria-hidden />
               <span style={{ fontSize: "0.88rem" }}>

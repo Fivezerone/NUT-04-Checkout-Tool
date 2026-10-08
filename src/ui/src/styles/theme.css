@@ -2,12 +2,19 @@
 
 :root {
   /* Default: General Wellness */
-  --theme-primary: #2E7D32; /* Forest Green */
-  --theme-accent-bg: #e8f5e9;
-  --theme-border: #c8e6c9;
-  --theme-header-bg: #a5d6a7;
-  --theme-header-text: #1b5e20;
-  --theme-header-sub: #2e7d32;
+  --shell-primary: #2E7D32; /* Forest Green */
+  --shell-accent-bg: #e8f5e9;
+  --shell-border: #c8e6c9;
+  --shell-header-bg: #a5d6a7;
+  --shell-header-text: #1b5e20;
+  --shell-header-sub: #2e7d32;
+
+  --condition-primary: #2E7D32;
+  --condition-accent-bg: #e8f5e9;
+  --condition-border: #c8e6c9;
+  --condition-header-bg: #a5d6a7;
+  --condition-header-text: #1b5e20;
+  --condition-header-sub: #2e7d32;
   --font-size: 16px;
   --background: #F1F5F9;
   --foreground: #334155;
@@ -48,13 +55,13 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-:root[data-theme="blue"] {
-  --theme-primary: #2563eb;
-  --theme-accent-bg: #eff6ff;
-  --theme-border: #bfdbfe;
-  --theme-header-bg: #dbeafe;
-  --theme-header-text: #1e3a8a;
-  --theme-header-sub: #1d4ed8;
+[data-shell-theme="blue"] {
+  --shell-primary: #2563eb;
+  --shell-accent-bg: #eff6ff;
+  --shell-border: #bfdbfe;
+  --shell-header-bg: #dbeafe;
+  --shell-header-text: #1e3a8a;
+  --shell-header-sub: #1d4ed8;
 }
 
 /* D-23: health-modes.generated.css is now imported in index.css before theme.css.

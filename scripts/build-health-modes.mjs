@@ -10,12 +10,12 @@ const __dirname = path.dirname(__filename);
 let css = '/* Generated from src/shared/health-modes.mjs - do not edit directly */\n\n';
 for (const [key, mode] of Object.entries(HEALTH_MODES)) {
   css += `:root[data-health-condition="${mode.id}"] {\n`;
-  css += `  --theme-primary: ${mode.palette.primary};\n`;
-  css += `  --theme-accent-bg: ${mode.palette.accentBg};\n`;
-  css += `  --theme-border: ${mode.palette.border};\n`;
-  css += `  --theme-header-bg: ${mode.palette.headerBg};\n`;
-  css += `  --theme-header-text: ${mode.palette.headerText};\n`;
-  css += `  --theme-header-sub: ${mode.palette.headerSub};\n`;
+  css += `  --condition-primary: ${mode.palette.primary};\n`;
+  css += `  --condition-accent-bg: ${mode.palette.accentBg};\n`;
+  css += `  --condition-border: ${mode.palette.border};\n`;
+  css += `  --condition-header-bg: ${mode.palette.headerBg};\n`;
+  css += `  --condition-header-text: ${mode.palette.headerText};\n`;
+  css += `  --condition-header-sub: ${mode.palette.headerSub};\n`;
   css += `}\n\n`;
 }
 

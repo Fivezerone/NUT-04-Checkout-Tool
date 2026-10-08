@@ -342,7 +342,7 @@ export function Dashboard({ onBack }: DashboardProps) {
     <div className="min-h-full" style={{ backgroundColor: "var(--background)" }}>
       <header
         className="flex items-center justify-between px-6 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] relative z-10 transition-colors duration-300"
-        style={{ backgroundColor: "var(--theme-header-bg, #ffffff)" }}
+        style={{ backgroundColor: "var(--shell-header-bg)" }}
       >
         <div className="flex items-center gap-3">
           <button
@@ -351,19 +351,19 @@ export function Dashboard({ onBack }: DashboardProps) {
             aria-label="Back to store"
             className="rounded-md p-1.5 hover:bg-black/10 transition-colors"
           >
-            <ArrowLeft size={18} aria-hidden style={{ color: "var(--theme-header-text, #0f172a)" }} />
+            <ArrowLeft size={18} aria-hidden style={{ color: "var(--shell-header-text)" }} />
           </button>
           <div>
             <h1
               id="user-greeting"
               className="font-bold transition-colors duration-300"
-              style={{ color: "var(--theme-header-text, #0f172a)" }}
+              style={{ color: "var(--shell-header-text)" }}
             >
               Shopping Analytics
             </h1>
             <p
               id="user-subtitle"
-              style={{ fontSize: "0.78rem", color: "var(--theme-header-sub, #64748b)" }}
+              style={{ fontSize: "0.78rem", color: "var(--shell-header-sub)" }}
             >
               Based on items added to your cart
             </p>
@@ -428,7 +428,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                   className="rounded-md px-3 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
                   style={{
                     fontSize: "0.82rem",
-                    backgroundColor: active ? "var(--theme-primary)" : "transparent",
+                    backgroundColor: active ? "var(--shell-primary)" : "transparent",
                     color: active ? "#fff" : "var(--muted-foreground)",
                   }}
                 >
@@ -452,9 +452,9 @@ export function Dashboard({ onBack }: DashboardProps) {
           <div className="grid gap-4 lg:grid-cols-3">
             {/* Basket quality donut */}
             <section ref={basketRef} className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 overflow-hidden flex flex-col">
-              <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--theme-header-bg)" }}>
-                <h3 className="font-bold" style={{ color: "var(--theme-header-text)" }}>Basket Quality</h3>
-                <p className="text-xs mt-1" style={{ color: "var(--theme-header-sub)" }}>
+              <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--shell-header-bg)" }}>
+                <h3 className="font-bold" style={{ color: "var(--shell-header-text)" }}>Basket Quality</h3>
+                <p className="text-xs mt-1" style={{ color: "var(--shell-header-sub)" }}>
                   {selectedGrade
                     ? `Grade ${selectedGrade}: ${
                         basketData.find((d) => d.grade === selectedGrade)?.value ?? 0
@@ -518,9 +518,9 @@ export function Dashboard({ onBack }: DashboardProps) {
 
             {/* Nutrient trends line */}
             <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 lg:col-span-2 overflow-hidden flex flex-col">
-              <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--theme-header-bg)" }}>
-                <h3 className="font-bold" style={{ color: "var(--theme-header-text)" }}>Nutrient Trends</h3>
-                <p className="text-xs mt-1" style={{ color: "var(--theme-header-sub)" }}>
+              <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--shell-header-bg)" }}>
+                <h3 className="font-bold" style={{ color: "var(--shell-header-text)" }}>Nutrient Trends</h3>
+                <p className="text-xs mt-1" style={{ color: "var(--shell-header-sub)" }}>
                   Average intake as % of Daily Limit -{" "}
                   {RANGE_OPTIONS.find((o) => o.value === range)?.label.toLowerCase()}
                 </p>
@@ -531,38 +531,51 @@ export function Dashboard({ onBack }: DashboardProps) {
                     <LineTrend
                       size={size}
                       data={trendData}
-                      showSodium={true}
-                      showSugar={true}
-                      showSatFat={false}
+                      showSodium={["hypertension", "kidney", "general"].includes(activeTheme)}
+                      showSugar={["diabetes", "obesity", "general"].includes(activeTheme)}
+                      showSatFat={["obesity", "general"].includes(activeTheme)}
                       primaryKey={
-                        activeTheme === "hypertension" ? "sodium"
-                        : activeTheme === "diabetes"   ? "sugar"
-                        : "sodium"   // general / kidney → default to sodium as primary
+                        ["diabetes", "obesity"].includes(activeTheme) ? "sugar" : "sodium"
                       }
                     />
                   )}
                 </ChartBox>
                 <div id="nutrient-legend-list" className="flex flex-wrap gap-4 pt-2">
+                  {["hypertension", "kidney", "general"].includes(activeTheme) && (
                   <span
                     className="flex items-center gap-1.5"
                     style={{ fontSize: "0.72rem" }}
                   >
-                    <span style={{ width: 14, height: 2.5, backgroundColor: "var(--ns-grade-d)", display: "inline-block", borderRadius: 2 }} />
+                    <span style={{ width: 14, height: !["diabetes", "obesity"].includes(activeTheme) ? 2.5 : 1.5, backgroundColor: !["diabetes", "obesity"].includes(activeTheme) ? "var(--chart-1, #3b82f6)" : "transparent", display: "inline-block", borderRadius: 2, borderTop: !["diabetes", "obesity"].includes(activeTheme) ? undefined : "1.5px dashed var(--chart-1, #3b82f6)" }} />
                     <span className="text-slate-600">
                       Sodium
-                      {activeTheme === "hypertension" && <span className="ml-1 text-slate-400">(primary)</span>}
+                      {!["diabetes", "obesity"].includes(activeTheme) && <span className="ml-1 text-slate-400">(primary)</span>}
                     </span>
                   </span>
+                  )}
+                  {["diabetes", "obesity", "general"].includes(activeTheme) && (
                   <span
                     className="flex items-center gap-1.5"
                     style={{ fontSize: "0.72rem" }}
                   >
-                    <span style={{ width: 14, height: 1.5, backgroundColor: "var(--ns-grade-e)", display: "inline-block", borderRadius: 2, borderTop: "1.5px dashed var(--ns-grade-e)" }} />
+                    <span style={{ width: 14, height: ["diabetes", "obesity"].includes(activeTheme) ? 2.5 : 1.5, backgroundColor: ["diabetes", "obesity"].includes(activeTheme) ? "var(--chart-2, #f59e0b)" : "transparent", display: "inline-block", borderRadius: 2, borderTop: ["diabetes", "obesity"].includes(activeTheme) ? undefined : "1.5px dashed var(--chart-2, #f59e0b)" }} />
                     <span className="text-slate-600">
                       Sugar
-                      {activeTheme === "diabetes" && <span className="ml-1 text-slate-400">(primary)</span>}
+                      {["diabetes", "obesity"].includes(activeTheme) && <span className="ml-1 text-slate-400">(primary)</span>}
                     </span>
                   </span>
+                  )}
+                  {["obesity", "general"].includes(activeTheme) && (
+                  <span
+                    className="flex items-center gap-1.5"
+                    style={{ fontSize: "0.72rem" }}
+                  >
+                    <span style={{ width: 14, height: 1.5, backgroundColor: "transparent", display: "inline-block", borderRadius: 2, borderTop: "1.5px dashed var(--chart-3, #8b5cf6)" }} />
+                    <span className="text-slate-600">
+                      Sat Fat
+                    </span>
+                  </span>
+                  )}
               </div>
               </div>
             </section>
@@ -570,9 +583,9 @@ export function Dashboard({ onBack }: DashboardProps) {
 
           {/* Category insights bar */}
           <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 overflow-hidden flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--theme-header-bg)" }}>
-              <h3 className="font-bold" style={{ color: "var(--theme-header-text)" }}>Category Insights</h3>
-              <p className="text-xs mt-1" style={{ color: "var(--theme-header-sub)" }}>
+            <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--shell-header-bg)" }}>
+              <h3 className="font-bold" style={{ color: "var(--shell-header-text)" }}>Category Insights</h3>
+              <p className="text-xs mt-1" style={{ color: "var(--shell-header-sub)" }}>
                 Average spend by category — coloured by grade (n = items with priced purchases)
               </p>
             </div>
@@ -590,9 +603,9 @@ export function Dashboard({ onBack }: DashboardProps) {
 
           {/* Health Alerts Summary */}
           <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 lg:col-span-3 overflow-hidden flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--theme-header-bg)" }}>
-              <h3 className="flex items-center gap-2 font-bold" style={{ color: "var(--theme-header-text)" }}>
-                <ShieldAlert size={18} aria-hidden style={{ color: "var(--theme-header-text)" }} />
+            <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--shell-header-bg)" }}>
+              <h3 className="flex items-center gap-2 font-bold" style={{ color: "var(--shell-header-text)" }}>
+                <ShieldAlert size={18} aria-hidden style={{ color: "var(--shell-header-text)" }} />
                 Health Alerts
               </h3>
             </div>
@@ -606,28 +619,28 @@ export function Dashboard({ onBack }: DashboardProps) {
                       icon: <Droplet size={22} />,
                       label: "Blood Sugar",
                       detail: "Sugar > 22.5g/100g",
-                      bg: "var(--theme-accent-bg)", border: "var(--theme-border)", iconColor: "var(--theme-primary)", textColor: "var(--theme-primary)", mutedColor: "var(--theme-header-sub)"
+                      bg: "var(--condition-accent-bg)", border: "var(--condition-border)", iconColor: "var(--condition-primary)", textColor: "var(--condition-primary)", mutedColor: "var(--condition-header-sub)"
                     };
                     if (activeTheme === "hypertension") return {
                       count: alertCounts.hypertension,
                       icon: <HeartPulse size={22} />,
                       label: "Blood Pressure",
                       detail: "Sodium > 600mg/100g",
-                      bg: "var(--theme-accent-bg)", border: "var(--theme-border)", iconColor: "var(--theme-primary)", textColor: "var(--theme-primary)", mutedColor: "var(--theme-header-sub)"
+                      bg: "var(--condition-accent-bg)", border: "var(--condition-border)", iconColor: "var(--condition-primary)", textColor: "var(--condition-primary)", mutedColor: "var(--condition-header-sub)"
                     };
                     if (activeTheme === "kidney") return {
                       count: alertCounts.kidney,
                       icon: <Activity size={22} />,
                       label: "Kidney Health",
                       detail: "Sodium > 600mg or high potassium",
-                      bg: "var(--theme-accent-bg)", border: "var(--theme-border)", iconColor: "var(--theme-primary)", textColor: "var(--theme-primary)", mutedColor: "var(--theme-header-sub)"
+                      bg: "var(--condition-accent-bg)", border: "var(--condition-border)", iconColor: "var(--condition-primary)", textColor: "var(--condition-primary)", mutedColor: "var(--condition-header-sub)"
                     };
                     if (activeTheme === "obesity") return {
                       count: alertCounts.obesity,
                       icon: <Scale size={22} />,
                       label: "Weight & Obesity",
                       detail: "High energy, sugar or sat. fat",
-                      bg: "var(--theme-accent-bg)", border: "var(--theme-border)", iconColor: "var(--theme-primary)", textColor: "var(--theme-primary)", mutedColor: "var(--theme-header-sub)"
+                      bg: "var(--condition-accent-bg)", border: "var(--condition-border)", iconColor: "var(--condition-primary)", textColor: "var(--condition-primary)", mutedColor: "var(--condition-header-sub)"
                     };
                     // general: show all non-zero counts
                     return null;
@@ -649,10 +662,10 @@ export function Dashboard({ onBack }: DashboardProps) {
 
                   // General mode: show all counts that are non-zero
                   const generalAlerts = [
-                    { count: alertCounts.diabetes, label: "Sugar", detail: "> 22.5g", icon: <Droplet size={18} />, iconColor: "var(--theme-primary)" },
-                    { count: alertCounts.hypertension, label: "Sodium", detail: "> 600mg", icon: <HeartPulse size={18} />, iconColor: "var(--theme-primary)" },
-                    { count: alertCounts.kidney, label: "Kidney", detail: "Na/K flags", icon: <Activity size={18} />, iconColor: "var(--theme-primary)" },
-                    { count: alertCounts.obesity, label: "Calories", detail: "High energy", icon: <Scale size={18} />, iconColor: "var(--theme-primary)" },
+                    { count: alertCounts.diabetes, label: "Sugar", detail: "> 22.5g", icon: <Droplet size={18} />, iconColor: "var(--condition-primary)" },
+                    { count: alertCounts.hypertension, label: "Sodium", detail: "> 600mg", icon: <HeartPulse size={18} />, iconColor: "var(--condition-primary)" },
+                    { count: alertCounts.kidney, label: "Kidney", detail: "Na/K flags", icon: <Activity size={18} />, iconColor: "var(--condition-primary)" },
+                    { count: alertCounts.obesity, label: "Calories", detail: "High energy", icon: <Scale size={18} />, iconColor: "var(--condition-primary)" },
                   ].filter(a => a.count > 0);
 
                   if (generalAlerts.length === 0) {
@@ -676,12 +689,12 @@ export function Dashboard({ onBack }: DashboardProps) {
 
           {/* Ledger */}
           <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] overflow-hidden flex flex-col border border-slate-100" style={{ maxHeight: "600px" }}>
-            <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300 z-20 relative" style={{ backgroundColor: "var(--theme-header-bg)" }}>
-              <h3 className="font-bold" style={{ color: "var(--theme-header-text)" }}>Ledger</h3>
+            <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300 z-20 relative" style={{ backgroundColor: "var(--shell-header-bg)" }}>
+              <h3 className="font-bold" style={{ color: "var(--shell-header-text)" }}>Ledger</h3>
             </div>
             <div className="overflow-y-auto relative" style={{ maxHeight: "500px" }}>
               <table className="w-full caption-bottom text-sm">
-                <thead className="bg-slate-50 sticky top-0 z-10 shadow-[0_1px_0_#E2E8F0]" style={{ borderTop: "2px solid var(--theme-primary)" }}>
+                <thead className="bg-slate-50 sticky top-0 z-10 shadow-[0_1px_0_#E2E8F0]" style={{ borderTop: "2px solid var(--shell-primary)" }}>
                   <tr className="border-b border-slate-200">
                     <th className="h-10 px-2 text-left align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("addedAt")}>Date {sortField === "addedAt" && (sortOrder === "asc" ? "↑" : "↓")}</th>
                     <th className="h-10 px-2 text-left align-middle cursor-pointer hover:bg-slate-100 font-semibold text-xs tracking-wider text-slate-500 uppercase" onClick={() => handleSort("name")}>Product {sortField === "name" && (sortOrder === "asc" ? "↑" : "↓")}</th>
