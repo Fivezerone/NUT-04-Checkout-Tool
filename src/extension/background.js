@@ -23,6 +23,10 @@ console.log("[NutriScore SW] Component Architecture v2.0 active.");
 // Flip to true in DevTools console (self.NUTRISCORE_DEBUG = true) when diagnosing issues.
 const DEBUG = (typeof self !== "undefined" && self.NUTRISCORE_DEBUG === true);
 
+// F-03: cap batch size to the agreed DTO budget (48-card page + 33% headroom = 64).
+// F-19: reject messages that exceed this to prevent unbounded Promise.all fan-out.
+const MAX_BATCH_ITEMS = 64;
+
 // D-05: module-level Supabase singleton — never create more than one client per SW lifetime.
 let _sb;
 const sb = () => (_sb ??= NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY));
@@ -184,20 +188,37 @@ function buildNutritionalProfileDisplay(nutrition) {
   };
 }
 
-async function getProductInfo(payload, retailerCode) {
+// F-03: hoist settings + tier resolution to once per batch so N-card batches
+// don't each fire a 9-read getSettings() + JWT verify inside getProductInfo().
+async function getBatchContext() {
   await ensureStorageReady();
+  const settings = await (NutriScoreDB.getSettings
+    ? NutriScoreDB.getSettings()
+    : { diabetes: true, hypertension: true, kidney: true, activeTheme: "general" });
+  let tier = "basic";
+  if (typeof NutriEntitlement !== "undefined") tier = await currentTier();
+  settings.isPremium = (tier === "premium");
+  return { settings, tier };
+}
+
+async function getProductInfo(payload, retailerCode, ctx = null) {
+  // F-03: accept pre-resolved ctx (settings + tier) from getBatchContext().
+  // When ctx is null (single-card CHECK_PRODUCT_SCORE path), resolve here as before.
+  let settings, tier;
+  if (ctx) {
+    ({ settings, tier } = ctx);
+  } else {
+    await ensureStorageReady();
+    settings = await (NutriScoreDB.getSettings
+      ? NutriScoreDB.getSettings()
+      : { diabetes: true, hypertension: true, kidney: true, activeTheme: "general" });
+    // D-05: use singleton client + memoised tier (eliminates N-parallel-client refresh storm)
+    tier = "basic";
+    if (typeof NutriEntitlement !== "undefined") tier = await currentTier();
+    settings.isPremium = (tier === "premium");
+  }
 
   const { product_name, name_hash, retailer_product_id, url, price } = payload;
-
-  const settings = await (NutriScoreDB.getSettings ? NutriScoreDB.getSettings() : { diabetes: true, hypertension: true, kidney: true, activeTheme: "general" });
-  
-  // D-05: use singleton client + memoised tier (eliminates N-parallel-client refresh storm)
-  let tier = "basic";
-  if (typeof NutriEntitlement !== "undefined") {
-    tier = await currentTier();
-  }
-  settings.isPremium = (tier === "premium");
-
   const cacheKey = retailer_product_id || url || product_name;
 
   if (cacheKey && typeof NutriScoreDB !== "undefined" && NutriScoreDB.getCachedProduct) {
@@ -404,23 +425,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const retailerCode = message.retailer || "NAIVAS";
     const payloads = message.payloads || [];
 
+    // F-19: reject oversized batches immediately
+    if (!Array.isArray(payloads) || payloads.length === 0) {
+      sendResponse({ status: "ERROR", error: "payloads must be a non-empty array" });
+      return false;
+    }
+    if (payloads.length > MAX_BATCH_ITEMS) {
+      sendResponse({ status: "ERROR", error: `Batch size ${payloads.length} exceeds MAX_BATCH_ITEMS (${MAX_BATCH_ITEMS})` });
+      return false;
+    }
+
     (async () => {
       try {
-        const results = await Promise.all(payloads.map(async (payload) => {
+        // F-03: hoist settings + tier to once per batch (was: once per card)
+        const ctx = await getBatchContext();
+
+        // F-03: sequential loop — one IDB transaction at a time, bounded lock contention.
+        const results = [];
+        for (const payload of payloads) {
           try {
             if (payload.retailer_product_id && payload.price && typeof NutriScoreDB !== "undefined" && NutriScoreDB.savePrice) {
               await NutriScoreDB.savePrice(payload.retailer_product_id, payload.price);
             }
-            const data = await getProductInfo(payload, retailerCode);
-            return { status: "SUCCESS", data };
+            const data = await getProductInfo(payload, retailerCode, ctx);
+            results.push({ status: "SUCCESS", data });
           } catch (err) {
-            return {
+            results.push({
               status: "NOT_FOUND",
               data: { product_name: payload.product_name, nutriscore_grade: "UNKNOWN" },
               error: err.message
-            };
+            });
           }
-        }));
+        }
         sendResponse({ status: "SUCCESS", results });
       } catch (err) {
         sendResponse({ status: "ERROR", error: err.message });
