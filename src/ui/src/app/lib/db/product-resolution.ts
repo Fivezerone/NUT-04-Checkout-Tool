@@ -39,6 +39,11 @@ function buildLowerIndex(cacheArr: any[]) {
   return idx;
 }
 
+// F-02 / F-07: lookup order is now:
+// 1. Direct IDB key get (fast, single-record — zero heap allocation for the hot path)
+// 2. Only load getAll() into memCache if the direct hit misses (warm cache on first fallback)
+// At 10,518 products × ~1,054 B each (~11 MB), eliminating getAll() on the hot path
+// prevents the whole-catalog heap load on every SW wake.
 export async function resolveProductMatch(
   retailer: string,
   retailerProductId: string | null,
@@ -48,42 +53,54 @@ export async function resolveProductMatch(
   const db = await getDB();
   const isCarrefour = retailer.toUpperCase() === "CARREFOUR";
   const storeName = isCarrefour ? "carrefourProducts" : "naivasProducts";
+
+  // ── HOT PATH: direct key lookup — no getAll() needed ────────────────────
+  // Covers ~95%+ of real requests. Runs in its own short transaction so it
+  // completes before we decide whether to load the full catalog.
+  if (retailerProductId) {
+    const hotTx = db.transaction(storeName as any, "readonly");
+    let hit = await hotTx.store.get(retailerProductId);
+    if (!hit && !isNaN(Number(retailerProductId))) {
+      hit = await hotTx.store.get(Number(retailerProductId));
+    }
+    if (hit) return { matched: true, matchMethod: "product_id", confidence: "high", product: hit };
+  }
+
+  // ── URL index lookup — still no full catalog load needed ─────────────────
+  if (url) {
+    const urlTx = db.transaction(storeName as any, "readonly");
+    const urlHit = await (urlTx.store.index as any)("by-url").get(url);
+    if (urlHit) return { matched: true, matchMethod: "url", confidence: "high", product: urlHit };
+  }
+
+  // ── WARM CACHE PATH: full catalog into memCache for fuzzy name matching ──
+  // Only reached if both direct-id and url lookups missed.
+  // F-02: getAll() is now a true last-resort — not called on every invocation.
   const tx = db.transaction(storeName as any, "readonly");
   const store = tx.store;
 
   if (isCarrefour && !memCache.carrefour) memCache.carrefour = await store.getAll();
-  if (!isCarrefour && !memCache.naivas) memCache.naivas = await store.getAll();
-
+  if (!isCarrefour && !memCache.naivas)   memCache.naivas   = await store.getAll();
   const cacheArr = isCarrefour ? memCache.carrefour! : memCache.naivas!;
 
-  if (retailerProductId) {
-    let hit = await store.get(retailerProductId);
-    if (!hit && !isNaN(Number(retailerProductId))) {
-      hit = await store.get(Number(retailerProductId));
+  // Carrefour URL-path-fragment scan (requires full catalog — unavoidable)
+  if (retailerProductId && isCarrefour) {
+    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\/p\/${escapeRegExp(String(retailerProductId))}(?:\\?|\/|$)`);
+    const found = cacheArr.find(p => regex.test(p.Identity?.RetailerProductUrl || ""));
+    if (found) {
+      return { matched: true, matchMethod: "url_path_fragment", confidence: "high", product: found };
     }
-    if (hit) return { matched: true, matchMethod: "product_id", confidence: "high", product: hit };
-
-    if (retailerProductId && isCarrefour) {
-      const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`\\/p\\/${escapeRegExp(String(retailerProductId))}(?:\\?|\\/|$)`);
-      const found = cacheArr.find(p => regex.test(p.Identity?.RetailerProductUrl || ""));
-      if (found) {
-        return { matched: true, matchMethod: "url_path_fragment", confidence: "high", product: found };
-      }
-    }
-  }
-
-  if (url) {
-    const urlHit = await (store.index as any)("by-url").get(url);
-    if (urlHit) return { matched: true, matchMethod: "url", confidence: "high", product: urlHit };
   }
 
   if (productName) {
-    const nameHit = await (store.index as any)("by-name").get(productName);
+    const nameTx = db.transaction(storeName as any, "readonly");
+    const nameHit = await (nameTx.store.index as any)("by-name").get(productName);
     if (nameHit) return { matched: true, matchMethod: "exact_name", confidence: "medium", product: nameHit };
+
     const lower = productName.toLowerCase().trim();
     if (isCarrefour && !lowerIndexCache.carrefour) lowerIndexCache.carrefour = buildLowerIndex(memCache.carrefour!);
-    if (!isCarrefour && !lowerIndexCache.naivas) lowerIndexCache.naivas = buildLowerIndex(memCache.naivas!);
+    if (!isCarrefour && !lowerIndexCache.naivas)   lowerIndexCache.naivas   = buildLowerIndex(memCache.naivas!);
     const lowerIdx = isCarrefour ? lowerIndexCache.carrefour! : lowerIndexCache.naivas!;
     const foundLower = lowerIdx.get(lower);
     if (foundLower) {
@@ -93,7 +110,7 @@ export async function resolveProductMatch(
     const normSearch = normalizeProductName(productName);
     if (normSearch) {
       if (isCarrefour && !normalizedIndexCache.carrefour) normalizedIndexCache.carrefour = buildNormalizedIndex(memCache.carrefour!);
-      if (!isCarrefour && !normalizedIndexCache.naivas) normalizedIndexCache.naivas = buildNormalizedIndex(memCache.naivas!);
+      if (!isCarrefour && !normalizedIndexCache.naivas)   normalizedIndexCache.naivas   = buildNormalizedIndex(memCache.naivas!);
       const normIdx = isCarrefour ? normalizedIndexCache.carrefour! : normalizedIndexCache.naivas!;
       const foundNorm = normIdx.get(normSearch);
       if (foundNorm) {

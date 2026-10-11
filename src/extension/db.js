@@ -822,32 +822,35 @@ var NutriScoreDB = (() => {
     const db = await getDB();
     const isCarrefour = retailer.toUpperCase() === "CARREFOUR";
     const storeName = isCarrefour ? "carrefourProducts" : "naivasProducts";
+    if (retailerProductId) {
+      const hotTx = db.transaction(storeName, "readonly");
+      let hit = await hotTx.store.get(retailerProductId);
+      if (!hit && !isNaN(Number(retailerProductId))) {
+        hit = await hotTx.store.get(Number(retailerProductId));
+      }
+      if (hit) return { matched: true, matchMethod: "product_id", confidence: "high", product: hit };
+    }
+    if (url) {
+      const urlTx = db.transaction(storeName, "readonly");
+      const urlHit = await urlTx.store.index("by-url").get(url);
+      if (urlHit) return { matched: true, matchMethod: "url", confidence: "high", product: urlHit };
+    }
     const tx = db.transaction(storeName, "readonly");
     const store = tx.store;
     if (isCarrefour && !memCache.carrefour) memCache.carrefour = await store.getAll();
     if (!isCarrefour && !memCache.naivas) memCache.naivas = await store.getAll();
     const cacheArr = isCarrefour ? memCache.carrefour : memCache.naivas;
-    if (retailerProductId) {
-      let hit = await store.get(retailerProductId);
-      if (!hit && !isNaN(Number(retailerProductId))) {
-        hit = await store.get(Number(retailerProductId));
+    if (retailerProductId && isCarrefour) {
+      const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`/p/${escapeRegExp(String(retailerProductId))}(?:\\?|/|$)`);
+      const found = cacheArr.find((p) => regex.test(p.Identity?.RetailerProductUrl || ""));
+      if (found) {
+        return { matched: true, matchMethod: "url_path_fragment", confidence: "high", product: found };
       }
-      if (hit) return { matched: true, matchMethod: "product_id", confidence: "high", product: hit };
-      if (retailerProductId && isCarrefour) {
-        const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const regex = new RegExp(`\\/p\\/${escapeRegExp(String(retailerProductId))}(?:\\?|\\/|$)`);
-        const found = cacheArr.find((p) => regex.test(p.Identity?.RetailerProductUrl || ""));
-        if (found) {
-          return { matched: true, matchMethod: "url_path_fragment", confidence: "high", product: found };
-        }
-      }
-    }
-    if (url) {
-      const urlHit = await store.index("by-url").get(url);
-      if (urlHit) return { matched: true, matchMethod: "url", confidence: "high", product: urlHit };
     }
     if (productName) {
-      const nameHit = await store.index("by-name").get(productName);
+      const nameTx = db.transaction(storeName, "readonly");
+      const nameHit = await nameTx.store.index("by-name").get(productName);
       if (nameHit) return { matched: true, matchMethod: "exact_name", confidence: "medium", product: nameHit };
       const lower = productName.toLowerCase().trim();
       if (isCarrefour && !lowerIndexCache.carrefour) lowerIndexCache.carrefour = buildLowerIndex(memCache.carrefour);
