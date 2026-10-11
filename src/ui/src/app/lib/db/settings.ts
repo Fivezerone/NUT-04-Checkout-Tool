@@ -105,10 +105,55 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await tx.done;
 }
 
+export async function updateSettings(updater: (current: Settings) => Settings): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction("user_settings", "readwrite");
+  const [
+    diabetes, hypertension, kidney, obesity,
+    profileName, primaryMetric, condition, initials, activeTheme,
+  ] = await Promise.all([
+    tx.store.get("diabetes"), tx.store.get("hypertension"), tx.store.get("kidney"), tx.store.get("obesity"),
+    tx.store.get("profileName"), tx.store.get("primaryMetric"), tx.store.get("condition"), tx.store.get("initials"),
+    tx.store.get("activeTheme"),
+  ]);
+  const current: Settings = {
+    ...DEFAULT_SETTINGS,
+    diabetes:      diabetes      ?? true,
+    hypertension:  hypertension  ?? true,
+    kidney:        kidney        ?? true,
+    obesity:       obesity       ?? true,
+    profileName:   profileName   || "",
+    primaryMetric: primaryMetric || "Sugar",
+    condition:     condition     || "healthy",
+    initials:      initials      || "",
+    activeTheme:   activeTheme   || "general",
+  };
+  const updated = updater(current);
+  await Promise.all([
+    tx.store.put(updated.diabetes, "diabetes"),
+    tx.store.put(updated.hypertension, "hypertension"),
+    tx.store.put(updated.kidney, "kidney"),
+    tx.store.put(updated.obesity, "obesity"),
+    tx.store.put(updated.profileName, "profileName"),
+    tx.store.put(updated.primaryMetric, "primaryMetric"),
+    tx.store.put(updated.condition, "condition"),
+    tx.store.put(updated.initials, "initials"),
+    tx.store.put(updated.activeTheme, "activeTheme")
+  ]);
+  await tx.done;
+}
+
 
 // Increment whenever scoring logic changes (Gate 2 policy, FSA table mapping, etc.).
 // v4 = thin-client migration (P4).
 
+// F-04 fix: cache entries are keyed on the manifest version (catalogVersion), NOT
+// on dataset_metadata[retailer].datasetVersion. DB upgrades v13/v14/v15 clear
+// dataset_metadata, so both cached.datasetVersion and currentVersion fall back to
+// the literal "v2.0.0" and always match — meaning corrected grades could be served
+// stale for up to 7 days. Keying on catalogVersion means any new catalog release
+// immediately invalidates all cached scores. A cache miss is cheap: one read tx
+// for the whole batch (see Phase 6 batch-scoring path).
 export async function getCachedProduct(id: string): Promise<any> {
   const db = await getDB();
   const cached = await db.get("product_cache", id);
@@ -116,14 +161,13 @@ export async function getCachedProduct(id: string): Promise<any> {
 
   if (cached.scoringVersion !== SCORING_VERSION) return null;
 
-  const retailer = cached.retailer || "NAIVAS";
-  const metadata = await db.get("dataset_metadata", retailer);
-  const currentVersion = metadata ? metadata.datasetVersion : "v2.0.0";
-
-  if (cached.datasetVersion === currentVersion) {
-    return cached;
+  // F-04: validate against the manifest version, not the bundled datasetVersion.
+  const catalogMeta = await getCatalogMeta();
+  const currentCatalogVersion = catalogMeta?.version ?? "";
+  if (!currentCatalogVersion || cached.catalogVersion !== currentCatalogVersion) {
+    return null;  // catalog changed (or unknown) — force a fresh score
   }
-  return null;
+  return cached;
 }
 
 async function cacheProduct(id: string, product: any): Promise<void> {
@@ -131,9 +175,11 @@ async function cacheProduct(id: string, product: any): Promise<void> {
   product.cachedAt = Date.now();
   product.scoringVersion = SCORING_VERSION;
 
-  const retailer = product.retailer || "NAIVAS";
-  const metadata = await db.get("dataset_metadata", retailer);
-  product.datasetVersion = metadata ? metadata.datasetVersion : "v2.0.0";
+  // F-04: stamp with the manifest version so a catalog update invalidates the entry.
+  const catalogMeta = await getCatalogMeta();
+  product.catalogVersion = catalogMeta?.version ?? "";
+  // Keep datasetVersion for any legacy readers still in old DB versions.
+  product.datasetVersion = catalogMeta?.version ?? "v2.0.0";
 
   await db.put("product_cache", product, id);
 }
@@ -206,7 +252,9 @@ export async function clearPremium(): Promise<void> {
  */
 export async function getCatalogMeta(): Promise<CatalogMeta | null> {
   const db = await getDB();
-  return (await db.get("dataset_metadata", "_catalog")) as CatalogMeta | null;
+  // The "_catalog" entry uses CatalogMeta shape — cast through unknown since the
+  // IDB schema type is DatasetMetadata (the common store value type).
+  return (await db.get("dataset_metadata", "_catalog")) as unknown as CatalogMeta | null;
 }
 
 /**
@@ -214,7 +262,8 @@ export async function getCatalogMeta(): Promise<CatalogMeta | null> {
  */
 export async function putCatalogMeta(meta: CatalogMeta): Promise<void> {
   const db = await getDB();
-  await db.put("dataset_metadata", meta);
+  // Cast through unknown: IDB store expects DatasetMetadata, but "_catalog" key stores CatalogMeta.
+  await db.put("dataset_metadata", meta as unknown as import('../nutriscore').DatasetMetadata);
 }
 
 // importDatasets removed in P4: catalog now synced from Supabase via catalog-sync.js.

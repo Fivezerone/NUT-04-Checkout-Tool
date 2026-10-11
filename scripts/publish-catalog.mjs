@@ -257,12 +257,23 @@ const gitSha = (() => {
   } catch { return 'unknown'; }
 })();
 
-// Use a simple date-based version
+// F-21: version must be unique per publish so a same-day hotfix is visible
+// to clients that already synced that day (client checks meta.version !== manifest.version).
+// nextVersion() uses minute-resolution and appends .N on collision.
+const pad = (n) => String(n).padStart(2, '0');
+function nextVersion(now, currentVersion) {
+  const base = `${now.getUTCFullYear()}.${pad(now.getUTCMonth() + 1)}.${pad(now.getUTCDate())}-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}`;
+  if (currentVersion !== base && !(currentVersion ?? '').startsWith(base + '.')) return base;
+  const n = currentVersion === base ? 1 : Number(currentVersion.slice(base.length + 1)) + 1;
+  return `${base}.${n}`;
+}
 const now = new Date();
-const version = `${now.getUTCFullYear()}.${String(now.getUTCMonth()+1).padStart(2,'0')}.${String(now.getUTCDate()).padStart(2,'0')}-001`;
+// version is resolved in COMMIT mode after we fetch currentRelease (see below).
+// In DRY-RUN mode we use a preview label — it is never stored.
+const dryRunVersion = `${now.getUTCFullYear()}.${pad(now.getUTCMonth()+1)}.${pad(now.getUTCDate())}-preview`;
 
 const manifest = {
-  version,
+  version: dryRunVersion,  // replaced with nextVersion() in COMMIT mode after currentRelease fetch
   scoring_version: 'v4',
   engine_version: typeof gitSha === 'string' ? gitSha : 'unknown',
   min_client_version: '2.0.0',
@@ -321,6 +332,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // Step 3 (commit): Count guard vs. current release
 const { data: currentRelease } = await supabase
   .from('catalog_releases').select('manifest').eq('is_current', true).single();
+
+// F-21: resolve the unique version now that we know what is currently published.
+manifest.version = nextVersion(now, currentRelease?.manifest?.version ?? null);
+info(`Version: ${manifest.version} (previous: ${currentRelease?.manifest?.version ?? 'none'})`);
+
 if (currentRelease && !FORCE_COUNT) {
   const prev = currentRelease.manifest.counts ?? {};
   for (const retailer of ['CARREFOUR','NAIVAS']) {
@@ -373,21 +389,24 @@ manifest.max_seq = Math.max(seqData?.seq ?? 0, seqData2?.seq ?? 0);
 // Step 6: Verify catalog_hash from DB
 // PostgREST returns at most 1000 rows per request by default.
 // Paginate to ensure we read ALL rows regardless of catalog size.
+// F-22: ORDER BY retailer, product_id makes pagination stable across pages.
+// Without an ORDER BY, Postgres gives no guarantee of row order and .range()
+// can skip or duplicate rows across page boundaries, causing false hash mismatches.
 async function fetchAllRows(table, columns) {
   const PAGE = 1000;
   const all = [];
-  let from = 0;
-  while (true) {
+  for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from(table)
       .select(columns)
       .eq('deleted', false)
+      .order('retailer', { ascending: true })
+      .order('product_id', { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) die(`${table} fetch failed: ${error.message}`);
     if (!data || data.length === 0) break;
     all.push(...data);
     if (data.length < PAGE) break;
-    from += PAGE;
   }
   return all;
 }

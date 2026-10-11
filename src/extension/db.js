@@ -55,7 +55,8 @@ var NutriScoreDB = (() => {
     savePrice: () => savePrice,
     saveProduct: () => saveProduct,
     saveSettings: () => saveSettings,
-    syncCart: () => syncCart
+    syncCart: () => syncCart,
+    updateSettings: () => updateSettings
   });
 
   // node_modules/idb/build/index.js
@@ -306,7 +307,12 @@ var NutriScoreDB = (() => {
         },
         blocking(currentVersion, blockedVersion, _event) {
           console.warn(`[NutriScoreDB] IndexedDB connection (v${currentVersion}) is blocking a newer version (${blockedVersion}). Closing this connection.`);
-          if (dbPromise) dbPromise.then((db) => db.close());
+          const p = dbPromise;
+          dbPromise = null;
+          p?.then((db) => db.close());
+        },
+        terminated() {
+          dbPromise = null;
         },
         upgrade(db, oldVersion, _newVersion, transaction) {
           if (oldVersion < 1) {
@@ -476,26 +482,75 @@ var NutriScoreDB = (() => {
     await tx.store.put(settings.activeTheme, "activeTheme");
     await tx.done;
   }
+  async function updateSettings(updater) {
+    const db = await getDB();
+    const tx = db.transaction("user_settings", "readwrite");
+    const [
+      diabetes,
+      hypertension,
+      kidney,
+      obesity,
+      profileName,
+      primaryMetric,
+      condition,
+      initials,
+      activeTheme
+    ] = await Promise.all([
+      tx.store.get("diabetes"),
+      tx.store.get("hypertension"),
+      tx.store.get("kidney"),
+      tx.store.get("obesity"),
+      tx.store.get("profileName"),
+      tx.store.get("primaryMetric"),
+      tx.store.get("condition"),
+      tx.store.get("initials"),
+      tx.store.get("activeTheme")
+    ]);
+    const current = {
+      ...DEFAULT_SETTINGS,
+      diabetes: diabetes ?? true,
+      hypertension: hypertension ?? true,
+      kidney: kidney ?? true,
+      obesity: obesity ?? true,
+      profileName: profileName || "",
+      primaryMetric: primaryMetric || "Sugar",
+      condition: condition || "healthy",
+      initials: initials || "",
+      activeTheme: activeTheme || "general"
+    };
+    const updated = updater(current);
+    await Promise.all([
+      tx.store.put(updated.diabetes, "diabetes"),
+      tx.store.put(updated.hypertension, "hypertension"),
+      tx.store.put(updated.kidney, "kidney"),
+      tx.store.put(updated.obesity, "obesity"),
+      tx.store.put(updated.profileName, "profileName"),
+      tx.store.put(updated.primaryMetric, "primaryMetric"),
+      tx.store.put(updated.condition, "condition"),
+      tx.store.put(updated.initials, "initials"),
+      tx.store.put(updated.activeTheme, "activeTheme")
+    ]);
+    await tx.done;
+  }
   async function getCachedProduct(id) {
     const db = await getDB();
     const cached = await db.get("product_cache", id);
     if (!cached) return null;
     if (cached.scoringVersion !== SCORING_VERSION) return null;
-    const retailer = cached.retailer || "NAIVAS";
-    const metadata = await db.get("dataset_metadata", retailer);
-    const currentVersion = metadata ? metadata.datasetVersion : "v2.0.0";
-    if (cached.datasetVersion === currentVersion) {
-      return cached;
+    const catalogMeta = await getCatalogMeta();
+    const currentCatalogVersion = catalogMeta?.version ?? "";
+    if (!currentCatalogVersion || cached.catalogVersion !== currentCatalogVersion) {
+      return null;
     }
-    return null;
+    return cached;
   }
   async function cacheProduct(id, product) {
     const db = await getDB();
     product.cachedAt = Date.now();
     product.scoringVersion = SCORING_VERSION;
-    const retailer = product.retailer || "NAIVAS";
-    const metadata = await db.get("dataset_metadata", retailer);
-    product.datasetVersion = metadata ? metadata.datasetVersion : "v2.0.0";
+    const catalogMeta = await getCatalogMeta();
+    product.catalogVersion = catalogMeta?.version ?? "";
+    product.datasetVersion = catalogMeta?.version ?? "v2.0.0";
     await db.put("product_cache", product, id);
   }
   async function evictStaleCacheEntries() {
@@ -840,6 +895,16 @@ var NutriScoreDB = (() => {
   }
 
   // src/ui/src/app/lib/db/cart.ts
+  function validateCartItem(v) {
+    if (!v || typeof v !== "object") throw new Error("INVALID_CART_ITEM");
+    const i = v;
+    if (typeof i.productId !== "string" || !i.productId.trim()) throw new Error("INVALID_PRODUCT_ID");
+    const q = i.quantity == null ? 1 : Number(i.quantity);
+    if (!Number.isFinite(q) || q <= 0) throw new Error("INVALID_QUANTITY");
+    const p = i.priceSnapshot == null ? null : Number(i.priceSnapshot);
+    if (p !== null && (!Number.isFinite(p) || p < 0)) throw new Error("INVALID_PRICE");
+    return { productId: i.productId.trim(), product_name: typeof i.product_name === "string" ? i.product_name : null, quantity: q, priceSnapshot: p, retailer: typeof i.retailer === "string" ? i.retailer : null };
+  }
   async function logCartEvent(row) {
     const db = await getDB();
     if (row.status === "in_cart") {
@@ -901,9 +966,10 @@ var NutriScoreDB = (() => {
     );
     const activeInCart = allActiveInCart.filter((r) => r.retailer === retailer);
     const now = Date.now();
-    const diff = diffCartState(activeInCart, cartItems);
+    const validatedItems = cartItems.map(validateCartItem);
+    const diff = diffCartState(activeInCart, validatedItems);
     await applyCartDiff(db, diff);
-    for (const item of cartItems) {
+    for (const item of validatedItems) {
       if (diff.processedIds.has(item.productId)) continue;
       const matchResult = await resolveProductMatch(
         retailer,
@@ -927,7 +993,7 @@ var NutriScoreDB = (() => {
         energyKcal: p.Nutrition?.EnergyKcal ?? (p.Nutrition?.EnergyKJ ? p.Nutrition?.EnergyKJ / 4.184 : null)
       };
       const newRow = {
-        id: `${retailer}-${item.productId}-${now}`,
+        id: crypto.randomUUID(),
         productId: item.productId,
         name,
         retailer,
@@ -1120,6 +1186,7 @@ var NutriScoreDB = (() => {
     if (riskFlags.hypertension) risk.hypertension++;
     if (riskFlags.renal) risk.kidney++;
     if (riskFlags.obesity) risk.obesity++;
+    if (riskFlags.cvd) risk.cvd++;
   }
   function recordNutrientTrendBucket(e, sugar, sodium, satFat, acc, tf, state) {
     const hasAny = sugar !== null || sodium !== null || satFat !== null;
@@ -1158,7 +1225,7 @@ var NutriScoreDB = (() => {
     const ptsState = { ptsSum: 0 };
     const gradePts = { A: 1, B: 3, C: 7, D: 12, E: 20 };
     const categoryMap = {};
-    const risk = { diabetes: 0, hypertension: 0, kidney: 0, obesity: 0 };
+    const risk = { diabetes: 0, hypertension: 0, kidney: 0, obesity: 0, cvd: 0 };
     const slots = generateBucketSlots(tf);
     const acc = {};
     for (const s of slots) acc[s.key] = { sodium: 0, nSodium: 0, sugar: 0, nSugar: 0, satFat: 0, nSatFat: 0, n: 0 };
@@ -1207,7 +1274,8 @@ var NutriScoreDB = (() => {
         diabetes: risk.diabetes,
         hypertension: risk.hypertension,
         kidney: risk.kidney,
-        obesity: risk.obesity
+        obesity: risk.obesity,
+        cvd: risk.cvd
       }
     };
   }
