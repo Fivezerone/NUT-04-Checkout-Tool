@@ -13,6 +13,13 @@ self.NutriCatalogSync = (() => {
   const BATCH_SIZE = 500;
   let syncPromise = null;
 
+  // F-11: injected Supabase client accessor — set once at boot via init().
+  let _getSupabase = null;
+  function getSupabase() {
+    if (_getSupabase) return _getSupabase();
+    return NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+  }
+
   async function base64urlDecode(str) {
     const padded = str.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - str.length % 4) % 4);
     const bin = atob(padded);
@@ -178,8 +185,25 @@ self.NutriCatalogSync = (() => {
   async function sync() {
     console.log("[NutriCatalogSync] Starting sync...");
     const db = await NutriScoreDB.getDB();
-    const supabase = NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+    // F-11: use the injected singleton client, not a freshly created one.
+    const supabase = getSupabase();
     
+    // Bypass stale memory cache in the background script to ensure requests are authenticated
+    const local = await chrome.storage.local.get("nutri_supabase_session");
+    if (local.nutri_supabase_session) {
+      try {
+        const parsed = JSON.parse(local.nutri_supabase_session);
+        if (parsed?.access_token && parsed?.refresh_token) {
+          await supabase.auth.setSession({
+            access_token: parsed.access_token,
+            refresh_token: parsed.refresh_token
+          });
+        }
+      } catch (e) {
+        console.warn("[NutriCatalogSync] Failed to parse local session", e);
+      }
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     const isAuth = !!session;
 
@@ -279,5 +303,13 @@ self.NutriCatalogSync = (() => {
     return syncPromise;
   }
 
-  return { ensureReady, sync };
+  /**
+   * Wire the SW's Supabase singleton into this module.
+   * @param {() => object} sbAccessor
+   */
+  function init(sbAccessor) {
+    _getSupabase = sbAccessor;
+  }
+
+  return { init, ensureReady, sync };
 })();

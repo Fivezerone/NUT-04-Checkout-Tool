@@ -34,8 +34,8 @@ describe('D-16 — transient failure poisoning', () => {
   });
 
   test('_safeSend helper wraps chrome.runtime.sendMessage', () => {
-    expect(contentJs).toContain('_safeSend(msg, cb)');
-    expect(contentJs).toContain('chrome.runtime.sendMessage(msg, cb)');
+    expect(contentJs).toContain('_safeSend(message, callback)');
+    expect(contentJs).toContain('chrome.runtime.sendMessage(message, response');
   });
 
   test('scanAndInject uses _safeSend not bare sendMessage for batch', () => {
@@ -70,21 +70,31 @@ describe('D-16 — transient failure poisoning', () => {
 });
 
 // ---------------------------------------------------------------------------
-// D-17
+// D-17 (updated for Phase 3 / F-01)
 // ---------------------------------------------------------------------------
 describe('D-17 — SW init does not block scoring on entitlement', () => {
-  test('entitlement refresh is fire-and-forget (void)', () => {
+  test('entitlement refresh is NOT called on boot — alarm-driven only (F-01)', () => {
     const src = read('src/extension/background.js');
-    // background.js may use CRLF on Windows — search with flexible line endings
-    const startIdx = src.indexOf('function initializeDatabases');
-    const endIdx   = src.indexOf('function ', startIdx + 30); // next function
-    const initBlock = src.slice(startIdx, endIdx > startIdx ? endIdx : startIdx + 2000);
-    expect(initBlock).toContain('void NutriEntitlement.refresh()');
-    // Strip comments then verify no await remains in code
-    const codeOnly = initBlock.replace(/\/\/[^\n]*/g, '');
-    expect(codeOnly).not.toContain('await NutriEntitlement.refresh()');
+
+    // Phase 3 / F-01: initializeDatabases() has been removed.
+    // There must be NO call to NutriEntitlement.refresh() outside the alarm handler.
+    expect(src).not.toContain('function initializeDatabases');
+
+    // ensureCatalogReady must not contain a refresh() call.
+    const startIdx = src.indexOf('async function ensureCatalogReady');
+    const endIdx   = src.indexOf('\n}', startIdx) + 2;
+    const readyBlock = src.slice(startIdx, endIdx);
+    const codeOnly = readyBlock.replace(/\/\/[^\n]*/g, '');
+    expect(codeOnly).not.toContain('NutriEntitlement.refresh()');
+
+    // The 'entitlement-refresh' alarm handler MUST call refresh() (the only allowed site).
+    const alarmHandlerStart = src.indexOf('"entitlement-refresh"');
+    expect(alarmHandlerStart).toBeGreaterThan(-1);
+    const alarmBlock = src.slice(alarmHandlerStart, alarmHandlerStart + 500);
+    expect(alarmBlock).toContain('NutriEntitlement.refresh()');
   });
 });
+
 
 // ---------------------------------------------------------------------------
 // D-18

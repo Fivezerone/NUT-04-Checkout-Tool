@@ -32,8 +32,13 @@ let _tier, _tierAt = 0;
 async function currentTier() {
   if (_tier && Date.now() - _tierAt < 30_000) return _tier;
   try {
-    const { data: { session } } = await sb().auth.getSession();
-    _tier = (await NutriEntitlement.resolveTier(session?.user?.id)).tier;
+    let userId;
+    try {
+      const sessionDataStr = (await chrome.storage.local.get('nutri_supabase_session'))['nutri_supabase_session'];
+      if (sessionDataStr) userId = JSON.parse(sessionDataStr)?.user?.id;
+    } catch(e) {}
+    if (!userId) userId = (await sb().auth.getSession()).data?.session?.user?.id;
+    _tier = (await NutriEntitlement.resolveTier(userId)).tier;
   } catch {
     _tier = 'basic';
   }
@@ -62,9 +67,9 @@ function ensureStorageReady() {
 async function ensureCatalogReady() {
   await ensureStorageReady();
   try {
-    if (typeof NutriEntitlement !== "undefined") {
-      void NutriEntitlement.refresh();
-    }
+    // F-01: do NOT call NutriEntitlement.refresh() here.
+    // Entitlement is refreshed by the 'entitlement-refresh' alarm (every 12 h).
+    // A plain wake makes 0 network requests unless the catalog or entitlement alarm fires.
     await NutriCatalogSync?.ensureReady?.();
     console.log("[NutriScore SW] Catalog synced and ready.");
   } catch (e) {
@@ -76,6 +81,21 @@ async function ensureCatalogReady() {
 // Registered synchronously at the top level so the listener is always attached
 // even on a cold SW wake, per MV3's requirement for top-level event registration.
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "entitlement-refresh") {
+    // F-01/F-16: entitlement network call happens ONLY when this alarm fires (every 12 h),
+    // not on every SW wake. This reduces entitlement POST calls by ~99%.
+    try {
+      if (typeof NutriEntitlement !== "undefined") {
+        _tierAt = 0; // invalidate memo so next currentTier() re-resolves from fresh token
+        await NutriEntitlement.refresh();
+        console.log("[NutriScore SW] Entitlement refreshed via alarm.");
+      }
+    } catch (e) {
+      console.warn("[NutriScore SW] entitlement-refresh alarm failed:", e.message);
+    }
+    return;
+  }
+
   if (alarm.name === "retry-cart-sync") {
     // Drain any pending cart-sync jobs persisted before the previous SW was killed.
     try {
@@ -113,11 +133,21 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-ensureCatalogReady();
+// F-01/F-16: boot sequence — 0 network calls on a plain wake.
+// - entitlement-refresh alarm runs every 12 h (was: on every wake = ~100 POSTs/day)
+// - catalog-sync only runs when the manifest version changes
+// chrome.alarms.create is idempotent when the alarm already exists.
+chrome.alarms.create("entitlement-refresh", { periodInMinutes: 12 * 60 }); // 12 h
+chrome.alarms.create("cache-eviction",      { periodInMinutes: 24 * 60 }); // daily
 
-// Register the low-frequency cache-eviction alarm once. chrome.alarms.create is
-// idempotent when the alarm already exists, so this is safe to call on every SW wake.
-chrome.alarms.create("cache-eviction", { periodInMinutes: 24 * 60 }); // daily
+// F-11: wire the SW singleton into NutriEntitlement and NutriCatalogSync so
+// refresh() and sync() never create their own Supabase clients.
+// Must run before the first alarm fires or ensureCatalogReady() is called.
+if (typeof NutriEntitlement   !== "undefined" && NutriEntitlement.init)   NutriEntitlement.init(sb);
+if (typeof NutriCatalogSync   !== "undefined" && NutriCatalogSync.init)   NutriCatalogSync.init(sb);
+
+// Open DB and start catalog sync. No entitlement network call here.
+ensureCatalogReady();
 
 // buildPatientProfile and reevaluateCachedProduct were deleted. Disease fields are no longer cached.
 
@@ -288,8 +318,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       let tier = "basic";
       if (typeof NutriEntitlement !== "undefined") {
         try {
-          const { data: { session } } = await sb().auth.getSession();
-          const res = await NutriEntitlement.resolveTier(session?.user?.id);
+          let userId = message.userId;
+          if (!userId) {
+            try {
+              const sessionDataStr = (await chrome.storage.local.get('nutri_supabase_session'))['nutri_supabase_session'];
+              if (sessionDataStr) userId = JSON.parse(sessionDataStr)?.user?.id;
+            } catch(e) {}
+          }
+          if (!userId) userId = (await sb().auth.getSession()).data?.session?.user?.id;
+          const res = await NutriEntitlement.resolveTier(userId);
           tier = res.tier;
         } catch (err) {
           console.warn("[NutriScore SW] CHECK_TIER error:", err);
@@ -551,16 +588,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === "THEME_CHANGED") {
-    if (chrome.tabs) {
-      chrome.tabs.query({}, (tabs) => {
-        for (const tab of tabs) {
-          chrome.tabs.sendMessage(tab.id, message).catch(() => {});
-        }
-      });
-    }
-    return true;
-  }
+
 
   // D-21: oauth_login handler REMOVED.
   // It had zero callers, returned raw access/refresh tokens to any extension sender,

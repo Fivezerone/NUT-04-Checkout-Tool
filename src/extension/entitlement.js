@@ -23,6 +23,16 @@ self.NutriEntitlement = (() => {
   const EXPECTED_ISS     = "nutriscore-entitlement";
   const CLOCK_SKEW_MS    = 5 * 60 * 1000; // 5 minutes
 
+  // F-11: lazily-resolved Supabase client accessor.
+  // Set once at boot via NutriEntitlement.init(sbAccessor) so all calls
+  // share the SW singleton instead of spawning a new client per refresh().
+  let _getSupabase = null;
+  function getSupabase() {
+    if (_getSupabase) return _getSupabase();
+    // Fallback for environments that don't call init() (e.g. unit tests).
+    return NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+  }
+
   // ── WebCrypto helpers ──────────────────────────────────────────────────────
   function base64urlDecode(str) {
     const padded = str.replace(/-/g, "+").replace(/_/g, "/")
@@ -147,10 +157,8 @@ self.NutriEntitlement = (() => {
    */
   async function refresh() {
     try {
-      const supabase = NutriSupabase.create(
-        NUTRI_CONFIG.SUPABASE_URL,
-        NUTRI_CONFIG.SUPABASE_ANON_KEY
-      );
+      // F-11: use the SW singleton via getSupabase() — never create a new client here.
+      const supabase = getSupabase();
       const { data: { session }, error } = await supabase.auth.getSession();
 
       if (!session) {
@@ -224,5 +232,14 @@ self.NutriEntitlement = (() => {
     return r.valid;
   }
 
-  return { resolveTier, refresh, clear, verifyToken, adopt };
+  /**
+   * Wire the SW's Supabase singleton into this module.
+   * Must be called once at boot before the first refresh().
+   * @param {() => object} sbAccessor  — a function returning the singleton client
+   */
+  function init(sbAccessor) {
+    _getSupabase = sbAccessor;
+  }
+
+  return { init, resolveTier, refresh, clear, verifyToken, adopt };
 })();
