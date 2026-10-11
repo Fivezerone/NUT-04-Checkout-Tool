@@ -13,6 +13,16 @@ self.NutriCatalogSync = (() => {
   const BATCH_SIZE  = 500;   // pullUpdates page size (network rows per request)
   const CHUNK_SIZE  = 200;   // F-10: applyStaging cursor chunk size (caps peak heap)
   const PULL_DEADLINE_MS = 30_000; // F-16: per-page catalog fetch deadline (30 s)
+
+  // F-13: data-driven retailer registry — adding a new retailer requires only
+  // a one-line entry here; applyStaging and cache invalidation iterate the map.
+  // Key: uppercase retailer code as stored in catalog_products.retailer
+  // Value: { store — IDB objectStore name; cacheKey — memCache / index key }
+  const RETAILER_REGISTRY = new Map([
+    ["NAIVAS",    { store: "naivasProducts",    cacheKey: "naivas"    }],
+    ["CARREFOUR", { store: "carrefourProducts", cacheKey: "carrefour" }],
+  ]);
+
   let syncPromise = null;
 
   // F-11: injected Supabase client accessor — set once at boot via init().
@@ -166,42 +176,29 @@ self.NutriCatalogSync = (() => {
       await hTx.done;
 
       // 2. Write product records into the lookup stores for this chunk
-      const isNavias    = r => (r.retailer || "").toUpperCase() === "NAIVAS";
-      const isCarrefour = r => (r.retailer || "").toUpperCase() === "CARREFOUR";
-      const naivasRows       = chunk.filter(r => isNavias(r)    && r.record && !r.deleted);
-      const carrefourRows    = chunk.filter(r => isCarrefour(r) && r.record && !r.deleted);
-      const naivasDeletes    = chunk.filter(r => isNavias(r)    && r.deleted);
-      const carrefourDeletes = chunk.filter(r => isCarrefour(r) && r.deleted);
-
-      if (naivasRows.length || naivasDeletes.length) {
-        const nTx = db.transaction("naivasProducts", "readwrite");
-        for (const row of naivasRows)    nTx.store.put(row.record);
-        for (const row of naivasDeletes) nTx.store.delete(row.product_id);
-        await nTx.done;
-      }
-      if (carrefourRows.length || carrefourDeletes.length) {
-        const cTx = db.transaction("carrefourProducts", "readwrite");
-        for (const row of carrefourRows)    cTx.store.put(row.record);
-        for (const row of carrefourDeletes) cTx.store.delete(row.product_id);
-        await cTx.done;
+      //    F-13: data-driven dispatch — iterate RETAILER_REGISTRY, no per-retailer branches.
+      for (const [code, { store }] of RETAILER_REGISTRY.entries()) {
+        const match = r => (r.retailer || "").toUpperCase() === code;
+        const upserts = chunk.filter(r => match(r) && r.record && !r.deleted);
+        const deletes = chunk.filter(r => match(r) && r.deleted);
+        if (upserts.length || deletes.length) {
+          const rTx = db.transaction(store, "readwrite");
+          for (const row of upserts) rTx.store.put(row.record);
+          for (const row of deletes) rTx.store.delete(row.product_id);
+          await rTx.done;
+        }
       }
     }
 
     if (!hasAny) return;
 
     // 3. Invalidate in-memory caches so the next lookup reads fresh data
+    //    F-13: iterate RETAILER_REGISTRY cacheKeys — no per-retailer branches.
     if (typeof NutriScoreDB !== "undefined") {
-      if (NutriScoreDB.memCache) {
-        NutriScoreDB.memCache.naivas    = null;
-        NutriScoreDB.memCache.carrefour = null;
-      }
-      if (NutriScoreDB.normalizedIndexCache) {
-        NutriScoreDB.normalizedIndexCache.naivas    = null;
-        NutriScoreDB.normalizedIndexCache.carrefour = null;
-      }
-      if (NutriScoreDB.lowerIndexCache) {
-        NutriScoreDB.lowerIndexCache.naivas    = null;
-        NutriScoreDB.lowerIndexCache.carrefour = null;
+      for (const { cacheKey } of RETAILER_REGISTRY.values()) {
+        if (NutriScoreDB.memCache)             NutriScoreDB.memCache[cacheKey]             = null;
+        if (NutriScoreDB.normalizedIndexCache) NutriScoreDB.normalizedIndexCache[cacheKey] = null;
+        if (NutriScoreDB.lowerIndexCache)      NutriScoreDB.lowerIndexCache[cacheKey]      = null;
       }
     }
 
