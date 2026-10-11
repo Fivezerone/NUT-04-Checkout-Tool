@@ -1054,7 +1054,7 @@ var NutriScoreDB = (() => {
   }
   async function savePendingCartSync(payload) {
     const db = await getDB();
-    const id = `pcs-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const id = payload.retailer;
     await db.put("pending_cart_syncs", {
       id,
       retailer: payload.retailer,

@@ -10,6 +10,23 @@ import { getDB } from "./shared";
 import { resolveProductMatch } from "./product-resolution";
 import { interpretProduct, computeGradeFromProduct, resolveDisplayCategory } from "./grading";
 
+export type CartItemInput = {
+  productId: string;
+  product_name: string | null;
+  quantity: number;
+  priceSnapshot: number | null;
+  retailer: string | null;
+};
+
+export function validateCartItem(v: unknown): CartItemInput {
+  if (!v || typeof v !== "object") throw new Error("INVALID_CART_ITEM");
+  const i = v as Record<string, unknown>;
+  if (typeof i.productId !== "string" || !i.productId.trim()) throw new Error("INVALID_PRODUCT_ID");
+  const q = i.quantity == null ? 1 : Number(i.quantity); if (!Number.isFinite(q) || q <= 0) throw new Error("INVALID_QUANTITY");
+  const p = i.priceSnapshot == null ? null : Number(i.priceSnapshot); if (p !== null && (!Number.isFinite(p) || p < 0)) throw new Error("INVALID_PRICE");
+  return { productId: i.productId.trim(), product_name: typeof i.product_name === "string" ? i.product_name : null, quantity: q, priceSnapshot: p, retailer: typeof i.retailer === "string" ? i.retailer : null };
+}
+
 export async function logCartEvent(row: ShoppingLedgerRow): Promise<void> {
   const db = await getDB();
   // If it's an in_cart row, use the compound index for an O(1) duplicate check
@@ -56,7 +73,7 @@ export type CartDiffResult = {
  */
 export function diffCartState(
   activeInCart: ShoppingLedgerRow[],
-  cartItems: any[]
+  cartItems: CartItemInput[]
 ): CartDiffResult {
   const processedIds = new Set<string>();
   const updates: CartDiffResult["updates"] = [];
@@ -112,12 +129,14 @@ export async function syncCart(retailer: string, cartItems: any[]): Promise<void
   const activeInCart = allActiveInCart.filter(r => r.retailer === retailer);
   const now = Date.now();
 
+  const validatedItems = cartItems.map(validateCartItem);
+
   // LOGIC-004: pure diff, then separate write batch.
-  const diff = diffCartState(activeInCart, cartItems);
+  const diff = diffCartState(activeInCart, validatedItems);
   await applyCartDiff(db, diff);
 
   // Add new items that weren't in the existing ledger.
-  for (const item of cartItems) {
+  for (const item of validatedItems) {
     if (diff.processedIds.has(item.productId)) continue;
 
     const matchResult = await resolveProductMatch(
@@ -145,7 +164,7 @@ export async function syncCart(retailer: string, cartItems: any[]): Promise<void
     };
 
     const newRow: ShoppingLedgerRow = {
-      id: `${retailer}-${item.productId}-${now}`,
+      id: crypto.randomUUID(),
       productId: item.productId,
       name,
       retailer,
@@ -215,7 +234,11 @@ export async function savePendingCartSync(
   payload: { retailer: string; items: any[] }
 ): Promise<string> {
   const db = await getDB();
-  const id = `pcs-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  // F-15: latest-wins WAL — one row per retailer, bounded and idempotent.
+  // OLD: random id (`pcs-${Date.now()}-${Math.random()}`) — append-only, unbounded.
+  // NEW: id = retailer — put() silently overwrites the previous job for this
+  //      retailer, so the store never accumulates stale entries.
+  const id = payload.retailer; // stable, bounded key
   await db.put("pending_cart_syncs", {
     id,
     retailer: payload.retailer,

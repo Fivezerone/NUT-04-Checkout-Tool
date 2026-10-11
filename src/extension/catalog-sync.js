@@ -10,7 +10,9 @@
 /* global NUTRI_CONFIG, NutriScoreDB, NutriSupabase, NutriEntitlement */
 
 self.NutriCatalogSync = (() => {
-  const BATCH_SIZE = 500;
+  const BATCH_SIZE  = 500;   // pullUpdates page size (network rows per request)
+  const CHUNK_SIZE  = 200;   // F-10: applyStaging cursor chunk size (caps peak heap)
+  const PULL_DEADLINE_MS = 30_000; // F-16: per-page catalog fetch deadline (30 s)
   let syncPromise = null;
 
   // F-11: injected Supabase client accessor — set once at boot via init().
@@ -89,12 +91,21 @@ self.NutriCatalogSync = (() => {
     let current = cursor;
     let total = 0;
     while (current < maxSeq) {
-      const { data, error } = await supabase.from(table)
-        .select("*")
-        .gt("seq", current)
-        .lte("seq", maxSeq)
-        .order("seq", { ascending: true })
-        .limit(BATCH_SIZE);
+      // F-16: per-page deadline — a hung Supabase call will abort after 30 s.
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(new Error("pullUpdates timeout")), PULL_DEADLINE_MS);
+      let data, error;
+      try {
+        ({ data, error } = await supabase.from(table)
+          .select("*")
+          .gt("seq", current)
+          .lte("seq", maxSeq)
+          .order("seq", { ascending: true })
+          .limit(BATCH_SIZE)
+          .abortSignal(ac.signal));
+      } finally {
+        clearTimeout(timer);
+      }
       if (error) throw error;
       if (!data || data.length === 0) break;
 
@@ -113,7 +124,7 @@ self.NutriCatalogSync = (() => {
       await tx.done;
       current = data[data.length - 1].seq;
       total += data.length;
-      
+
       // Update stagingCursor
       const meta = await NutriScoreDB.getCatalogMeta();
       meta.stagingCursor = current;
@@ -123,42 +134,60 @@ self.NutriCatalogSync = (() => {
   }
 
   async function applyStaging(db) {
-    const sTx = db.transaction(["catalog_staging", "catalog_hashes"], "readonly");
-    const staged = await sTx.objectStore("catalog_staging").getAll();
-    if (staged.length === 0) return;
+    // F-10: chunked cursor iteration — cap peak heap to CHUNK_SIZE rows.
+    // OLD: getAll() on catalog_staging loaded the *entire* delta into a single
+    //      JS array; on first install that equals the whole catalog (~26 MB).
+    // NEW: iterate via IDB openCursor in CHUNK_SIZE batches, flushing writes
+    //      after each chunk. Peak JS heap ≤ CHUNK_SIZE records at any time.
+    let hasAny = false;
+    let done = false;
+    let cursor = await db.transaction("catalog_staging", "readonly").store.openCursor();
 
-    // 1. Update integrity hashes
-    const hTx = db.transaction("catalog_hashes", "readwrite");
-    for (const row of staged) {
-      if (row.deleted) {
-        hTx.store.delete(row.key);
-      } else {
-        hTx.store.put({ key: row.key, hash: row.record_hash });
+    while (!done) {
+      const chunk = [];
+      // Collect up to CHUNK_SIZE rows from the cursor
+      while (cursor && chunk.length < CHUNK_SIZE) {
+        chunk.push(cursor.value);
+        cursor = await cursor.continue();
+      }
+      if (chunk.length === 0) break;
+      hasAny = true;
+      done = !cursor; // no more rows after this chunk
+
+      // 1. Update integrity hashes for this chunk
+      const hTx = db.transaction("catalog_hashes", "readwrite");
+      for (const row of chunk) {
+        if (row.deleted) {
+          hTx.store.delete(row.key);
+        } else {
+          hTx.store.put({ key: row.key, hash: row.record_hash });
+        }
+      }
+      await hTx.done;
+
+      // 2. Write product records into the lookup stores for this chunk
+      const isNavias    = r => (r.retailer || "").toUpperCase() === "NAIVAS";
+      const isCarrefour = r => (r.retailer || "").toUpperCase() === "CARREFOUR";
+      const naivasRows       = chunk.filter(r => isNavias(r)    && r.record && !r.deleted);
+      const carrefourRows    = chunk.filter(r => isCarrefour(r) && r.record && !r.deleted);
+      const naivasDeletes    = chunk.filter(r => isNavias(r)    && r.deleted);
+      const carrefourDeletes = chunk.filter(r => isCarrefour(r) && r.deleted);
+
+      if (naivasRows.length || naivasDeletes.length) {
+        const nTx = db.transaction("naivasProducts", "readwrite");
+        for (const row of naivasRows)    nTx.store.put(row.record);
+        for (const row of naivasDeletes) nTx.store.delete(row.product_id);
+        await nTx.done;
+      }
+      if (carrefourRows.length || carrefourDeletes.length) {
+        const cTx = db.transaction("carrefourProducts", "readwrite");
+        for (const row of carrefourRows)    cTx.store.put(row.record);
+        for (const row of carrefourDeletes) cTx.store.delete(row.product_id);
+        await cTx.done;
       }
     }
-    await hTx.done;
 
-    // 2. Write product records into the lookup stores (naivasProducts / carrefourProducts)
-    //    so that resolveProductMatch can find them.
-    const isNavias    = r => (r.retailer || "").toUpperCase() === "NAIVAS";
-    const isCarrefour = r => (r.retailer || "").toUpperCase() === "CARREFOUR";
-    const naivasRows       = staged.filter(r => isNavias(r)    && r.record && !r.deleted);
-    const carrefourRows    = staged.filter(r => isCarrefour(r) && r.record && !r.deleted);
-    const naivasDeletes    = staged.filter(r => isNavias(r)    && r.deleted);
-    const carrefourDeletes = staged.filter(r => isCarrefour(r) && r.deleted);
-
-    if (naivasRows.length || naivasDeletes.length) {
-      const nTx = db.transaction("naivasProducts", "readwrite");
-      for (const row of naivasRows)    nTx.store.put(row.record);
-      for (const row of naivasDeletes) nTx.store.delete(row.product_id);
-      await nTx.done;
-    }
-    if (carrefourRows.length || carrefourDeletes.length) {
-      const cTx = db.transaction("carrefourProducts", "readwrite");
-      for (const row of carrefourRows)    cTx.store.put(row.record);
-      for (const row of carrefourDeletes) cTx.store.delete(row.product_id);
-      await cTx.done;
-    }
+    if (!hasAny) return;
 
     // 3. Invalidate in-memory caches so the next lookup reads fresh data
     if (typeof NutriScoreDB !== "undefined") {
