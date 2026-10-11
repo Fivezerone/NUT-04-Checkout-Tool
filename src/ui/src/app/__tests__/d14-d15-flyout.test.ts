@@ -72,14 +72,15 @@ describe('D-15 — Flyout toggle, listener leak, portal stale, rescan', () => {
 
   test('D-15d: content.js has rescan() method', () => {
     expect(contentJs).toContain('rescan()');
-    // D-16 changed processedElements to WeakSet
+    // D-16 changed processedElements to WeakSet (still present in legacy rescan path)
     expect(contentJs).toContain('processedElements = new WeakSet()');
     expect(contentJs).toContain('notFoundCache = new Set()');
-    expect(contentJs).toContain("removeAttribute('data-nutriscore-scanned')");
+    // F-05 refactor: rescan() now uses double-quote attribute name
+    expect(contentJs).toContain('removeAttribute("data-nutriscore-scanned")');
   });
 
-  test('D-15d: THEME_CHANGED triggers rescan in content.js', () => {
-    expect(contentJs).toContain('THEME_CHANGED');
+  test('D-15d: storage change on uiTheme triggers rescan in content.js', () => {
+    expect(contentJs).toContain('chrome.storage.onChanged');
     expect(contentJs).toContain('this.rescan()');
   });
 

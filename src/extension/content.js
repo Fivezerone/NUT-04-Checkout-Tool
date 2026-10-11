@@ -110,14 +110,63 @@ class NutriScoreContentEngine {
     });
 
     const observeTarget = (this.adapter.getObserveTarget && this.adapter.getObserveTarget()) || document.body;
-    this.observer.observe(observeTarget, { childList: true, subtree: true });
+
+    // F-05: Use NutriScanner when the adapter implements candidatesIn() (viewport-gated,
+    // incremental scanning — O(added cards) instead of O(total cards) per mutation burst).
+    // Falls back to the legacy MutationObserver+debounce+scanAndInject() path for adapters
+    // that haven't yet implemented the new interface.
+    if (typeof NutriScanner === "function" && typeof this.adapter.candidatesIn === "function") {
+      this._scanner = new NutriScanner(this.adapter, this._safeSend.bind(this), observeTarget);
+      this._scanner.start();
+
+      // Cart debounce needs its own observer since NutriScanner's MO only enqueues scan work.
+      // A separate, lightweight MO watches only for mutations so syncCart() fires independently.
+      this._cartObserver = new MutationObserver(() => {
+        if (this.cartDebounceTimer) clearTimeout(this.cartDebounceTimer);
+        this.cartDebounceTimer = setTimeout(() => this.syncCart(), 1000);
+      });
+      this._cartObserver.observe(observeTarget, { childList: true, subtree: true });
+
+    } else {
+      // Legacy path (adapter has no candidatesIn)
+      this.observer = new MutationObserver((mutations) => {
+        // D-16: ignore mutations from our own injected nodes to prevent feedback loop
+        const relevant = mutations.some((m) =>
+          [...m.addedNodes, ...m.removedNodes].some((n) =>
+            !(n.nodeType === 1 && (
+              n.classList?.contains("nutriscore-isolated-root") ||
+              n.id === "nutriscore-global-portal"
+            ))
+          )
+        );
+        if (!relevant) return;
+
+        // Scan debounce: 300ms
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+        this.debounceTimer = setTimeout(() => {
+          this.scanAndInject();
+          this.checkOrderConfirmation();
+        }, 300);
+
+        // Cart debounce: 1000ms
+        if (this.cartDebounceTimer) clearTimeout(this.cartDebounceTimer);
+        this.cartDebounceTimer = setTimeout(() => this.syncCart(), 1000);
+      });
+      this.observer.observe(observeTarget, { childList: true, subtree: true });
+    }
 
     this._startNavMonitor();
 
-    this.scanAndInject();
+    // Initial scan + cart snapshot
+    if (this._scanner) {
+      // NutriScanner.start() already enqueued the initial full-root scan
+    } else {
+      this.scanAndInject();
+    }
     this.syncCart(true);
     this.checkOrderConfirmation();
   }
+
 
   /* Poll for URL changes (covers SPA navigation on both Naivas and Carrefour). Falls back gracefully when the Navigation API is not available. */
   _startNavMonitor() {
@@ -228,16 +277,23 @@ class NutriScoreContentEngine {
 
   // D-15d: full rescan — clear all caches and re-inject with current mode/tier
   rescan() {
-    if (typeof NutriSharedUI !== 'undefined' && NutriSharedUI._closeActiveFlyout) {
+    if (typeof NutriSharedUI !== "undefined" && NutriSharedUI._closeActiveFlyout) {
       NutriSharedUI._closeActiveFlyout();
     }
-    // D-16: WeakSet cannot be iterated — create a new one for rescan
-    this.processedElements = new WeakSet();
-    this.notFoundCache = new Set();
-    document.querySelectorAll('.nutriscore-isolated-root').forEach(n => n.remove());
-    document.querySelectorAll('[data-nutriscore-scanned]').forEach(n => n.removeAttribute('data-nutriscore-scanned'));
-    this.scanAndInject();
+    document.querySelectorAll(".nutriscore-isolated-root").forEach((n) => n.remove());
+    document.querySelectorAll("[data-nutriscore-scanned]").forEach((n) => n.removeAttribute("data-nutriscore-scanned"));
+
+    if (this._scanner) {
+      // F-05: NutriScanner.rescan() resets seen/attempt state and re-enqueues the whole root
+      this._scanner.rescan();
+    } else {
+      // Legacy path
+      this.processedElements = new WeakSet();
+      this.notFoundCache = new Set();
+      this.scanAndInject();
+    }
   }
+
 
   scanAndInject() {
     if (!this.adapter) return;

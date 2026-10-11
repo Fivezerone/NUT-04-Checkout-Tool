@@ -80,6 +80,75 @@ const NaivasAdapter = {
     return NutriSharedUI.injectBadge(card, productResult, price);
   },
 
+  /**
+   * F-05: candidatesIn(root) — scoped subtree scan for NutriScanner.
+   * Queries only inside `root` instead of the whole document.
+   * Returns Array<{ el: HTMLElement, item: ScoreItem }>.
+   *
+   * Note: category text is still read from the full document because
+   * breadcrumbs live outside product-card subtrees — this is a one-time
+   * read per drain cycle (not per card), so the cost is acceptable.
+   */
+  candidatesIn(root) {
+    // Category from document-level breadcrumbs (unavoidable full-doc read)
+    let categoryText = "";
+    const categorySelector = ".category-description, .items.breadcrumbs, .breadcrumb, .page-title-wrapper";
+    document.querySelectorAll(categorySelector).forEach((el) => {
+      categoryText += " " + (el?.textContent?.trim() || "");
+    });
+    const pageCategory = categoryText.toLowerCase();
+
+    const candidates = [];
+    const productSelector = "[class*='border-naivas-bg'], .product-item";
+    const nameSelector = "span.line-clamp-2, [class*='line-clamp'], .product-item-name a, a[href*='.html'], h3, h4";
+    const priceSelector = "span[class*='text-naivas-green'], .product-price, .price-box .price, .price";
+
+    const scope = (root instanceof Element || root instanceof Document) ? root : document;
+    const cards = scope.querySelectorAll(productSelector);
+
+    cards.forEach((card) => {
+      if (card.querySelector(".nutriscore-isolated-root")) return; // already injected
+
+      const nameEl = card.querySelector(nameSelector);
+      let name = nameEl?.textContent?.trim() || "";
+      if (!name && nameEl?.tagName?.toLowerCase() === "a") {
+        name = nameEl?.getAttribute("title") || nameEl?.getAttribute("aria-label") || "";
+      }
+      if (!name) return;
+
+      let priceNumeric = 0;
+      const priceEl = card.querySelector(priceSelector);
+      if (priceEl) priceNumeric = NutriSharedUI.parsePrice(priceEl.textContent);
+
+      const id = card.getAttribute("data-product-id") ||
+                 card.getAttribute("data-sku") ||
+                 NutriSharedUI.generateIdFromName(name);
+
+      candidates.push({
+        el: card,
+        item: {
+          id:              id,
+          name:            name,
+          price:           priceNumeric,
+          url:             card.querySelector("a[href]")?.href || null,
+          scrapedCategory: pageCategory,
+        },
+      });
+    });
+
+    return candidates;
+  },
+
+  /**
+   * F-05: inject(el, result) — idempotent badge injection for NutriScanner.
+   */
+  inject(el, result) {
+    const existing = el.querySelector(".nutriscore-isolated-root");
+    if (existing) existing.remove();
+    el.removeAttribute("data-nutriscore-scanned");
+    NutriSharedUI.injectBadge(el, result, result?.price ?? 0);
+  },
+
   /* Returns all elements with a wire:click attribute. P6 perf fix: uses querySelectorAll (browser-indexed) instead of a full TreeWalker DOM walk. 'wire:click' contains a colon — CSS.escape handles it safely across browsers. */
   _wireClickElements() {
     try {
