@@ -6,14 +6,10 @@ importScripts(
   "db.js",
   "entitlement.js",
   "catalog-sync.js",
-  "health-modes.js",
-  "engine/health-flags.js",
-  "engine/scorers/energy-dense.js",
-  "engine/scorers/fibre-forward.js",
-  "engine/scorers/protein-tradeoff.js",
-  "engine/scorers/strict-density.js",
-  "engine/scorers/general.js",
-  "engine/context-engine.js"
+  "health-modes.js"
+  // F-12: engine/* removed — NutritionContextEngine / HealthFlags are NOT called by background.js.
+  // publish-catalog.mjs requires them via Node require(); keep the files, just don't parse them
+  // in the Service Worker where they cost ~23 KB (~2.3 MB/user/day at 100 SW wakes).
 );
 
 

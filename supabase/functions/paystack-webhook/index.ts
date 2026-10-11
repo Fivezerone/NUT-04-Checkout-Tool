@@ -1,6 +1,6 @@
-﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { createHmac } from "https://deno.land/std@0.168.0/node/crypto.ts"
+import { serve } from "@std/http"
+import { createClient } from "@supabase/supabase-js"
+import { createHmac } from "@std/crypto"
 
 serve(async (req) => {
   try {
@@ -12,12 +12,20 @@ serve(async (req) => {
     const payload = await req.text()
     const paystackSecret = Deno.env.get("PAYSTACK_SECRET_KEY")!
 
-    // Verify signature
+    // Verify signature with constant-time comparison (F-18 hygiene)
     const hash = createHmac("sha512", paystackSecret)
       .update(payload)
       .digest("hex")
 
-    if (hash !== signature) {
+    const encoder = new TextEncoder()
+    const a = encoder.encode(hash)
+    const b = encoder.encode(signature)
+    let mismatch = a.length === b.length ? 0 : 1
+    const len = Math.min(a.length, b.length)
+    for (let i = 0; i < len; i++) {
+      mismatch |= a[i] ^ b[i]
+    }
+    if (mismatch !== 0) {
       return new Response("Invalid signature", { status: 401 })
     }
 
