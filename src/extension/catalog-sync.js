@@ -262,22 +262,51 @@ self.NutriCatalogSync = (() => {
       console.log("[NutriCatalogSync] Product sync complete and verified.");
     }
 
-    // 3. Stream premium
+    // 3. Stream premium — F-09: atomic-swap pattern.
+    // OLD (broken): clear("premium_assessments") → pull → verify
+    //   → A network drop between clear and verify leaves an EMPTY store.
+    // NEW: pull into "premium_staging" → verify hash → atomic swap into "premium_assessments"
+    //   → A drop at any point leaves "premium_assessments" intact.
     if (needsPremiumSync) {
-      console.log(`[NutriCatalogSync] Pulling premium from seq 0 to ${manifest.max_seq}`);
-      // Premium always full-syncs when tier changes, as we don't track a separate cursor.
-      // Easiest is to clear and fetch all.
-      await db.clear("premium_assessments");
-      await pullUpdates(supabase, "catalog_premium", 0, manifest.max_seq, "premium_assessments", db);
-      
-      const localPremHash = await computeLocalHash(db, "premium_assessments");
+      console.log(`[NutriCatalogSync] Pulling premium into staging (seq 0→${manifest.max_seq})...`);
+
+      // Step 1: Clear the staging store from any previous aborted attempt
+      await db.clear("premium_staging");
+
+      // Step 2: Pull all premium rows into premium_staging (never touches premium_assessments)
+      await pullUpdates(supabase, "catalog_premium", 0, manifest.max_seq, "premium_staging", db);
+
+      // Step 3: Verify integrity BEFORE touching the live store
+      const localPremHash = await computeLocalHash(db, "premium_staging");
       if (localPremHash !== manifest.premium_hash) {
+        // Hash mismatch — discard staging, leave premium_assessments untouched
+        await db.clear("premium_staging");
         throw new Error(`Premium hash mismatch. Expected ${manifest.premium_hash}, got ${localPremHash}`);
       }
-      
+
+      // Step 4: Atomic swap — read all staging rows then replace premium_assessments
+      // in a single IDB transaction so there is no window where both stores are empty.
+      const stagingRows = await db.getAll("premium_staging");
+      const swapTx = db.transaction(["premium_assessments", "premium_staging"], "readwrite");
+      const assessStore = swapTx.objectStore("premium_assessments");
+      const stagingStore = swapTx.objectStore("premium_staging");
+      await assessStore.clear();
+      for (const row of stagingRows) {
+        if (!row.deleted) {
+          assessStore.put({
+            key: row.key,
+            retailer: row.retailer,
+            product_id: row.product_id,
+            assessments: row.assessments,
+          });
+        }
+      }
+      await stagingStore.clear(); // clean up staging after successful swap
+      await swapTx.done;
+
       meta.premiumVersion = manifest.version;
       await NutriScoreDB.putCatalogMeta(meta);
-      console.log("[NutriCatalogSync] Premium sync complete and verified.");
+      console.log("[NutriCatalogSync] Premium sync complete and verified (atomic swap).");
     }
   }
 

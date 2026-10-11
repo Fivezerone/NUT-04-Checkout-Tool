@@ -27,6 +27,11 @@ const DEBUG = (typeof self !== "undefined" && self.NUTRISCORE_DEBUG === true);
 let _sb;
 const sb = () => (_sb ??= NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY));
 
+// F-06: per-retailer high-water mark for cart snapshot capturedAt timestamps.
+// SW discards any SYNC_CART_STATE message whose capturedAt <= the last accepted one.
+// Reset on SW restart (cold wake) — intentional: no stale ordering across lifetimes.
+const _lastCartAt = {};
+
 // D-05: 30-second tier memo — one resolveTier call per batch, not per item.
 let _tier, _tierAt = 0;
 async function currentTier() {
@@ -506,6 +511,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.syncCart) {
           throw new Error("DB not initialized or syncCart missing");
         }
+
+        // F-06: reject stale snapshots from hidden/background tabs.
+        // capturedAt is the timestamp at which the content script captured the cart.
+        // If a newer snapshot already arrived, this one is a race loser — discard it.
+        const retailer = message.payload.retailer;
+        const capturedAt = message.payload.capturedAt ?? 0;
+        if (capturedAt <= (_lastCartAt[retailer] ?? 0)) {
+          if (sendResponse) sendResponse({ status: "STALE" });
+          return;
+        }
+        _lastCartAt[retailer] = capturedAt;
 
         // M2: Persist the payload to IDB before attempting the sync.
         // If the SW is killed mid-flight, the "retry-cart-sync" alarm (registered

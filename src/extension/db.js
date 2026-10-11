@@ -296,7 +296,7 @@ var NutriScoreDB = (() => {
 
   // src/ui/src/app/lib/db/shared.ts
   var DB_NAME = "nut04-nutriscore";
-  var DB_VERSION = 15;
+  var DB_VERSION = 16;
   var SCORING_VERSION = "v4";
   var dbPromise = null;
   function getDB() {
@@ -412,6 +412,11 @@ var NutriScoreDB = (() => {
             if (db.objectStoreNames.contains("naivasProducts")) transaction.objectStore("naivasProducts").clear();
             if (db.objectStoreNames.contains("carrefourProducts")) transaction.objectStore("carrefourProducts").clear();
             if (db.objectStoreNames.contains("dataset_metadata")) transaction.objectStore("dataset_metadata").clear();
+          }
+          if (oldVersion < 16) {
+            if (!db.objectStoreNames.contains("premium_staging")) {
+              db.createObjectStore("premium_staging", { keyPath: "key" });
+            }
           }
         }
       });

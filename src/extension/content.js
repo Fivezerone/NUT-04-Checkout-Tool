@@ -23,9 +23,13 @@ class NutriScoreContentEngine {
     this.lastHref         = location.href;
   }
 
-  // D-16: guard against 'Extension context invalidated' after extension update
-  _safeSend(msg, cb) {
-    try { return chrome.runtime.sendMessage(msg, cb); } catch { return undefined; }
+  _safeSend(message, callback) {
+    try {
+      chrome.runtime.sendMessage(message, response => {
+        if (chrome.runtime.lastError) { callback?.({ ok: false, error: "EXTENSION_CONTEXT_INVALIDATED" }); return; }
+        callback?.({ ok: true, response });
+      });
+    } catch { callback?.({ ok: false, error: "EXTENSION_CONTEXT_INVALIDATED" }); }
   }
 
   init() {
@@ -45,11 +49,11 @@ class NutriScoreContentEngine {
         if (removed) {
           isRemove = true;
           if (removed.clearAll) {
-            chrome.runtime.sendMessage({ action: "CART_CLEARED", retailer: removed.retailer });
+            this._safeSend({ action: "CART_CLEARED", retailer: removed.retailer });
             this.lastCartHadItems = false;
             this.lastCartStr = "";
           } else {
-            chrome.runtime.sendMessage({ action: "REMOVE_CART_ITEM", payload: removed });
+            this._safeSend({ action: "REMOVE_CART_ITEM", payload: removed });
           }
         }
       }
@@ -70,8 +74,10 @@ class NutriScoreContentEngine {
         const retailer = this.adapter ? this.adapter.getRetailerCode() : null;
         sendResponse({ count, total, retailer });
       }
-      // D-15d: on theme/tier change, full rescan so badges get fresh productResult
-      if (msg.action === "THEME_CHANGED") {
+    });
+
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'local' && changes.uiTheme) {
         this.rescan();
       }
     });
@@ -149,7 +155,7 @@ class NutriScoreContentEngine {
       if (this.adapter.detectOrderConfirmation()) {
         this.orderDetected = true;
         console.log("[NutriScore] Order confirmation detected -- marking cart as purchased.");
-        chrome.runtime.sendMessage({
+        this._safeSend({
           action: "ORDER_PLACED",
           retailer: this.adapter.getRetailerCode()
         });
@@ -161,54 +167,62 @@ class NutriScoreContentEngine {
 
   async syncCart(fetchApi = false) {
     if (!this.adapter) return;
-    
-    let cartItems = [];
-    // 1. Extract from DOM (Sidebar/flyout if open)
-    if (this.adapter.extractCartState) {
-      cartItems = this.adapter.extractCartState();
-    }
-    
-    // 2. Auto-detect from API silently (only on page load or explicit navigation)
-    if (fetchApi && this.adapter.fetchCartFromAPI) {
-      const apiItems = await this.adapter.fetchCartFromAPI();
-      // Merge, giving preference to DOM items (what the user actually sees)
-      const itemMap = new Map();
-      cartItems.forEach(i => itemMap.set(i.productId, i));
-      apiItems.forEach(i => {
-        // Only add if not already extracted from DOM
-        if (!itemMap.has(i.productId)) {
-           itemMap.set(i.productId, i);
-        }
-      });
-      cartItems = Array.from(itemMap.values());
-    }
-    
-    // 3. Detect cart cleared: had items before, now empty Only detect cart cleared if we are actually checking the API, or if we know the cart DOM is visible. If we only check DOM (fetchApi=false) and the sidebar is closed, extractCartState returns []. To prevent false positives, we only trigger CART_CLEARED if fetchApi=true (which uses the true API state) OR if we know for sure the DOM cart is rendered but empty. For now, rely on fetchApi=true.
-    if (fetchApi && cartItems.length === 0 && this.lastCartHadItems) {
-      console.log("[NutriScore] Cart cleared -- updating dashboard.");
-      chrome.runtime.sendMessage({
-        action: "CART_CLEARED",
-        retailer: this.adapter.getRetailerCode()
-      });
-      this.lastCartHadItems = false;
-      this.lastCartStr = "";
-      return;
-    }
 
-    if (cartItems.length > 0) {
-      this.lastCartHadItems = true;
-    }
+    // F-06: only a visible tab should capture and send cart snapshots.
+    // Hidden tabs (preloaded pages, background tabs) see stale DOM / incomplete API responses.
+    if (document.visibilityState !== "visible") return;
 
-    const cartStr = JSON.stringify(cartItems);
-    if (cartStr !== this.lastCartStr) {
-      this.lastCartStr = cartStr;
-      chrome.runtime.sendMessage({
-        action: "SYNC_CART_STATE",
-        payload: {
-          retailer: this.adapter.getRetailerCode(),
-          items: cartItems
-        }
-      });
+    try {
+      let cartItems = [];
+      // 1. Extract from DOM (Sidebar/flyout if open)
+      if (this.adapter.extractCartState) {
+        cartItems = this.adapter.extractCartState();
+      }
+
+      // 2. Auto-detect from API silently (only on page load or explicit navigation)
+      if (fetchApi && this.adapter.fetchCartFromAPI) {
+        const apiItems = await this.adapter.fetchCartFromAPI();
+        // Merge, giving preference to DOM items (what the user actually sees)
+        const itemMap = new Map();
+        cartItems.forEach(i => itemMap.set(i.productId, i));
+        apiItems.forEach(i => {
+          if (!itemMap.has(i.productId)) {
+             itemMap.set(i.productId, i);
+          }
+        });
+        cartItems = Array.from(itemMap.values());
+      }
+
+      if (fetchApi && cartItems.length === 0 && this.lastCartHadItems) {
+        console.log("[NutriScore] Cart cleared -- updating dashboard.");
+        this._safeSend({
+          action: "CART_CLEARED",
+          retailer: this.adapter.getRetailerCode()
+        });
+        this.lastCartHadItems = false;
+        this.lastCartStr = "";
+        return;
+      }
+
+      if (cartItems.length > 0) {
+        this.lastCartHadItems = true;
+      }
+
+      const cartStr = JSON.stringify(cartItems);
+      if (cartStr !== this.lastCartStr) {
+        this.lastCartStr = cartStr;
+        this._safeSend({
+          action: "SYNC_CART_STATE",
+          payload: {
+            retailer: this.adapter.getRetailerCode(),
+            items: cartItems,
+            // F-06: SW uses capturedAt to reject snapshots older than the last accepted one per retailer.
+            capturedAt: Date.now(),
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("[NutriScore] syncCart error:", e);
     }
   }
 
@@ -266,14 +280,14 @@ class NutriScoreContentEngine {
       payloads: batch.map(b => b.payload)
     };
 
-    // D-16: use safeSend so 'Extension context invalidated' after an update doesn't crash
-    this._safeSend(message, response => {
-      if (chrome.runtime.lastError) {
-        console.warn("[NutriScore] SW message failed:", chrome.runtime.lastError.message);
+    this._safeSend(message, result => {
+      if (!result || !result.ok) {
+        console.warn("[NutriScore] SW message failed:", result?.error);
         batch.forEach(({ card }) => { card.removeAttribute("data-nutriscore-scanned"); this.processedElements.delete(card); });
         return;
       }
 
+      const response = result.response;
       if (response?.status === "SUCCESS" && Array.isArray(response.results)) {
         response.results.forEach((res, index) => {
           const item = batch[index];
@@ -288,16 +302,17 @@ class NutriScoreContentEngine {
             catch (e) { console.warn("[NutriScore] injectBadge failed:", e); card.removeAttribute("data-nutriscore-scanned"); this.processedElements.delete(card); }
           } else {
             const definitive = /^Product not found/i.test(res.error || "");
-            card.setAttribute("data-nutriscore-scanned", definitive ? "not-found" : "error");
+            card.setAttribute("data-nutriscore-scanned", definitive ? 'not-found' : 'error');
             if (definitive && cacheKey) this.notFoundCache.add(cacheKey);
             else this.processedElements.delete(card);
           }
         });
       } else {
-        batch.forEach(({ card }) => { card.setAttribute("data-nutriscore-scanned", "error"); this.processedElements.delete(card); });
+        // Batch infrastructure failure
+        batch.forEach(({ card }) => { card.setAttribute("data-nutriscore-scanned", 'error'); this.processedElements.delete(card); });
       }
       
-      chrome.runtime.sendMessage({ action: "POPUP_STATS_UPDATE" }).catch(() => {});
+      this._safeSend({ action: "POPUP_STATS_UPDATE" });
     });
   }
 }

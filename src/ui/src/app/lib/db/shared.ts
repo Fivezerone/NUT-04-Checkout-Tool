@@ -67,10 +67,17 @@ interface NutriDB extends DBSchema {
     key: string; // "RETAILER|ProductID"
     value: { key: string; retailer: string; product_id: string; assessments: Record<string, any> };
   };
+  /** v16 (F-09): Staging store for the atomic-swap premium sync.
+   * Rows are pulled here, hash-verified, then atomically swapped into premium_assessments.
+   * Never cleared before the hash check — guarantees premium users never see an empty store. */
+  premium_staging: {
+    key: string; // "RETAILER|ProductID"
+    value: { key: string; retailer: string; product_id: string; assessments: Record<string, any>; record_hash: string; deleted: boolean };
+  };
 }
 
 const DB_NAME = "nut04-nutriscore";
-export const DB_VERSION = 15;
+export const DB_VERSION = 16;
 export const SCORING_VERSION = "v4";
 
 /**
@@ -223,6 +230,14 @@ export function getDB() {
           if (db.objectStoreNames.contains("naivasProducts"))    transaction.objectStore("naivasProducts").clear();
           if (db.objectStoreNames.contains("carrefourProducts")) transaction.objectStore("carrefourProducts").clear();
           if (db.objectStoreNames.contains("dataset_metadata"))  transaction.objectStore("dataset_metadata").clear();
+        }
+        // v16 (F-09): add premium_staging for atomic-swap premium sync.
+        // premium_assessments data is preserved — users keep serving from it until the
+        // first successful premium sync verifies the hash and atomically swaps.
+        if (oldVersion < 16) {
+          if (!db.objectStoreNames.contains("premium_staging")) {
+            db.createObjectStore("premium_staging", { keyPath: "key" });
+          }
         }
       },
     });
