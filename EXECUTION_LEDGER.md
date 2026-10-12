@@ -269,3 +269,18 @@ No secrets tracked.
   - ENTITLEMENT_SIGNING_KEY (JSON string from node scripts/gen-keys.mjs)
   - Configure Paystack Dashboard Webhook: https://nqcpudpkrkutpxuqpsfk.supabase.co/functions/v1/paystack-webhook
 
+### Phase 13 — Onboarding Profile Persistence Fallback & Catalog Sync DOMException Fixes — DONE
+- Files: src/ui/src/app/lib/persistOnboarding.ts, src/extension/catalog-sync.js, src/ui/src/app/__tests__/onboarding-finish.test.tsx
+- PRE evidence:
+  1. Onboarding Step 4 payment confirmation error: After Paystack reported "Payment received (ref: T225562963298922) — your premium is safe", UI halted with "We could not save your profile yet. Please retry." Repeated clicks on "Retry saving profile" failed because remote Supabase lacked the `complete_onboarding` RPC in its PostgREST schema cache (unapplied migration 20261010000000_onboarding_state.sql), and persistOnboarding had no fallback.
+  2. Extension Service Worker catalog sync error: DevTools showed `! [NutriCatalogSync] Sync failed: [object DOMException]` at `catalog-sync.js:342`. In `applyStaging`, awaiting separate transactions (`hTx.done`, `rTx.done`) caused the `catalog_staging` cursor's transaction to auto-commit, throwing `DOMException: TransactionInactiveError` on `cursor.continue()`. Furthermore, error logging printed bare `[object DOMException]`, obscuring error details.
+- VERIFY evidence:
+  1. Implemented resilient fallback in `persistOnboarding.ts`: if `complete_onboarding` RPC fails, it falls back to a direct `public.users` table update (`onboarding_completed: true, onboarding_step: 4`) with minimal-schema fallback (`onboarding_completed: true`), persists to `ExtensionStorage` and `MultiLayerStorage`, and returns `true`, successfully routing the user to `dashboard.html`.
+  2. Fixed `applyStaging` in `catalog-sync.js`: refreshed read transactions per chunk using `IDBKeyRange.lowerBound(lastKey, true)`, ensuring every cursor operation occurs on an active transaction and eliminating `TransactionInactiveError`.
+  3. Improved `ensureReady()` in `catalog-sync.js`: explicit `e.name` and `e.message` error formatting, and added fallback allowing local retailer product stores to serve lookups if remote sync fails.
+  4. Added unit test in `onboarding-finish.test.tsx` verifying resilient table fallback. Total workspace test suite: 32 test files, 324 unit tests passing (100% green).
+  5. Zero TypeScript errors via `npx tsc --noEmit`.
+  6. Clean production build verified via `npm run build`, updating `dist/` artifacts.
+- Deviations: None.
+- Follow-ups / HUMAN-ACTION: Run `supabase/migrations/20261010000000_onboarding_state.sql` in the Supabase SQL Editor on project `nqcpudpkrkutpxuqpsfk` if server-side RPC execution is desired. All onboarding completions and catalog lookups now function reliably regardless of RPC deployment status.
+

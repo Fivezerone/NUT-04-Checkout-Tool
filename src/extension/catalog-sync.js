@@ -151,15 +151,22 @@ self.NutriCatalogSync = (() => {
     //      after each chunk. Peak JS heap ≤ CHUNK_SIZE records at any time.
     let hasAny = false;
     let done = false;
-    let cursor = await db.transaction("catalog_staging", "readonly").store.openCursor();
+    let lastKey = null;
 
     while (!done) {
+      const readTx = db.transaction("catalog_staging", "readonly");
+      const range = (lastKey !== null && typeof IDBKeyRange !== "undefined")
+        ? IDBKeyRange.lowerBound(lastKey, true)
+        : undefined;
+      let cursor = await (range ? readTx.store.openCursor(range) : readTx.store.openCursor());
       const chunk = [];
       // Collect up to CHUNK_SIZE rows from the cursor
       while (cursor && chunk.length < CHUNK_SIZE) {
         chunk.push(cursor.value);
+        lastKey = cursor.key;
         cursor = await cursor.continue();
       }
+      await readTx.done;
       if (chunk.length === 0) break;
       hasAny = true;
       done = !cursor; // no more rows after this chunk
@@ -339,13 +346,23 @@ self.NutriCatalogSync = (() => {
   async function ensureReady() {
     if (!syncPromise) {
       syncPromise = sync().catch(async e => {
-        console.error("[NutriCatalogSync] Sync failed:", e);
+        const errName = e?.name || (e?.constructor?.name ?? "Error");
+        const errMsg = e?.message || String(e);
+        console.error(`[NutriCatalogSync] Sync failed (${errName}): ${errMsg}`, e);
         try {
           // If we already have a catalog, swallow the error and continue
           const meta = await NutriScoreDB.getCatalogMeta();
           if (meta && meta.version) {
              console.warn("[NutriCatalogSync] Continuing with cached catalog version:", meta.version);
              return; // Resolve successfully
+          }
+          // If local products exist in either retailer store, allow continuing with local data
+          const db = await NutriScoreDB.getDB();
+          const naivasCount = await db.count("naivasProducts").catch(() => 0);
+          const carrefourCount = await db.count("carrefourProducts").catch(() => 0);
+          if (naivasCount > 0 || carrefourCount > 0) {
+            console.warn(`[NutriCatalogSync] Continuing with local catalog (${naivasCount + carrefourCount} products).`);
+            return;
           }
         } catch(err) {
           // Ignore meta fetch errors here

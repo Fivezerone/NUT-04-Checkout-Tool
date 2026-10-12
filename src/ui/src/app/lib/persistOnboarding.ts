@@ -32,18 +32,63 @@ export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> 
   if (userId) {
     const isRenewal = initialMode === 'renew';
     if (!isRenewal) {
-      const { data, error: rpcError } = await supabase.rpc('complete_onboarding', {
-        p_tier: tier || 'premium'
-      });
+      let rpcSucceeded = false;
+      let rpcError: any = null;
+      let data: any = null;
 
-      if (rpcError || (data && data.error)) {
-        setFinishError(
-          `Payment received (ref: ${paymentRef}) — your premium is safe. ` +
-          `We could not save your profile yet. Please retry.`
-        );
-        console.error('[finishOnboarding] profile update failed:', JSON.stringify(rpcError || data));
-        if (token) await savePremiumStatus(token);
-        return false;
+      try {
+        const res = await supabase.rpc('complete_onboarding', {
+          p_tier: tier || 'premium'
+        });
+        data = res?.data;
+        rpcError = res?.error;
+        if (!rpcError && !(data && data.error)) {
+          rpcSucceeded = true;
+        }
+      } catch (e: any) {
+        rpcError = e;
+      }
+
+      if (!rpcSucceeded) {
+        console.warn('[finishOnboarding] complete_onboarding RPC error or unavailable, attempting resilient table fallback:', rpcError?.message || data?.error);
+        let fallbackSucceeded = false;
+        if (typeof supabase?.from === 'function') {
+          try {
+            const now = new Date().toISOString();
+            const { error: directErr } = await supabase.from('users').update({
+              onboarding_completed: true,
+              onboarding_step: 4,
+              updated_at: now
+            }).eq('id', userId);
+
+            if (!directErr) {
+              fallbackSucceeded = true;
+            } else {
+              // Resilient fallback if onboarding_step column is missing in remote schema
+              const { error: minimalErr } = await supabase.from('users').update({
+                onboarding_completed: true,
+                updated_at: now
+              }).eq('id', userId);
+              if (!minimalErr) {
+                fallbackSucceeded = true;
+              }
+            }
+          } catch (fallbackEx: any) {
+            console.warn('[finishOnboarding] direct table update exception:', fallbackEx?.message || fallbackEx);
+          }
+        }
+
+        if (!fallbackSucceeded) {
+          if (rpcError || (data && data.error)) {
+            setFinishError(
+              `Payment received (ref: ${paymentRef}) — your premium is safe. ` +
+              `We could not save your profile yet. Please retry.`
+            );
+            console.error('[finishOnboarding] profile update failed:', JSON.stringify(rpcError || data));
+            if (token) await savePremiumStatus(token);
+            return false;
+          }
+        }
       }
     }
   }

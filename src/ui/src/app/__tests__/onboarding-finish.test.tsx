@@ -142,4 +142,49 @@ describe('persistOnboarding', () => {
 
     expect(supabase.rpc).toHaveBeenCalledWith('complete_onboarding', { p_tier: 'basic' });
   });
+
+  it('recovers via resilient direct table update when complete_onboarding RPC fails', async () => {
+    vi.mocked(supabase.rpc).mockResolvedValue({
+      data: null,
+      error: { message: 'Could not find function public.complete_onboarding', code: 'PGRST202' }
+    } as any);
+
+    const updateMock = vi.fn().mockReturnValue({
+      eq: vi.fn().mockResolvedValue({ error: null })
+    });
+    (supabase as any).from = vi.fn().mockReturnValue({
+      update: updateMock
+    });
+
+    const setFinishError = vi.fn();
+    const result = await persistOnboarding({
+      paymentRef: 'fallback_ref',
+      method: 'Card',
+      userId: 'user-789',
+      user: { user_metadata: { full_name: 'Fallback User' } },
+      fullName: 'Fallback User',
+      email: 'fallback@example.com',
+      dob: '1995-05-05',
+      gender: 'female',
+      condition: 'hypertension',
+      metric: 'sodium',
+      notificationFrequency: 'daily',
+      termsAccepted: true,
+      privacyAccepted: true,
+      initialMode: 'signup',
+      tier: 'premium',
+      setFinishError
+    });
+
+    expect(result).toBe(true);
+    expect(setFinishError).not.toHaveBeenCalled();
+    expect((supabase as any).from).toHaveBeenCalledWith('users');
+    expect(ExtensionStorage.setOnboardingComplete).toHaveBeenCalledWith(
+      'user-789',
+      expect.anything()
+    );
+
+    delete (supabase as any).from;
+  });
 });
+
