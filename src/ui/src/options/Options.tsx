@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ExtensionStorage, ChromeExtensionStorage, signOutUser, supabase } from "../services/storage";
+import { ExtensionStorage, ChromeExtensionStorage, signOutUser, supabase, setOnboardingCompleted } from "../services/storage";
 import { toast } from "sonner";
 import { Toaster } from "sonner";
 import { purgeAll, getSettings, saveSettings } from "../app/lib/db";
@@ -28,20 +28,77 @@ export function Options() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const draftData = await MultiLayerStorage.initDraft();
-      if (draftData) setData(draftData as any);
 
+      let isOnboarded = false;
+      let isPremium = false;
+
+      // 1. Check local ExtensionStorage
+      const storageData = await ExtensionStorage.getOnboardingData(user?.id);
+      if (storageData.onboarding_completed) {
+        isOnboarded = true;
+      }
+
+      // 2. Check chrome.storage.local directly
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        const local = await chrome.storage.local.get(['onboarding_completed', 'nutri_entitlement', 'nutriscore_is_premium']);
+        if (local.onboarding_completed === true) isOnboarded = true;
+        if (local.nutriscore_is_premium === true || !!local.nutri_entitlement) isPremium = true;
+      }
+
+      // 3. Check remote Supabase user & entitlement
       if (user) {
-        const { data: ent } = await supabase.rpc('get_my_entitlement');
-        if (ent) {
-          if (ent.premium_expires_at) {
-            setExpiryDate(new Date(ent.premium_expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
+        try {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('onboarding_completed, is_premium')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          if (profile?.onboarding_completed) isOnboarded = true;
+          if (profile?.is_premium === true) isPremium = true;
+        } catch (e) {
+          console.warn("[Options] failed to fetch profile:", e);
+        }
+
+        try {
+          const { data: ent } = await supabase.rpc('get_my_entitlement');
+          if (ent) {
+            if (ent.premium_expires_at) {
+              setExpiryDate(new Date(ent.premium_expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
+            }
+            const expired = ent.tier !== 'premium' || isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
+            if (!expired || ent.tier === 'premium') {
+              isPremium = true;
+              isOnboarded = true; // Premium subscribers are always granted onboarding status
+            }
+            setTrueSubStatus(expired ? 'expired' : 'active');
           }
-          const expired = ent.tier !== 'premium' || isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
-          setTrueSubStatus(expired ? 'expired' : 'active');
+        } catch (e) {
+          console.warn("[Options] failed to fetch entitlement:", e);
+        }
+      }
+
+      // Settings access unlocked for onboarded users OR any premium subscribers
+      const canAccessSettings = isOnboarded || isPremium;
+
+      const merged = {
+        ...draftData,
+        ...storageData,
+        onboarding_completed: canAccessSettings,
+        nutriscore_is_premium: isPremium
+      };
+
+      setData(merged as any);
+
+      if (canAccessSettings && user?.id) {
+        await setOnboardingCompleted(user.id, true);
+        await MultiLayerStorage.updateDraft({ onboarding_completed: true });
+        if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+          await chrome.storage.local.set({ onboarding_completed: true });
         }
       }
     } catch (e) {
-      console.warn("Failed to fetch expiry", e);
+      console.warn("Failed to fetch settings/expiry", e);
     }
 
     setLoading(false);

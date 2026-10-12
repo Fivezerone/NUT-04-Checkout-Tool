@@ -55,9 +55,11 @@ export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> 
         if (typeof supabase?.from === 'function') {
           try {
             const now = new Date().toISOString();
+            const isPremiumUser = tier !== 'basic';
             const { error: directErr } = await supabase.from('users').update({
               onboarding_completed: true,
               onboarding_step: 4,
+              is_premium: isPremiumUser,
               updated_at: now
             }).eq('id', userId);
 
@@ -67,6 +69,7 @@ export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> 
               // Resilient fallback if onboarding_step column is missing in remote schema
               const { error: minimalErr } = await supabase.from('users').update({
                 onboarding_completed: true,
+                is_premium: isPremiumUser,
                 updated_at: now
               }).eq('id', userId);
               if (!minimalErr) {
@@ -94,8 +97,11 @@ export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> 
   }
 
   const finalTheme = condition && condition !== "general" ? condition : "general";
+  const isPremiumUser = tier !== 'basic';
   
   await ExtensionStorage.setOnboardingComplete(userId!, ({
+    onboarding_completed: true,
+    nutriscore_is_premium: isPremiumUser,
     user_account: {
       fullName: fullName || "Guest",
       email: email || ""
@@ -113,8 +119,19 @@ export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> 
   const settings = await getSettings();
   await saveSettings({ ...settings, activeTheme: finalTheme as any });
   
-  await MultiLayerStorage.updateDraft({ uiTheme: finalTheme });
+  await MultiLayerStorage.updateDraft({ 
+    uiTheme: finalTheme,
+    onboarding_completed: true,
+    nutriscore_is_premium: isPremiumUser
+  });
   await MultiLayerStorage.commitDraftToLive();
+
+  if (typeof chrome !== "undefined" && chrome.storage?.local) {
+    await chrome.storage.local.set({
+      onboarding_completed: true,
+      nutriscore_is_premium: isPremiumUser
+    });
+  }
 
   if (token) {
     await savePremiumStatus(token);

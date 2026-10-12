@@ -284,3 +284,17 @@ No secrets tracked.
 - Deviations: None.
 - Follow-ups / HUMAN-ACTION: Run `supabase/migrations/20261010000000_onboarding_state.sql` in the Supabase SQL Editor on project `nqcpudpkrkutpxuqpsfk` if server-side RPC execution is desired. All onboarding completions and catalog lookups now function reliably regardless of RPC deployment status.
 
+### Phase 14 — Premium Subscriber Settings Access & Popup Analytics Button Activation — DONE
+- Files: src/ui/src/options/Options.tsx, src/ui/src/popup.tsx, src/ui/src/app/lib/persistOnboarding.ts
+- PRE evidence:
+  1. Popup CTA soft-lock: After payment verification, the popup still rendered the dark "Upgrade to Premium to View Shopping Analytics" button instead of the primary "View Shopping Analytics" button. `resolveAuthState` in `popup.tsx` only queried `CHECK_TIER` against the service worker (which required a locally-stored signed JWT token) and failed to check Supabase `is_premium` / `get_my_entitlement` / `payments` status.
+  2. Settings lockout: Accessing settings/options presented a "Not Onboarded: You need to complete the onboarding before accessing settings" barrier even for paid premium subscribers. `Options.tsx` evaluated `!data?.onboarding_completed` against `MultiLayerStorage.initDraft()` which intentionally lacks `onboarding_completed`.
+- VERIFY evidence:
+  1. Updated `Options.tsx` `loadData()` to inspect local `ExtensionStorage`, `chrome.storage.local`, Supabase profile (`users.onboarding_completed`, `users.is_premium`), and `get_my_entitlement`. Premium subscribers and onboarded accounts are recognized with `canAccessSettings = true`, completely unlocking the settings view and syncing `onboarding_completed` into local storage.
+  2. Enhanced `popup.tsx` `resolveAuthState()` with multi-source tier resolution (service worker `CHECK_TIER`, local storage flags, Supabase `users.is_premium`, and `get_my_entitlement` RPC). When premium status is verified, `userData.nutriscore_is_premium` is set to `true`, switching the popup button to "View Shopping Analytics" (`id="open-dashboard-btn"`) with the primary blue styling, while basic/unpaid users retain the dark upgrade button.
+  3. Updated `persistOnboarding.ts` to write `is_premium` and `nutriscore_is_premium` across the database and all local storage tiers upon onboarding completion.
+  4. 32/32 test files, 324/324 unit tests passing (100% green).
+  5. Zero TypeScript errors via `npx tsc --noEmit`.
+  6. Production bundles updated via `npm run build`.
+- Deviations: None.
+

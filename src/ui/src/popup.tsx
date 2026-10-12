@@ -5,7 +5,8 @@ import { createRoot } from "react-dom/client";
 import { useEffect, useState } from "react";
 import { Popup } from "./app/components/Popup";
 import { BlueThemeProvider } from "./app/context/BlueThemeProvider";
-import { ExtensionStorage, ChromeExtensionStorage, supabase } from "./services/storage";
+import { ExtensionStorage, ChromeExtensionStorage, supabase, setOnboardingCompleted } from "./services/storage";
+import { isSubscriptionExpired } from "./app/lib/subscriptionUtils";
 import "./styles/index.css";
 
 /**
@@ -35,28 +36,74 @@ function PopupRoot() {
       const { data: { session } } = await supabase.auth.getSession();
       const storageData = await ExtensionStorage.getOnboardingData(session?.user?.id);
 
-      if (storageData.onboarding_completed) {
-        let isPremium = false;
-        if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
-          isPremium = await new Promise((resolve) => {
-            chrome.runtime.sendMessage({ action: "CHECK_TIER", userId: session?.user?.id }, (response) => {
-              if (chrome.runtime.lastError) {
-                console.warn("[Popup] CHECK_TIER failed:", chrome.runtime.lastError);
-                resolve(false);
-              } else {
-                resolve(response?.tier === "premium");
-              }
-            });
-          });
-        } else {
-          // Fallback or dev mode normalizer
-          isPremium = storageData.nutriscore_is_premium === true || (typeof storageData.nutriscore_is_premium === 'string' && storageData.nutriscore_is_premium.length > 10);
-        }
-        setUserData({ ...storageData, nutriscore_is_premium: isPremium });
+      let isOnboarded = !!storageData.onboarding_completed;
+      let isPremium = false;
+
+      // 1. Direct local storage check
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        const local = await chrome.storage.local.get(['onboarding_completed', 'nutri_entitlement', 'nutriscore_is_premium']);
+        if (local.onboarding_completed === true) isOnboarded = true;
+        if (local.nutriscore_is_premium === true || !!local.nutri_entitlement) isPremium = true;
       }
 
+      // 2. Query CHECK_TIER via service worker
+      if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+        const swTierIsPremium = await new Promise<boolean>((resolve) => {
+          chrome.runtime.sendMessage({ action: "CHECK_TIER", userId: session?.user?.id }, (response) => {
+            if (chrome.runtime.lastError) {
+              resolve(false);
+            } else {
+              resolve(response?.tier === "premium");
+            }
+          });
+        });
+        if (swTierIsPremium) isPremium = true;
+      }
+
+      // 3. If user is logged in, query Supabase profile & entitlement to verify real-time status
+      if (session?.user?.id) {
+        try {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('onboarding_completed, is_premium')
+            .eq('id', session.user.id)
+            .maybeSingle();
+
+          if (profile?.onboarding_completed) isOnboarded = true;
+          if (profile?.is_premium === true) isPremium = true;
+
+          const { data: ent } = await supabase.rpc('get_my_entitlement');
+          if (ent && ent.tier === 'premium' && !isSubscriptionExpired(ent.premium_expires_at, ent.server_now)) {
+            isPremium = true;
+            isOnboarded = true; // Verified premium subscribers are always considered onboarded
+          }
+        } catch (err) {
+          console.warn("[Popup] remote profile verification warning:", err);
+        }
+      }
+
+      // If user has verified premium access, ensure local storage and onboarding state reflect it
+      if (isPremium) {
+        isOnboarded = true;
+        if (session?.user?.id) {
+          await setOnboardingCompleted(session.user.id, true);
+        }
+        if (typeof chrome !== "undefined" && chrome.storage?.local) {
+          await chrome.storage.local.set({
+            onboarding_completed: true,
+            nutriscore_is_premium: true
+          });
+        }
+      }
+
+      setUserData({
+        ...storageData,
+        onboarding_completed: isOnboarded,
+        nutriscore_is_premium: isPremium
+      });
+
       if (session) {
-        if (!storageData.onboarding_completed) {
+        if (!isOnboarded) {
           setAuthState('incomplete');
         } else {
           setAuthState('loggedIn');
