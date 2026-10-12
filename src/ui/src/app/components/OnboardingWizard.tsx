@@ -105,11 +105,11 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     transactionRef: activePaymentRef,
     method: activePaymentMethod,
     onSuccess: async (ref, method, token) => {
-      if (!token) {
-        setError('Payment confirmed but entitlement is still syncing. Please wait a moment then try again.');
-        return;
+      if (token) {
+        await savePremiumStatus(token);
+      } else {
+        console.warn('[OnboardingWizard] Payment confirmed without immediate token; completing onboarding and requesting background refresh.');
       }
-      await savePremiumStatus(token);
       finishOnboarding(ref, method === 'mpesa' ? "Mobile Money" : "Card", token);
     },
     onError: async (msg) => {

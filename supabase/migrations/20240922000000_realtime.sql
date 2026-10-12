@@ -6,3 +6,4 @@ BEGIN;
   CREATE PUBLICATION supabase_realtime;
 COMMIT;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.payments;
+ALTER TABLE public.payments REPLICA IDENTITY FULL;

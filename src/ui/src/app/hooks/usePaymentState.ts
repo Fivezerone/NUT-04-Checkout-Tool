@@ -58,7 +58,8 @@ export const usePaymentState = ({
         if (payload.new.status === 'completed') {
           void pollStatusOnce();        // defined below; clears timer, runs one verified check
         } else if (payload.new.status === 'failed') {
-          handleFailure('Payment failed or was cancelled.');
+          // Realtime confirmed terminal — safe to call error handler
+          handleTerminalFailure('Payment failed or was cancelled.');
         }
       })
       .subscribe((s: string) => {
@@ -75,7 +76,11 @@ export const usePaymentState = ({
       onSuccessRef.current(transactionRef, method, token);
     };
 
-    const handleFailure = (msg: string) => {
+    /**
+     * F-11: Terminal failure — ONLY called when server confirms failed/cancelled.
+     * Distinct from poll cap timeout (which is recoverable).
+     */
+    const handleTerminalFailure = (msg: string) => {
       setStatus('error');
       supabase.removeChannel(channel);
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
@@ -85,11 +90,22 @@ export const usePaymentState = ({
     // 2. FALLBACK PATH: Active Polling (with attempt cap)
     const MAX_ATTEMPTS = 14; // 14 × backoff growth → ~10 min total
     let attempts = 0;
+    let entitlementSyncAttempts = 0;
     const pollStatus = async () => {
       attempts++;
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw new Error('NO_SESSION');
+        if (!session) {
+          // F-11: Session missing is recoverable — preserve reference, ask user to sign in
+          setStatus('error');
+          supabase.removeChannel(channel);
+          if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+          // Do NOT call handleTerminalFailure — reference is preserved in ExtensionStorage
+          onErrorRef.current(
+            'Your session expired. Sign in again — if you paid, your premium will still activate once you return.'
+          );
+          return;
+        }
 
         const { data, error } = await supabase.functions.invoke('payment-status', {
           body: { transaction_ref: transactionRef, method },
@@ -99,26 +115,70 @@ export const usePaymentState = ({
         if (error) throw error;
 
         if (data?.status === 'completed') {
-          handleSuccess(data.token);
+          let token = data.token;
+          if (!token) {
+            try {
+              const { data: entData, error: entError } = await supabase.functions.invoke('entitlement', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              if (!entError && entData?.tier === 'premium' && entData?.token) {
+                token = entData.token;
+              } else if (entError) {
+                console.warn('[usePaymentState] Entitlement Edge Function returned error:', entError);
+              }
+            } catch (entErr) {
+              console.warn('[usePaymentState] Entitlement call exception:', entErr);
+            }
+          }
+
+          // If token acquired, immediately finish
+          if (token) {
+            handleSuccess(token);
+            return;
+          }
+
+          // If token is pending, retry up to 3 times (fast 2s interval) to allow propagation
+          if (entitlementSyncAttempts < 3) {
+            entitlementSyncAttempts++;
+            console.warn(`[usePaymentState] Entitlement token pending (attempt ${entitlementSyncAttempts}/3), retrying soon...`);
+            if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+            pollTimerRef.current = setTimeout(pollStatus, 2000);
+            return;
+          }
+
+          // Fallback: Payment is authoritatively confirmed in DB by payment-status.
+          // Proceed with handleSuccess so user is NOT soft-locked on "Verifying payment...".
+          // Entitlement token will be fetched lazily on dashboard / SW wake.
+          console.warn('[usePaymentState] Entitlement token generation delayed, proceeding with verified payment.');
+          handleSuccess(undefined);
           return;
         }
+
+        if (data?.status === 'amount_mismatch') {
+          handleTerminalFailure('Payment amount or currency mismatch. Please contact support.');
+          return;
+        }
+
         if (data?.status === 'failed' || data?.status === 'cancelled') {
-          handleFailure('Payment failed or was cancelled.');
+          // F-11: Server confirmed terminal — only now erase reference via caller's onError
+          handleTerminalFailure('Payment failed or was cancelled.');
           return;
         }
       } catch (err: any) {
-        if (err?.message === 'NO_SESSION') {
-          handleFailure(
-            'Your session expired. Sign in again — if you paid, your premium will still activate.'
-          );
-          return;
-        }
         console.error('[usePaymentState] Polling error:', err);
       }
 
       if (attempts >= MAX_ATTEMPTS) {
-        handleFailure(
-          `We could not confirm your payment yet. If you were charged, contact support with ref ${transactionRef}.`
+        // F-11: Poll cap reached — recoverable state, NOT terminal failure.
+        // Do NOT call onError via handleTerminalFailure — that would erase the reference.
+        // Show "Check status again" and "Exit safely" message; reference stays in ExtensionStorage.
+        setStatus('error');
+        supabase.removeChannel(channel);
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+        onErrorRef.current(
+          `We could not confirm your payment yet — your reference is safe. ` +
+          `Tap "Check Status" to try again, or contact support with ref: ${transactionRef}.`
         );
         return;
       }

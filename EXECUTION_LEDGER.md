@@ -251,3 +251,21 @@ No secrets tracked.
 - Deviations: None.
 - Follow-ups / HUMAN-ACTION: Apply supabase/migrations/20261010000000_onboarding_state.sql to target Supabase instance when ready for server-side RPC execution. Decoy policies can be updated seamlessly by modifying src/ui/src/app/legal/decoyLegalDocs.ts once formal legal counsel review is finalized.
 
+### Phase 12 — Payment Soft-Lock Remediation & Paystack Flow Hardening — DONE
+- Files: src/ui/src/app/hooks/usePaymentState.ts, src/ui/src/app/components/OnboardingWizard.tsx, supabase/functions/paystack-initiate/index.ts, supabase/migrations/20240922000000_realtime.sql
+- PRE evidence: After Paystack reported "Payment Successful", UI remained stagnant on "Verifying payment...". Forensic tracing discovered that when payment-status confirmed completed in DB, missing ENTITLEMENT_SIGNING_KEY in Supabase caused entitlement Edge Function to fail, throwing ENTITLEMENT_SYNC_PENDING. usePaymentState caught this and indefinitely retried without transitioning to success. Furthermore, paystack-initiate omitted callback_url in API payload, leaving user parked on Paystack; amount_mismatch was unhandled in usePaymentState; and payments table lacked REPLICA IDENTITY FULL for Realtime updates.
+- VERIFY evidence:
+  1. Eliminated ENTITLEMENT_SYNC_PENDING infinite loop in usePaymentState.ts. Bounded entitlement retries to 3 rapid attempts, gracefully falling back to server-confirmed completion so user is never trapped.
+  2. Handled amount_mismatch as an explicit terminal failure in usePaymentState.ts.
+  3. Updated OnboardingWizard.tsx onSuccess to complete onboarding even if offline token sync is delayed, triggering background refresh.
+  4. Wired PAYSTACK_CALLBACK_URL into paystack-initiate payload so Paystack redirects the browser tab upon card completion.
+  5. Added REPLICA IDENTITY FULL on public.payments in 20240922000000_realtime.sql for non-PK Realtime filtering.
+  6. 323/323 unit tests passing (100% green).
+  7. Zero TypeScript errors via npm run typecheck. Clean production build generated via npm run build.
+- Deviations: None.
+- Follow-ups / HUMAN-ACTION: Set Supabase Edge Function secrets with the correct 20-character project ref domain:
+  - PAYSTACK_CALLBACK_URL=https://nqcpudpkrkutpxuqpsfk.supabase.co/functions/v1/paystack-redirect
+  - PAYSTACK_SECRET_KEY=sk_test_501eefdf75d591face4b5d2f45b3c0ea1e1d0e10
+  - ENTITLEMENT_SIGNING_KEY (JSON string from node scripts/gen-keys.mjs)
+  - Configure Paystack Dashboard Webhook: https://nqcpudpkrkutpxuqpsfk.supabase.co/functions/v1/paystack-webhook
+

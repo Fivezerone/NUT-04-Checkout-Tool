@@ -1,5 +1,5 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { serve } from "@std/http"
+import { createClient } from "@supabase/supabase-js"
 import { getPlan } from "../_shared/plan.ts"
 import { corsHeaders, jsonError } from "../_shared/cors.ts"
 serve(async (req) => {
@@ -31,7 +31,17 @@ serve(async (req) => {
     const amount = plan.price_kes  // Server-authoritative price
 
     const paystackSecret = Deno.env.get("PAYSTACK_SECRET_KEY")!
-    const callbackUrl = Deno.env.get("PAYSTACK_CALLBACK_URL")!
+    const callbackUrl = Deno.env.get("PAYSTACK_CALLBACK_URL")
+
+    const paystackPayload: Record<string, unknown> = {
+      email,
+      currency: "KES",
+      amount: Math.round(amount * 100),  // Paystack amount is in kobo/cents
+      metadata: { user_id: user.id },
+    }
+    if (callbackUrl) {
+      paystackPayload.callback_url = callbackUrl
+    }
 
     const response = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
@@ -39,12 +49,7 @@ serve(async (req) => {
         "Authorization": `Bearer ${paystackSecret}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        email,
-        currency: "KES",
-        amount: Math.round(amount * 100),  // Paystack amount is in kobo/cents
-        metadata: { user_id: user.id },
-      }),
+      body: JSON.stringify(paystackPayload),
     })
 
     const data = await response.json()
