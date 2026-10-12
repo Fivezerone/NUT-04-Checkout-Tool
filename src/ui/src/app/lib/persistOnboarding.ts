@@ -1,5 +1,6 @@
 import { ExtensionStorage, supabase, savePremiumStatus } from "../../services/storage";
 import { getSettings, saveSettings } from "./db";
+import { CentralStorage, MultiLayerStorage } from "../../../../shared/storage";
 
 export type OnboardingDeps = {
   paymentRef: string;
@@ -17,57 +18,42 @@ export type OnboardingDeps = {
   termsAccepted: boolean;
   privacyAccepted: boolean;
   initialMode: string;
+  tier?: string;
   setFinishError: (err: string) => void;
 };
 
-export const persistOnboarding = async (deps: OnboardingDeps) => {
+export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> => {
   const {
     paymentRef, token, userId, user, fullName, email, dob, gender,
     condition, metric, notificationFrequency, termsAccepted, privacyAccepted,
-    initialMode, setFinishError
+    initialMode, setFinishError, tier
   } = deps;
 
   if (userId) {
     const isRenewal = initialMode === 'renew';
     if (!isRenewal) {
-      const now = new Date().toISOString();
-      const { error: upsertError } = await supabase.from('users').upsert({
-        id: userId,
-        full_name:            fullName  || user?.user_metadata?.full_name || 'User',
-        email:                email     || user?.email || '',
-        dob,
-        gender,
-        condition,
-        metric,
-        notification_frequency:  notificationFrequency,
-        terms_accepted:           termsAccepted,
-        privacy_accepted:         privacyAccepted,
-        consent_timestamp:        now,
-        onboarding_completed:     true,
-        health_mode:              condition !== 'general',
-        selected_tags:            [condition, metric].filter(Boolean),
-      }, { onConflict: 'id' });
+      const { data, error: rpcError } = await supabase.rpc('complete_onboarding', {
+        p_tier: tier || 'premium'
+      });
 
-      if (upsertError) {
+      if (rpcError || (data && data.error)) {
         setFinishError(
           `Payment received (ref: ${paymentRef}) — your premium is safe. ` +
           `We could not save your profile yet. Please retry.`
         );
-        console.error('[finishOnboarding] profile UPSERT failed:', JSON.stringify(upsertError));
+        console.error('[finishOnboarding] profile update failed:', JSON.stringify(rpcError || data));
         if (token) await savePremiumStatus(token);
-        return;
+        return false;
       }
     }
   }
 
   const finalTheme = condition && condition !== "general" ? condition : "general";
   
-  await ExtensionStorage.setOnboardingComplete({
+  await ExtensionStorage.setOnboardingComplete(userId!, ({
     user_account: {
       fullName: fullName || "Guest",
-      email: email || "",
-      dob: dob || "",
-      gender: gender || ""
+      email: email || ""
     },
     user_preferences: {
       healthMode: finalTheme !== "general",
@@ -77,16 +63,21 @@ export const persistOnboarding = async (deps: OnboardingDeps) => {
       privacyAccepted: privacyAccepted,
       consentTimestamp: new Date().toISOString()
     }
-  });
+  } as any));
   
   const settings = await getSettings();
   await saveSettings({ ...settings, activeTheme: finalTheme as any });
+  
+  await MultiLayerStorage.updateDraft({ uiTheme: finalTheme });
+  await MultiLayerStorage.commitDraftToLive();
+
   if (token) {
     await savePremiumStatus(token);
   }
 
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
-    chrome.runtime.sendMessage({ action: "THEME_CHANGED", theme: finalTheme }).catch(() => {});
     chrome.runtime.sendMessage({ action: "REFRESH_ENTITLEMENT" }).catch(() => {});
   }
+
+  return true;
 };

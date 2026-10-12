@@ -32,22 +32,27 @@ function PopupRoot() {
    *  (no flash from 'new'→'loggedIn' or 'returning'→'loggedIn'). */
   async function resolveAuthState() {
     try {
-      const [storageData, { data: { session } }] = await Promise.all([
-        ExtensionStorage.getOnboardingData(),
-        supabase.auth.getSession(),
-      ]);
+      const { data: { session } } = await supabase.auth.getSession();
+      const storageData = await ExtensionStorage.getOnboardingData(session?.user?.id);
 
       if (storageData.onboarding_completed) {
+        let isPremium = false;
         if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
-          chrome.runtime.sendMessage({ action: "CHECK_TIER" }, (response) => {
-            const isPremium = response?.tier === "premium";
-            setUserData({ ...storageData, nutriscore_is_premium: isPremium });
+          isPremium = await new Promise((resolve) => {
+            chrome.runtime.sendMessage({ action: "CHECK_TIER", userId: session?.user?.id }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.warn("[Popup] CHECK_TIER failed:", chrome.runtime.lastError);
+                resolve(false);
+              } else {
+                resolve(response?.tier === "premium");
+              }
+            });
           });
         } else {
           // Fallback or dev mode normalizer
-          const isPremium = storageData.nutriscore_is_premium === true || (typeof storageData.nutriscore_is_premium === 'string' && storageData.nutriscore_is_premium.length > 10);
-          setUserData({ ...storageData, nutriscore_is_premium: isPremium });
+          isPremium = storageData.nutriscore_is_premium === true || (typeof storageData.nutriscore_is_premium === 'string' && storageData.nutriscore_is_premium.length > 10);
         }
+        setUserData({ ...storageData, nutriscore_is_premium: isPremium });
       }
 
       if (session) {
@@ -56,8 +61,6 @@ function PopupRoot() {
         } else {
           setAuthState('loggedIn');
         }
-      } else if (storageData.onboarding_completed) {
-        setAuthState('returning');
       } else {
         setAuthState('new');
       }
@@ -167,6 +170,7 @@ function PopupRoot() {
         userData={userData}
         onOpenDashboard={handleOpenDashboard}
         hasActiveSession={authState === 'loggedIn' || authState === 'incomplete'}
+        isIncomplete={authState === 'incomplete'}
         onboardingCompleted={authState === 'returning' || authState === 'loggedIn'}
         onOpenAuth={handleOpenAuth}
       />

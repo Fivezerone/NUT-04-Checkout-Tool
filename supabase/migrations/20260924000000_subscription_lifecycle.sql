@@ -66,7 +66,7 @@ WHERE u.id = p.user_id
 -- Service role bypasses RLS, so no additional policy is required for server-side writes.
 
 -- 6. Helper view (optional — useful for admin queries):
-CREATE OR REPLACE VIEW public.active_subscriptions AS
+CREATE OR REPLACE VIEW public.active_subscriptions WITH (security_invoker = true) AS
   SELECT id, email, full_name, payment_received_at,
          subscription_status,
          (payment_received_at + INTERVAL '30 days') AS expires_at,
@@ -75,3 +75,5 @@ CREATE OR REPLACE VIEW public.active_subscriptions AS
          ) / 86400)::INT AS days_remaining
   FROM public.users
   WHERE subscription_status = 'active';
+
+REVOKE ALL ON public.active_subscriptions FROM anon, authenticated, public;

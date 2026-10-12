@@ -6,6 +6,7 @@ import { ChartBox } from "./ChartBox";
 import { DonutChart, LineTrend, StackedHBarChart, type StackedHBar } from "./charts/Charts";
 import { ExtensionStorage, ChromeExtensionStorage } from "../../services/storage";
 import { getAllEntries, purgeAll, getSettings, saveSettings, deleteLedgerEntry, DEFAULT_SETTINGS, type Settings } from "../lib/db";
+import { CentralStorage, MultiLayerStorage } from "../../../../shared/storage";
 
 import {
   GRADE_LABEL,
@@ -104,8 +105,8 @@ export function Dashboard({ onBack }: DashboardProps) {
       setNameInput(s.profileName);
 
       // Load extension storage data
-      const storageData = await ExtensionStorage.getOnboardingData();
-      setUserData(storageData);
+      const storageData = await MultiLayerStorage.getLive();
+      setUserData(storageData as any);
     } catch (err) {
       // D-30: IDB failure must not leave the spinner on forever
       console.error('[NutriScore] Dashboard load() failed:', err);
@@ -167,22 +168,24 @@ export function Dashboard({ onBack }: DashboardProps) {
         load();
       }
     };
-    
-    const storageListener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-      if (changes.user_account || changes.user_preferences || changes.user_payment) {
-        ExtensionStorage.getOnboardingData().then(data => setUserData(data));
+    const unsubscribeLive = MultiLayerStorage.subscribeLive((newLive) => {
+      if (newLive) {
+        setUserData(newLive as any);
       }
-    };
+    });
 
     if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       chrome.runtime.onMessage.addListener(handleMessage);
-      chrome.storage?.onChanged.addListener(storageListener);
       return () => {
         chrome.runtime.onMessage.removeListener(handleMessage);
-        chrome.storage?.onChanged.removeListener(storageListener);
+        unsubscribeLive();
       };
+    } else {
+      return unsubscribeLive;
     }
   }, []);
+
+
 
   useEffect(() => {
     // @ts-ignore

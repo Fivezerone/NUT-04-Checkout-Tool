@@ -4,6 +4,9 @@ ALTER TABLE public.users ADD COLUMN IF NOT EXISTS premium_expires_at timestamptz
 UPDATE public.users SET premium_expires_at = payment_received_at + interval '30 days'
  WHERE payment_received_at IS NOT NULL AND premium_expires_at IS NULL;
 ALTER TABLE public.users ALTER COLUMN subscription_status SET DEFAULT 'basic';
+-- E-002: Must replace constraint BEFORE updating legacy rows
+ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_subscription_status_check;
+ALTER TABLE public.users ADD CONSTRAINT users_subscription_status_check CHECK (subscription_status IN ('active', 'expired', 'basic'));
 -- Convert legacy trialing rows (LOGIC-006 / D7: no free trial)
 UPDATE public.users SET subscription_status = 'basic' WHERE subscription_status = 'trialing';
 

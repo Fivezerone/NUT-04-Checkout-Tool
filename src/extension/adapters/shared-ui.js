@@ -56,9 +56,9 @@ const NutriSharedUI = {
     // D-15c: check isConnected to handle SPA body swaps that detach the portal
     if (window._nutriscoreGlobalPortal?.isConnected) return window._nutriscoreGlobalPortal;
 
-    const portal = document.createElement("div");
-    portal.id = "nutriscore-global-portal";
-    portal.style.cssText = [
+    const host = document.createElement("div");
+    host.id = "nutriscore-global-portal-host";
+    host.style.cssText = [
       "position:fixed",
       "top:0",
       "left:0",
@@ -68,7 +68,28 @@ const NutriSharedUI = {
       "z-index:2147483647",
       "overflow:visible",
     ].join(";");
-    document.body.appendChild(portal);
+    
+    // Match dark theme from root element if present
+    if (document.documentElement.getAttribute('data-theme') === 'dark' || document.documentElement.classList.contains('dark')) {
+      host.setAttribute('data-theme', 'dark');
+    }
+    
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    
+    const style = document.createElement('style');
+    style.textContent = `
+:host { --ns-surface:#fff; --ns-surface-raised:#f8fafc; --ns-text:#0f172a; --ns-text-muted:#64748b; --ns-border:#e2e8f0; --ns-focus:#2563eb; --ns-radius:10px;
+        --ns-font-body: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+:host([data-theme="dark"]) { --ns-surface:#0f172a; --ns-surface-raised:#1e293b; --ns-text:#f8fafc; --ns-text-muted:#cbd5e1; --ns-border:#334155; --ns-focus:#60a5fa; }
+    `;
+    shadow.appendChild(style);
+
+    const portal = document.createElement("div");
+    portal.id = "nutriscore-global-portal";
+    shadow.appendChild(portal);
+
+    window._nutriscoreGlobalPortalHost = host;
     window._nutriscoreGlobalPortal = portal;
 
     // Passive scroll listener — close any open flyout on page scroll (Part C3).
@@ -227,14 +248,14 @@ const NutriSharedUI = {
       flyoutEl.style.cssText = [
         "position:absolute",
         "width:240px",
-        "background:#ffffff",
+        "background:var(--ns-surface)",
         "border-radius:16px",
         "box-shadow:0 10px 40px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.05)",
         "overflow:hidden",
-        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-        "color:#334155",
+        "font-family:var(--ns-font-body)",
+        "color:var(--ns-text)",
         "font-size:12px",
-        "border:1px solid #E2E8F0",
+        "border:1px solid var(--ns-border)",
         "pointer-events:auto",
         "z-index:999999",
         "visibility:hidden"
@@ -248,15 +269,15 @@ const NutriSharedUI = {
       let rowsHTML = "";
       if (scoringStatus === "insufficient_data" && productResult.plausibleFields && productResult.plausibleFields.length > 0) {
         rowsHTML = productResult.plausibleFields.map(r => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #F1F5F9;">
-            <span style="color:#334155;font-size:11px;font-style:italic;">${this.escapeHTML(r.field)}</span>
-            <span style="font-weight:600;font-size:11px;color:#0F172A;opacity:0.6;">${this.escapeHTML(String(r.value))} ${r.unit} (plausible)</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--ns-surface-raised);">
+            <span style="color:var(--ns-text-muted);font-size:11px;font-style:italic;">${this.escapeHTML(r.field)}</span>
+            <span style="font-weight:600;font-size:11px;color:var(--ns-text);opacity:0.6;">${this.escapeHTML(String(r.value))} ${r.unit} (plausible)</span>
           </div>`).join("");
       } else {
         rowsHTML = rows.map(r => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #F1F5F9;">
-            <span style="color:#334155;font-size:11px;">${r.label}</span>
-            <span style="font-weight:600;font-size:11px;color:#0F172A;">${r.value}</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--ns-surface-raised);">
+            <span style="color:var(--ns-text-muted);font-size:11px;">${r.label}</span>
+            <span style="font-weight:600;font-size:11px;color:var(--ns-text);">${r.value}</span>
           </div>`).join("");
       }
 
@@ -295,7 +316,7 @@ const NutriSharedUI = {
               </div>
             </div>`).join("");
           if (disclaimer) {
-             diseaseHTML += `<div style="font-size:10px;color:#94A3B8;margin-bottom:12px;line-height:1.3;">${this.escapeHTML(disclaimer)}</div>`;
+             diseaseHTML += `<div style="font-size:10px;color:var(--ns-text-muted);margin-bottom:12px;line-height:1.3;">${this.escapeHTML(disclaimer)}</div>`;
           } else {
              diseaseHTML += `<div style="height:4px;"></div>`;
           }
@@ -334,9 +355,9 @@ const NutriSharedUI = {
         </div>
         <div style="padding:11px 14px 13px 14px;">
           ${diseaseHTML}
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#64748B;margin:0 0 4px;">${sectionTitle}</div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--ns-text-muted);margin:0 0 4px;">${sectionTitle}</div>
           ${rowsHTML}
-          ${confLabel ? `<div style="font-size:11px;color:#6B7280;margin-top:6px;">${confLabel} &middot; ${this.escapeHTML(provCaption)}</div>` : ""}
+          ${confLabel ? `<div style="font-size:11px;color:var(--ns-text-muted);margin-top:6px;">${confLabel} &middot; ${this.escapeHTML(provCaption)}</div>` : ""}
         </div>
       `;
 
@@ -431,9 +452,9 @@ const NutriSharedUI = {
 
 };
 
-if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.action === "THEME_CHANGED") {
+if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.uiTheme) {
       // Instantly unmount any active flyout when the user switches modes in the dashboard
       if (window._nutriscoreActiveFlyout && NutriSharedUI._closeActiveFlyout) {
         NutriSharedUI._closeActiveFlyout();

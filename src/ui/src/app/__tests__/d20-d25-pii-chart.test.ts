@@ -75,11 +75,17 @@ describe('D-22 — PII purge on sign-out', () => {
     expect(src).toContain('...safeData');
   });
 
-  test('dashboard uses per-userId onboarding_completed key', () => {
+  test('dashboard uses server onboarding_completed as sole authority (F-10)', () => {
     const src = read('src/ui/src/dashboard.tsx');
-    expect(src).toContain('onboarding_completed_${session.user.id}');
+    // F-10 fix: local cache no longer gates routing — server result.onboardingCompleted is authoritative
+    // We still write a per-userId cache after server confirms, but never READ it for the gate
+    expect(src).toContain('result.onboardingCompleted');
+    // setOnboardingCompleted (write) is still user-scoped for performance cache
+    expect(src).toContain('setOnboardingCompleted(session.user.id, true)');
     // Old bare key must be gone
     expect(src).not.toContain("get('onboarding_completed')");
+    // Local cache must NOT override server false (F-10 key invariant)
+    expect(src).not.toContain('!result.onboardingCompleted && !localCompleted');
   });
 });
 

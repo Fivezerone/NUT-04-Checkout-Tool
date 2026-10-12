@@ -2,9 +2,10 @@ import React, { useEffect, useState } from "react";
 import { ExtensionStorage, ChromeExtensionStorage, signOutUser, supabase } from "../services/storage";
 import { toast } from "sonner";
 import { Toaster } from "sonner";
-import { purgeAll } from "../app/lib/db";
+import { purgeAll, getSettings, saveSettings } from "../app/lib/db";
+import { CentralStorage, MultiLayerStorage } from "../../../shared/storage";
 import { HEALTH_MODES } from "../../../shared/health-modes.mjs";
-import { resolveSubscriptionStatus } from "../app/lib/subscriptionUtils";
+import { isSubscriptionExpired } from "../app/lib/subscriptionUtils";
 
 export function Options() {
   const [data, setData] = useState<Partial<ChromeExtensionStorage> | null>(null);
@@ -17,31 +18,26 @@ export function Options() {
 
   useEffect(() => {
     loadData();
+    const unsubscribe = MultiLayerStorage.subscribeDraft((newDraft) => {
+      if (newDraft) setData(newDraft as any);
+    });
+    return unsubscribe;
   }, []);
 
   async function loadData() {
-    const storageData = await ExtensionStorage.getOnboardingData();
-    if (storageData) {
-      setData(storageData);
-    }
-    
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      const draftData = await MultiLayerStorage.initDraft();
+      if (draftData) setData(draftData as any);
+
       if (user) {
-        const { data: profile } = await supabase
-          .from("users")
-          .select("payment_received_at, trial_started_at, subscription_status")
-          .eq("id", user.id)
-          .single();
-        if (profile) {
-          const start = profile.payment_received_at || profile.trial_started_at;
-          if (start) {
-            const startMs = new Date(start).getTime();
-            const expMs = startMs + (30 * 24 * 60 * 60 * 1000);
-            setExpiryDate(new Date(expMs).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
+        const { data: ent } = await supabase.rpc('get_my_entitlement');
+        if (ent) {
+          if (ent.premium_expires_at) {
+            setExpiryDate(new Date(ent.premium_expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
           }
-          const status = resolveSubscriptionStatus(profile.subscription_status, profile.payment_received_at, profile.trial_started_at);
-          setTrueSubStatus(status);
+          const expired = ent.tier !== 'premium' || isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
+          setTrueSubStatus(expired ? 'expired' : 'active');
         }
       }
     } catch (e) {
@@ -54,42 +50,48 @@ export function Options() {
   const handleAccountChange = (field: string, value: string) => {
     setData(prev => {
       if (!prev) return prev;
-      return {
+      const next = {
         ...prev,
         user_account: {
           ...prev.user_account,
           [field]: value
         } as any
       };
+      MultiLayerStorage.updateDraft({ user_account: next.user_account });
+      return next;
     });
   };
 
   const handlePreferencesChange = (field: string, value: any) => {
     setData(prev => {
       if (!prev) return prev;
-      return {
+      const next = {
         ...prev,
         user_preferences: {
           ...prev.user_preferences,
           [field]: value
         } as any
       };
+      MultiLayerStorage.updateDraft({ user_preferences: next.user_preferences });
+      return next;
     });
   };
 
   const handlePaymentChange = (field: string, value: string) => {
     setData(prev => {
       if (!prev) return prev;
-      return {
+      const next = {
         ...prev,
         user_payment: {
           ...prev.user_payment,
           billingAddress: {
-            ...prev.user_payment?.billingAddress,
+            ...((prev.user_payment as any)?.billingAddress),
             [field]: value
           }
         } as any
       };
+      MultiLayerStorage.updateDraft({ user_payment: next.user_payment });
+      return next;
     });
   };
 
@@ -97,6 +99,9 @@ export function Options() {
     if (!data) return;
     setSaving(true);
     try {
+      await MultiLayerStorage.commitDraftToLive();
+      
+      // Also commit to IDB/ExtensionStorage for legacy compatibility
       await chrome.storage.local.set({
         user_account: data.user_account,
         user_preferences: data.user_preferences,
@@ -223,7 +228,7 @@ export function Options() {
               <input
                 type="text"
                 readOnly
-                value={HEALTH_MODES[(data.user_account?.condition as keyof typeof HEALTH_MODES) || "general"]?.label || "General Wellness"}
+                value={HEALTH_MODES[((data.user_account as any)?.condition as keyof typeof HEALTH_MODES) || "general"]?.label || "General Wellness"}
                 className="w-full border border-slate-200 rounded-xl p-3 bg-slate-100 text-slate-600 font-medium cursor-not-allowed"
               />
               <p className="text-xs text-slate-500 mt-1">Select a new primary health focus below to change this.</p>
@@ -264,7 +269,9 @@ export function Options() {
                         metric: item.metric
                       } as any
                     };
-                    setData(newData);
+                    // Sync the new theme to the draft state
+                    const theme = item.key;
+                    MultiLayerStorage.updateDraft({ uiTheme: theme, user_preferences: newData.user_preferences as any, user_account: newData.user_account });
                   }} 
                   className={`group flex w-full items-center justify-between p-4 rounded-xl border-2 transition-all text-left bg-white ${isActive ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-blue-500 hover:bg-blue-50/50"}`}
                 >

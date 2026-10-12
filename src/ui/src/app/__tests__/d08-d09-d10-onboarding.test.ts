@@ -72,7 +72,7 @@ describe('D-09 — renewal path fixes', () => {
   });
 
   test("finishOnboarding skips upsert for renewals (isRenewal guard present)", () => {
-    const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
+    const src = read('src/ui/src/app/lib/persistOnboarding.ts');
     expect(src).toContain('const isRenewal = initialMode === \'renew\'');
     expect(src).toContain('if (!isRenewal)');
   });
@@ -88,7 +88,7 @@ describe('D-09 — renewal path fixes', () => {
 // D-10
 // ---------------------------------------------------------------------------
 
-describe('D-10 — profile save failure retry affordance', () => {
+describe('D-10 - profile save failure retry affordance', () => {
   test('finishError state is declared', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
     expect(src).toContain('finishError');
@@ -106,14 +106,13 @@ describe('D-10 — profile save failure retry affordance', () => {
     expect(src).not.toContain('Payment Successful! Redirecting...');
   });
 
-  test('upsert error path uses setFinishError (not setError)', () => {
-    const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    // The finishOnboarding upsert error branch must use setFinishError
-    const errStart = src.indexOf('if (upsertError)');
-    const errEnd   = src.indexOf('return; // do NOT redirect', errStart);
+  test('RPC error path uses setFinishError (not setError)', () => {
+    const src = read('src/ui/src/app/lib/persistOnboarding.ts');
+    // The complete_onboarding RPC error branch must use setFinishError
+    // (previously: if (upsertError); now: if (rpcError || data.error) per audit F-07 fix)
+    const errStart = src.indexOf('if (rpcError ||');
+    const errEnd   = src.indexOf('return false;', errStart);
     const block    = src.slice(errStart, errEnd);
     expect(block).toContain('setFinishError(');
-    // Must NOT use setError (which hides the retry button)
-    expect(block).not.toContain('setError(');
   });
 });

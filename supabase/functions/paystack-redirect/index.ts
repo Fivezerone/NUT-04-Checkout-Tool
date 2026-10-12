@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { serve } from "@std/http"
 
 // This endpoint is the browser-facing callback URL after a Paystack card
 // payment. Paystack redirects the user's tab here with ?reference=T2796...

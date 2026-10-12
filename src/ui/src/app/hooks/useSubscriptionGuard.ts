@@ -6,17 +6,21 @@
  * the user on expiry — expired users need their session alive to complete
  * payment on the renewal page (onboarding.html?mode=renew).
  *
- * Side-effects on expiry:
- *   1. Writes subscription_status = 'expired' back to the DB (if stale).
- *   2. Revokes the local premium flag (nutriscore_is_premium = false).
- *   ❌  Does NOT call signOut. Signing out here would break the renewal flow.
+ * F-09: Uses ever_premium to correctly distinguish:
+ *   - 'basic':   user has no active premium and never had it (upgrade gate)
+ *   - 'expired': user had premium before but it lapsed (renewal gate)
+ *   - 'active':  premium is currently valid
+ *
+ * Side-effects on expiry/basic:
+ *   1. Revokes the local premium flag (nutriscore_is_premium = false).
+ *   2. Does NOT call signOut — session must be preserved for renewal payment.
  */
 
 import { useEffect, useState } from 'react';
 import { supabase, savePremiumStatus } from '../../services/storage';
 import {
-  resolveSubscriptionStatus,
-  getDaysRemaining,
+  isSubscriptionExpired,
+  getDaysRemainingFromExpiry,
   type SubscriptionStatus,
 } from '../lib/subscriptionUtils';
 
@@ -38,62 +42,42 @@ export function useSubscriptionGuard(): UseSubscriptionGuardResult {
 
     async function check() {
       try {
-        // ── Step 1: Verify active session ──────────────────────────────────
+        // Step 1: Verify active session
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
           if (!cancelled) setStatus('unauthenticated');
           return;
         }
 
-        // ── Step 2: Fetch subscription data ────────────────────────────────
-        const { data: row, error } = await supabase
-          .from('users')
-          .select('payment_received_at, subscription_status, trial_started_at')
-          .eq('id', user.id)
-          .single();
+        // Step 2: Fetch subscription data from authoritative server RPC
+        const { data: ent, error } = await supabase.rpc('get_my_entitlement');
 
-        if (error || !row) {
+        if (error || !ent) {
           // Can't verify — treat as unauthenticated to be safe
           if (!cancelled) setStatus('unauthenticated');
           return;
         }
 
-        const { payment_received_at, subscription_status, trial_started_at } = row as {
-          payment_received_at: string | null;
-          subscription_status: string | null;
-          trial_started_at: string | null;
-        };
-
-        // ── Step 3: Resolve status (client-side 30-day check) ──────────────
-        const resolved = resolveSubscriptionStatus(subscription_status, payment_received_at, trial_started_at);
-        const remaining = getDaysRemaining(payment_received_at, trial_started_at);
+        // Step 3: F-09 — use ever_premium to distinguish basic vs expired
+        // 'expired' = had premium before, now lapsed (ever_premium = true)
+        // 'basic'   = never had premium (ever_premium = false)
+        const isActive = ent.tier === 'premium' && !isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
+        const resolved: SubscriptionStatus = isActive
+          ? 'active'
+          : ent.ever_premium
+            ? 'expired'   // formerly premium, now lapsed
+            : 'basic';    // never had premium
+        const remaining = getDaysRemainingFromExpiry(ent.premium_expires_at, ent.server_now);
 
         if (!cancelled) {
           setDaysRemaining(remaining);
           setStatus(resolved);
         }
 
-        // ── Step 4: Handle expiry side-effects ─────────────────────────────
-        if (resolved === 'expired') {
-          // 4a. Flip DB status (optimistic UI update — subscription_status only)
-          // D-08: is_premium is a billing column — do NOT write it from the client.
-          // The server-side trigger (enforce_billing_state) is the sole authority.
-          if (subscription_status !== 'expired') {
-            await supabase
-              .from('users')
-              .update({ subscription_status: 'expired' })
-              .eq('id', user.id);
-          }
-
-          // 4b. Revoke the local premium flag written by savePremiumStatus()
+        // Step 4: Revoke local premium flag for non-active states
+        if (resolved === 'expired' || resolved === 'basic') {
           await savePremiumStatus(false);
-
-          // ❌  Do NOT call signOut() here.
-          //     The expired user will be shown SubscriptionExpiredPage with a
-          //     "Renew" button. Clicking it opens onboarding.html?mode=renew where
-          //     Step 4 (payment) needs a valid auth session. If we sign out here,
-          //     the user lands on the renew page with no session → payment fails →
-          //     they are stuck in an endless login/logout loop.
+          // Do NOT call signOut() — expired users need session for renewal payment.
         }
       } catch (err) {
         console.error('[useSubscriptionGuard]', err);

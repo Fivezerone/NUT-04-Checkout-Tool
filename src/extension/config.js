@@ -39,8 +39,8 @@ self.NUTRI_CONFIG = {
       "key_ops": ["verify"],
       "ext": true,
       "kty": "EC",
-      "x": "PR3rzbeQoUcrWnSsWv7ikPROElhnDyGHK1i5zcAXCoo",
-      "y": "bu65aOzfdaALu64OJb1CAxnlynpy0mw_6A46DQ-QbmI",
+      "x": "Yhm24FaU-4eauG5Ve5Ko22a5eWtTFVwsN0TBpadvFvA",
+      "y": "sPEdpvJgGq-02TWMWkElbnCdPwLsL1DwFXD1K_Pvivo",
       "crv": "P-256",
       "kid": "entitlement-v1"
     }

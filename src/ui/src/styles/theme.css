@@ -1,13 +1,13 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Default: General Wellness */
-  --shell-primary: #2E7D32; /* Forest Green */
-  --shell-accent-bg: #e8f5e9;
-  --shell-border: #c8e6c9;
-  --shell-header-bg: #a5d6a7;
-  --shell-header-text: #1b5e20;
-  --shell-header-sub: #2e7d32;
+  /* Dynamic: Defers to the active condition theme set by health-modes.generated.css */
+  --shell-primary: var(--condition-primary);
+  --shell-accent-bg: var(--condition-accent-bg);
+  --shell-border: var(--condition-border);
+  --shell-header-bg: var(--condition-header-bg);
+  --shell-header-text: var(--condition-header-text);
+  --shell-header-sub: var(--condition-header-sub);
 
   --condition-primary: #2E7D32;
   --condition-accent-bg: #e8f5e9;

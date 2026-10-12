@@ -29,27 +29,36 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
  */
 const chromeStorageAdapter = {
   getItem: async (key: string): Promise<string | null> => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) return null;
     try {
-      if (typeof chrome === 'undefined' || !chrome.storage?.local) return null;
       const data = await chrome.storage.local.get(key);
       const value = data[key];
       // Explicit null/undefined check — empty string is a valid stored value
       return (value !== undefined && value !== null) ? String(value) : null;
-    } catch {
+    } catch (err) {
+      // Log non-sensitive diagnostic; return null for cache-miss semantics on read
+      console.warn('[chromeStorageAdapter] getItem error (key redacted):', (err as Error)?.message);
       return null;
     }
   },
   setItem: async (key: string, value: string): Promise<void> => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+      throw new Error('[chromeStorageAdapter] Chrome storage unavailable — session cannot be persisted');
+    }
     try {
-      if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
       await chrome.storage.local.set({ [key]: value });
-    } catch { /* storage quota or permission error — silently ignore */ }
+    } catch (err) {
+      // Re-throw so Supabase auth knows the write failed (F-04)
+      throw new Error('[chromeStorageAdapter] setItem failed: ' + (err as Error)?.message);
+    }
   },
   removeItem: async (key: string): Promise<void> => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
     try {
-      if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
       await chrome.storage.local.remove(key);
-    } catch { /* silently ignore */ }
+    } catch (err) {
+      throw new Error('[chromeStorageAdapter] removeItem failed: ' + (err as Error)?.message);
+    }
   },
 };
 
@@ -131,10 +140,15 @@ export interface ChromeExtensionStorage {
   nutriscore_is_premium?: boolean | string;
 }
 
+const onboardingKey = (userId: string) => { if (!userId) throw new Error("userId is required"); return `nutri:onboarding:${userId}`; };
+type OnboardingKeyValue = { completed: boolean; updatedAt: number };
+export const getOnboardingCompleted = async (userId: string) => ((await chrome.storage.local.get(onboardingKey(userId)))[onboardingKey(userId)] as OnboardingKeyValue | undefined)?.completed === true;
+export const setOnboardingCompleted = (userId: string, completed: boolean) =>
+  chrome.storage.local.set({ [onboardingKey(userId)]: { completed, updatedAt: Date.now() } });
+
 export const ExtensionStorage = {
-  getOnboardingData: async (): Promise<Partial<ChromeExtensionStorage>> => {
+  getOnboardingData: async (userId?: string): Promise<Partial<ChromeExtensionStorage>> => {
     const data = await chrome.storage.local.get([
-      'onboarding_completed',
       'user_account',
       'user_preferences',
       'user_payment',
@@ -142,24 +156,33 @@ export const ExtensionStorage = {
       'nutriscore_is_premium'
     ]);
 
-    if (data.onboarding_completed) {
-      return data;
+    const isCompleted = userId ? await getOnboardingCompleted(userId) : false;
+
+    if (isCompleted) {
+      return { ...data, onboarding_completed: true };
     }
 
     // Substitute partial onboarding data so options/settings page reflects it before final checkout
-    const partial = data.partial_onboarding || {};
+    interface PartialOnboarding {
+      fullName?: string;
+      email?: string;
+      condition?: string;
+      notificationFrequency?: string;
+      metric?: string;
+      termsAccepted?: boolean;
+      privacyAccepted?: boolean;
+    }
+    const partial: PartialOnboarding = data.partial_onboarding || {};
     return {
       onboarding_completed: false,
       user_account: {
         fullName: partial.fullName || "Guest",
-        email: partial.email || "",
-        dob: partial.dob || "",
-        gender: partial.gender || ""
+        email: partial.email || ""
       },
       user_preferences: {
-        healthMode: partial.condition && partial.condition !== "general",
-        notificationFrequency: partial.notificationFrequency || "realtime",
-        selectedTags: [partial.condition, partial.metric].filter(Boolean),
+        healthMode: !!(partial.condition && partial.condition !== "general"),
+        notificationFrequency: (partial.notificationFrequency || "realtime") as ChromeExtensionStorage['user_preferences']['notificationFrequency'],
+        selectedTags: [partial.condition, partial.metric].filter(Boolean) as string[],
         termsAccepted: partial.termsAccepted || false,
         privacyAccepted: partial.privacyAccepted || false,
         consentTimestamp: null
@@ -167,11 +190,9 @@ export const ExtensionStorage = {
     };
   },
 
-  setOnboardingComplete: async (data: Omit<ChromeExtensionStorage, 'onboarding_completed'>): Promise<void> => {
-    await chrome.storage.local.set({
-      onboarding_completed: true,
-      ...data,
-    });
+  setOnboardingComplete: async (userId: string, data: Omit<ChromeExtensionStorage, 'onboarding_completed'>): Promise<void> => {
+    await setOnboardingCompleted(userId, true);
+    await chrome.storage.local.set(data);
     // Clean up partial data
     await chrome.storage.local.remove('partial_onboarding');
   },
@@ -200,19 +221,30 @@ export const ExtensionStorage = {
     await chrome.storage.local.clear();
   },
 
-  setActivePayment: async (ref: string | null, method: 'mpesa' | 'paystack' | null): Promise<void> => {
+  setActivePayment: async (ref: string | null, method: 'mpesa' | 'paystack' | null, userId?: string): Promise<void> => {
+    // F-15: use user-scoped keys if userId is available, else fall back to global keys
+    const refKey = userId ? `activePaymentRef:${userId}` : 'activePaymentRef';
+    const methodKey = userId ? `activePaymentMethod:${userId}` : 'activePaymentMethod';
     if (!ref || !method) {
-      await chrome.storage.local.remove(['activePaymentRef', 'activePaymentMethod']);
+      await chrome.storage.local.remove([refKey, methodKey]);
+      // Also clear legacy global keys on clear
+      if (userId) await chrome.storage.local.remove(['activePaymentRef', 'activePaymentMethod']);
     } else {
-      await chrome.storage.local.set({ activePaymentRef: ref, activePaymentMethod: method });
+      await chrome.storage.local.set({ [refKey]: ref, [methodKey]: method });
     }
   },
 
-  getActivePayment: async (): Promise<{ ref: string | null, method: 'mpesa' | 'paystack' | null }> => {
-    const data = await chrome.storage.local.get(['activePaymentRef', 'activePaymentMethod']);
+  getActivePayment: async (userId?: string): Promise<{ ref: string | null, method: 'mpesa' | 'paystack' | null }> => {
+    // F-15: prefer user-scoped key, then fall back to legacy global key
+    const refKey = userId ? `activePaymentRef:${userId}` : 'activePaymentRef';
+    const methodKey = userId ? `activePaymentMethod:${userId}` : 'activePaymentMethod';
+    const data = await chrome.storage.local.get([refKey, methodKey, 'activePaymentRef', 'activePaymentMethod']);
+    // Prefer user-scoped value; fall back only if no userId-scoped value exists
+    const ref = (userId ? data[refKey] : null) ?? data['activePaymentRef'] ?? null;
+    const method = (userId ? data[methodKey] : null) ?? data['activePaymentMethod'] ?? null;
     return {
-      ref: data.activePaymentRef || null,
-      method: data.activePaymentMethod || null
+      ref: (ref as string | undefined) || null,
+      method: (method as 'mpesa' | 'paystack' | undefined) || null
     };
   },
 };

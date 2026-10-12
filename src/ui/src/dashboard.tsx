@@ -8,8 +8,8 @@ import { OnboardingWizard, type UserProfile } from "./app/components/OnboardingW
 import { SubscriptionExpiredPage } from "./app/components/SubscriptionExpiredPage";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "./app/context/ThemeContext";
-import { supabase, signOutUser, savePremiumStatus } from "./services/storage";
-import { resolveSubscriptionStatus, getDaysRemaining } from "./app/lib/subscriptionUtils";
+import { supabase, signOutUser, savePremiumStatus, getOnboardingCompleted, setOnboardingCompleted } from "./services/storage";
+import { isSubscriptionExpired, getDaysRemainingFromExpiry } from "./app/lib/subscriptionUtils";
 import "./styles/index.css";
 
 /**
@@ -88,7 +88,7 @@ async function checkSubscriptionAndProfile(userId: string, fallbackName: string)
       .from("users")
       .select(`
         full_name, condition, metric, notification_frequency,
-        payment_received_at, subscription_status, onboarding_completed, trial_started_at
+        onboarding_completed
       `)
       .eq("id", userId)
       .single();
@@ -113,25 +113,21 @@ async function checkSubscriptionAndProfile(userId: string, fallbackName: string)
       return TRANSIENT;
     }
 
-    const r = row as any;
-    const resolved = resolveSubscriptionStatus(r.subscription_status, r.payment_received_at, r.trial_started_at);
-    const days = getDaysRemaining(r.payment_received_at, r.trial_started_at);
-
-    // Sync expiry to DB (optimistic UI update)
-    // D-08: subscription_status only — is_premium is a billing column that must
-    // only be written by the server-side enforce_billing_state trigger.
-    if (resolved === "expired" && r.subscription_status !== "expired") {
-      await supabase
-        .from("users")
-        .update({ subscription_status: "expired" })
-        .eq("id", userId);
+    const { data: ent, error: entError } = await supabase.rpc('get_my_entitlement');
+    if (entError) {
+      console.warn("[checkSubscription] Transient entitlement error:", entError);
+      return TRANSIENT;
     }
 
-    // D-12: treat 'expired' and 'basic' differently.
-    // 'expired': surface SubscriptionExpiredPage in the render (never redirect here).
-    // 'basic': surface BasicDashboard — basic users must NOT be sent to the renew flow.
-    if (resolved === "expired") {
-      return { kind: 'ok', subStatus: 'expired' as AuthState, daysRemaining: 0, profile: null, onboardingCompleted: true };
+    const r = row as any;
+    // F-09: Use ever_premium to correctly distinguish basic vs expired
+    const isActive = ent.tier === 'premium' && !isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
+    const resolved = isActive ? 'active' : ent.ever_premium ? 'expired' : 'basic';
+    const days = getDaysRemainingFromExpiry(ent.premium_expires_at, ent.server_now);
+
+    if (!isActive) {
+      // Expired or basic: do not show premium dashboard
+      return { kind: 'ok', subStatus: resolved as AuthState, daysRemaining: 0, profile: null, onboardingCompleted: !!r.onboarding_completed };
     }
 
     const profile = buildProfile(
@@ -140,7 +136,6 @@ async function checkSubscriptionAndProfile(userId: string, fallbackName: string)
       r.metric   || "General"
     );
 
-    // 'basic' returns its real subStatus so the dashboard can render a tier-appropriate view
     return {
       kind: 'ok',
       subStatus: resolved as AuthState,
@@ -208,23 +203,26 @@ function DashboardRoot() {
           return;
         }
 
-        // ── 3. Check onboarding completion ────────────────────────────────────
-        // D-22: key per userId so Account-A's flag cannot skip onboarding for Account-B
-        const oBKey = `onboarding_completed_${session.user.id}`;
-        const local = await chrome.storage.local.get(oBKey);
-        if (!result.onboardingCompleted && !local[oBKey]) {
+        // F-10: Server profile's onboarding_completed is authoritative.
+        // Local cache CANNOT override a server false (F-10 remediation).
+        // If DB says incomplete, always redirect to onboarding — even if local cache says complete.
+        if (!result.onboardingCompleted) {
           window.location.href = chrome.runtime.getURL("onboarding.html");
           return;
         }
 
-        await chrome.storage.local.set({ onboarding_completed: true });
+        // Cache the server-authoritative completion to avoid repeat DB calls on next load
+        await setOnboardingCompleted(session.user.id, true);
 
         if (result.subStatus === "active") {
           try {
-            const { data } = await supabase.functions.invoke('get-premium-token');
-            if (data?.token) await savePremiumStatus(data.token);
-          } catch (err) {
-            console.warn('Failed to fetch premium token:', err);
+            const { data, error } = await supabase.functions.invoke("entitlement", { method: "POST" });
+            if (error) throw error;
+            if (data?.tier === "premium" && data?.token) await savePremiumStatus(data.token);
+            else await savePremiumStatus(false);
+          } catch (error) {
+            console.warn("[DashboardRoot] entitlement refresh failed:", error);
+            // Preserve previously valid entitlement on transient failure; never synthesize premium.
           }
         } else {
           await savePremiumStatus(false);

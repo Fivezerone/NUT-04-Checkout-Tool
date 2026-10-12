@@ -1,7 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { getSettings, saveSettings } from "../lib/db";
-
-declare var chrome: any;
+import { MultiLayerStorage } from "../../../../shared/storage";
 
 export type ThemeType = "diabetes" | "hypertension" | "kidney" | "obesity" | "general";
 
@@ -13,44 +11,31 @@ interface ThemeContextType {
 export const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [activeTheme, setActiveThemeState] = useState<ThemeType>(() => {
-    // Synchronously read from localStorage for instant initial render
-    const cached = localStorage.getItem("nutriscore_theme") as ThemeType;
-    return cached || "general";
-  });
+  const [activeTheme, setActiveThemeState] = useState<ThemeType>("general");
 
-  // Fetch true persisted state from IDB on mount
+  // Fetch true persisted state from MultiLayerStorage on mount
   useEffect(() => {
-    async function init() {
-      try {
-        const settings = await getSettings();
-        if (settings.activeTheme && settings.activeTheme !== activeTheme) {
-          applyTheme(settings.activeTheme);
-        }
-      } catch (err) {
-        console.warn("Failed to load theme from DB", err);
+    MultiLayerStorage.getLive().then(live => {
+      const theme = live.uiTheme || "general";
+      setActiveThemeState(theme as ThemeType);
+      document.documentElement.setAttribute("data-health-condition", theme);
+    });
+
+    // Reactive Event Bus - Decoupled Reader (strictly listening to settings_live)
+    const unsubscribe = MultiLayerStorage.subscribeLive((newLive) => {
+      if (newLive && newLive.uiTheme) {
+        setActiveThemeState(newLive.uiTheme as ThemeType);
+        document.documentElement.setAttribute("data-health-condition", newLive.uiTheme);
       }
-    }
-    init();
+    });
+
+    return unsubscribe;
   }, []);
 
-  const applyTheme = (theme: ThemeType) => {
-    setActiveThemeState(theme);
-    localStorage.setItem("nutriscore_theme", theme);
-    document.documentElement.setAttribute("data-health-condition", theme);
-    
-    // Sync with IDB in background
-    getSettings().then(settings => {
-      saveSettings({ ...settings, activeTheme: theme }).catch(console.warn);
-    }).catch(console.warn);
-
-    if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({ action: "THEME_CHANGED", theme }).catch(() => {});
-    }
-  };
-
   const setTheme = (theme: ThemeType) => {
-    applyTheme(theme);
+    // Note: Mutators now use updateDraft and commitDraftToLive directly,
+    // this local method is mostly for internal contextual convenience
+    MultiLayerStorage.updateDraft({ uiTheme: theme });
   };
 
   return (

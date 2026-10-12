@@ -2,6 +2,7 @@ import { BarChart3, LogIn, Settings2 } from "lucide-react";
 import { ChromeExtensionStorage, ExtensionStorage } from "../../services/storage";
 import { HEALTH_MODES } from "../../../../shared/health-modes.mjs";
 import { getSettings, saveSettings } from "../lib/db";
+import { CentralStorage, MultiLayerStorage } from "../../../../shared/storage";
 
 interface PopupProps {
   siteActive: boolean;
@@ -51,13 +52,13 @@ export function Popup({
     // If ON, we use the selected disease.
     const newTheme = isNowActive && selectedDisease !== "general" ? selectedDisease : "general";
     
+    MultiLayerStorage.updateDraft({ uiTheme: newTheme }).then(() => {
+      MultiLayerStorage.commitDraftToLive();
+    });
+    
     getSettings().then(settings => {
       saveSettings({ ...settings, activeTheme: newTheme as any }).catch(console.warn);
     });
-    
-    if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({ action: "THEME_CHANGED", theme: newTheme }).catch(() => {});
-    }
   };
 
   const handleNotificationChange = (freq: any) => {
@@ -105,7 +106,7 @@ export function Popup({
             {userData.user_preferences.selectedTags && userData.user_preferences.selectedTags.length > 0 && userData.user_preferences.selectedTags[0] !== "general" && (
               (() => {
                 const tag = userData.user_preferences.selectedTags[0];
-                const modeObj = HEALTH_MODES[tag as keyof typeof HEALTH_MODES];
+                const modeObj = HEALTH_MODES[tag as keyof typeof HEALTH_MODES] as any;
                 const tc = modeObj ? { bg: modeObj.palette.accentBg, accent: modeObj.palette.primary, label: modeObj.palette.primary } : { bg: '#eff6ff', label: '#1d4ed8', accent: '#bfdbfe' };
                 return (
                   <div className="flex flex-wrap gap-1.5">
