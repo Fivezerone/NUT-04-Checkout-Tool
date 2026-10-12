@@ -6,14 +6,10 @@ importScripts(
   "db.js",
   "entitlement.js",
   "catalog-sync.js",
-  "health-modes.js",
-  "engine/health-flags.js",
-  "engine/scorers/energy-dense.js",
-  "engine/scorers/fibre-forward.js",
-  "engine/scorers/protein-tradeoff.js",
-  "engine/scorers/strict-density.js",
-  "engine/scorers/general.js",
-  "engine/context-engine.js"
+  "health-modes.js"
+  // F-12: engine/* removed — NutritionContextEngine / HealthFlags are NOT called by background.js.
+  // publish-catalog.mjs requires them via Node require(); keep the files, just don't parse them
+  // in the Service Worker where they cost ~23 KB (~2.3 MB/user/day at 100 SW wakes).
 );
 
 
@@ -23,51 +19,107 @@ console.log("[NutriScore SW] Component Architecture v2.0 active.");
 // Flip to true in DevTools console (self.NUTRISCORE_DEBUG = true) when diagnosing issues.
 const DEBUG = (typeof self !== "undefined" && self.NUTRISCORE_DEBUG === true);
 
-// (Dead cache maps removed per audit)
-let initPromise = null;
+// F-03: cap batch size to the agreed DTO budget (48-card page + 33% headroom = 64).
+// F-19: reject messages that exceed this to prevent unbounded Promise.all fan-out.
+const MAX_BATCH_ITEMS = 64;
 
-function initializeDatabases() {
-  if (!initPromise) {
-    initPromise = (async () => {
-      try {
-        if (typeof NutriCatalogSync !== "undefined") {
-          // Entitlement refresh takes ~100ms and updates the clock guard.
-          if (typeof NutriEntitlement !== "undefined") {
-            await NutriEntitlement.refresh();
-          }
-          await NutriCatalogSync.ensureReady();
-          console.log("[NutriScore SW] Catalog synced and ready.");
-        }
-      } catch (err) {
-        console.error("[NutriScore SW] Init failed:", err);
-        initPromise = null;
-        throw err;
-      }
-    })();
+// D-05: module-level Supabase singleton — never create more than one client per SW lifetime.
+let _sb;
+const sb = () => (_sb ??= NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY));
+
+// F-06: per-retailer high-water mark for cart snapshot capturedAt timestamps.
+// SW discards any SYNC_CART_STATE message whose capturedAt <= the last accepted one.
+// Reset on SW restart (cold wake) — intentional: no stale ordering across lifetimes.
+const _lastCartAt = {};
+
+// D-05: 30-second tier memo — one resolveTier call per batch, not per item.
+let _tier, _tierAt = 0;
+async function currentTier() {
+  if (_tier && Date.now() - _tierAt < 30_000) return _tier;
+  try {
+    let userId;
+    try {
+      const sessionDataStr = (await chrome.storage.local.get('nutri_supabase_session'))['nutri_supabase_session'];
+      if (sessionDataStr) userId = JSON.parse(sessionDataStr)?.user?.id;
+    } catch(e) {}
+    if (!userId) userId = (await sb().auth.getSession()).data?.session?.user?.id;
+    _tier = (await NutriEntitlement.resolveTier(userId)).tier;
+  } catch {
+    _tier = 'basic';
   }
-  return initPromise;
+  _tierAt = Date.now();
+  return _tier;
 }
 
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes['nutri_supabase_session']) {
+    sb().auth.getSession(); // trigger re-read from storage
+    _tierAt = 0; // invalidate tier memo
+  }
+});
+
+let storageReadyPromise = null;
+function ensureStorageReady() {
+  if (!storageReadyPromise) {
+    storageReadyPromise = (async () => {
+      if (typeof NutriScoreDB === "undefined") throw new Error("LOCAL_DB_UNAVAILABLE");
+      await NutriScoreDB.ensureReady?.();
+    })().catch(e => { storageReadyPromise = null; throw e; });
+  }
+  return storageReadyPromise;
+}
+
+async function ensureCatalogReady() {
+  await ensureStorageReady();
+  try {
+    // F-01: do NOT call NutriEntitlement.refresh() here.
+    // Entitlement is refreshed by the 'entitlement-refresh' alarm (every 12 h).
+    // A plain wake makes 0 network requests unless the catalog or entitlement alarm fires.
+    await NutriCatalogSync?.ensureReady?.();
+    console.log("[NutriScore SW] Catalog synced and ready.");
+  } catch (e) {
+    console.warn("[NutriScore SW] catalog unavailable; local DB remains usable:", e);
+  }
+}
 
 // ── M2/L2: Alarm-driven retry & cache eviction ────────────────────────────────
 // Registered synchronously at the top level so the listener is always attached
 // even on a cold SW wake, per MV3's requirement for top-level event registration.
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "entitlement-refresh") {
+    // F-01/F-16: entitlement network call happens ONLY when this alarm fires (every 12 h),
+    // not on every SW wake. This reduces entitlement POST calls by ~99%.
+    try {
+      if (typeof NutriEntitlement !== "undefined") {
+        _tierAt = 0; // invalidate memo so next currentTier() re-resolves from fresh token
+        await NutriEntitlement.refresh();
+        console.log("[NutriScore SW] Entitlement refreshed via alarm.");
+      }
+    } catch (e) {
+      console.warn("[NutriScore SW] entitlement-refresh alarm failed:", e.message);
+    }
+    return;
+  }
+
   if (alarm.name === "retry-cart-sync") {
     // Drain any pending cart-sync jobs persisted before the previous SW was killed.
-    await initializeDatabases();
-    if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.getPendingCartSyncs) return;
-    const pending = await NutriScoreDB.getPendingCartSyncs();
-    if (!pending?.length) return;
-    for (const job of pending) {
-      try {
-        await NutriScoreDB.syncCart(job.retailer, job.items);
-        await NutriScoreDB.clearPendingCartSync(job.id);
-        chrome.runtime.sendMessage({ action: "CART_UPDATED" }).catch(() => { });
-        console.log(`[NutriScore SW] Alarm retry succeeded for pending cart-sync job ${job.id}.`);
-      } catch (e) {
-        console.warn("[NutriScore SW] Alarm cart-sync retry failed, will try again on next alarm:", e.message);
+    try {
+      await ensureStorageReady();
+      if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.getPendingCartSyncs) return;
+      const pending = await NutriScoreDB.getPendingCartSyncs();
+      if (!pending?.length) return;
+      for (const job of pending) {
+        try {
+          await NutriScoreDB.syncCart(job.retailer, job.items);
+          await NutriScoreDB.clearPendingCartSync(job.id);
+          chrome.runtime.sendMessage({ action: "CART_UPDATED" }).catch(() => { });
+          console.log(`[NutriScore SW] Alarm retry succeeded for pending cart-sync job ${job.id}.`);
+        } catch (e) {
+          console.warn("[NutriScore SW] Alarm cart-sync retry failed, will try again on next alarm:", e.message);
+        }
       }
+    } catch (e) {
+      console.warn("[NutriScore SW] Alarm retry aborted (DB init failed):", e.message);
     }
     return;
   }
@@ -75,9 +127,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "cache-eviction") {
     // Evict product_cache entries older than 7 days.
     // Moved from the hot cacheProduct() write path (was a Math.random() < 0.05 coin-flip).
-    await initializeDatabases();
-    if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.evictStaleCacheEntries) return;
     try {
+      await ensureStorageReady();
+      if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.evictStaleCacheEntries) return;
       await NutriScoreDB.evictStaleCacheEntries();
     } catch (e) {
       console.warn("[NutriScore SW] Cache eviction alarm failed:", e.message);
@@ -86,11 +138,21 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-initializeDatabases();
+// F-01/F-16: boot sequence — 0 network calls on a plain wake.
+// - entitlement-refresh alarm runs every 12 h (was: on every wake = ~100 POSTs/day)
+// - catalog-sync only runs when the manifest version changes
+// chrome.alarms.create is idempotent when the alarm already exists.
+chrome.alarms.create("entitlement-refresh", { periodInMinutes: 12 * 60 }); // 12 h
+chrome.alarms.create("cache-eviction",      { periodInMinutes: 24 * 60 }); // daily
 
-// Register the low-frequency cache-eviction alarm once. chrome.alarms.create is
-// idempotent when the alarm already exists, so this is safe to call on every SW wake.
-chrome.alarms.create("cache-eviction", { periodInMinutes: 24 * 60 }); // daily
+// F-11: wire the SW singleton into NutriEntitlement and NutriCatalogSync so
+// refresh() and sync() never create their own Supabase clients.
+// Must run before the first alarm fires or ensureCatalogReady() is called.
+if (typeof NutriEntitlement   !== "undefined" && NutriEntitlement.init)   NutriEntitlement.init(sb);
+if (typeof NutriCatalogSync   !== "undefined" && NutriCatalogSync.init)   NutriCatalogSync.init(sb);
+
+// Open DB and start catalog sync. No entitlement network call here.
+ensureCatalogReady();
 
 // buildPatientProfile and reevaluateCachedProduct were deleted. Disease fields are no longer cached.
 
@@ -107,41 +169,52 @@ function buildNutritionalProfileDisplay(nutrition) {
     const parsed = parseFloat(val);
     return isNaN(parsed) ? null : parsed;
   };
+  // D-19: round kJ to avoid float noise (e.g. EnergyKcal * 4.184 = 1255.2000000000002)
+  const round0 = (v) => (v == null ? null : Math.round(v));
   return {
-    energy_kj: parseNumeric(nutrition.EnergyKJ ?? (nutrition.EnergyKcal != null ? nutrition.EnergyKcal * 4.184 : null)),
-    fat_g: parseNumeric(nutrition.FatG),
-    sat_fat_g: parseNumeric(nutrition.SaturatedFatG),
-    carbs_g: parseNumeric(nutrition.CarbohydratesG),
-    sugars_g: parseNumeric(nutrition.SugarsG),
-    fibre_g: parseNumeric(nutrition.FibreG),
-    protein_g: parseNumeric(nutrition.ProteinG),
-    sodium_mg: parseNumeric(nutrition.SodiumMG ?? nutrition.Sodium?.ValueMG),
+    energy_kj:    round0(parseNumeric(nutrition.EnergyKJ ?? (nutrition.EnergyKcal != null ? nutrition.EnergyKcal * 4.184 : null))),
+    fat_g:        parseNumeric(nutrition.FatG),
+    sat_fat_g:    parseNumeric(nutrition.SaturatedFatG),
+    carbs_g:      parseNumeric(nutrition.CarbohydratesG),
+    sugars_g:     parseNumeric(nutrition.SugarsG),
+    fibre_g:      parseNumeric(nutrition.FibreG),
+    protein_g:    parseNumeric(nutrition.ProteinG),
+    sodium_mg:    parseNumeric(nutrition.SodiumMG ?? nutrition.Sodium?.ValueMG),
     potassium_mg: parseNumeric(nutrition.PotassiumMG ?? nutrition.Potassium?.ValueMG),
   };
 }
 
-async function getProductInfo(payload, retailerCode) {
-  await initializeDatabases();
+// F-03: hoist settings + tier resolution to once per batch so N-card batches
+// don't each fire a 9-read getSettings() + JWT verify inside getProductInfo().
+async function getBatchContext() {
+  await ensureStorageReady();
+  const settings = await (NutriScoreDB.getSettings
+    ? NutriScoreDB.getSettings()
+    : { diabetes: true, hypertension: true, kidney: true, activeTheme: "general" });
+  let tier = "basic";
+  if (typeof NutriEntitlement !== "undefined") tier = await currentTier();
+  settings.isPremium = (tier === "premium");
+  return { settings, tier };
+}
+
+async function getProductInfo(payload, retailerCode, ctx = null) {
+  // F-03: accept pre-resolved ctx (settings + tier) from getBatchContext().
+  // When ctx is null (single-card CHECK_PRODUCT_SCORE path), resolve here as before.
+  let settings, tier;
+  if (ctx) {
+    ({ settings, tier } = ctx);
+  } else {
+    await ensureStorageReady();
+    settings = await (NutriScoreDB.getSettings
+      ? NutriScoreDB.getSettings()
+      : { diabetes: true, hypertension: true, kidney: true, activeTheme: "general" });
+    // D-05: use singleton client + memoised tier (eliminates N-parallel-client refresh storm)
+    tier = "basic";
+    if (typeof NutriEntitlement !== "undefined") tier = await currentTier();
+    settings.isPremium = (tier === "premium");
+  }
 
   const { product_name, name_hash, retailer_product_id, url, price } = payload;
-
-  const settings = await (NutriScoreDB.getSettings ? NutriScoreDB.getSettings() : { diabetes: true, hypertension: true, kidney: true, activeTheme: "general" });
-  
-  // Resolve entitlement tier via verifier instead of user settings
-  let tier = "basic";
-  if (typeof NutriEntitlement !== "undefined") {
-    // We pass null for sessionUserId here because in getProductInfo we don't have
-    // the auth session directly. NutriEntitlement checks the stored valid JWT.
-    // However, it's safer if we can just read the current tier if valid.
-    // Since resolveTier requires session.user.id in the strict implementation,
-    // we fetch it from Supabase auth first:
-    const supabase = NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
-    const { data: { session } } = await supabase.auth.getSession();
-    const res = await NutriEntitlement.resolveTier(session?.user?.id);
-    tier = res.tier;
-  }
-  settings.isPremium = (tier === "premium");
-
   const cacheKey = retailer_product_id || url || product_name;
 
   if (cacheKey && typeof NutriScoreDB !== "undefined" && NutriScoreDB.getCachedProduct) {
@@ -194,11 +267,13 @@ async function getProductInfo(payload, retailerCode) {
     isExcluded: isExcluded,
     algorithmVersion: "FSA-NPS-2023",
     nutritional_profile_display: buildNutritionalProfileDisplay(nutrition),
-    confidence: interpretation.evidenceTier,
-    canDisplayGrade: interpretation.canDisplayGrade,
-    validationStatus: interpretation.validationStatus,
-    evidenceTier: interpretation.evidenceTier,
-    valueSpecificity: interpretation.valueSpecificity,
+    confidence:                    interpretation.evidenceTier,
+    canDisplayGrade:               interpretation.canDisplayGrade,
+    validationStatus:              interpretation.validationStatus,
+    evidenceTier:                  interpretation.evidenceTier,
+    // D-19: copy evidenceLevel so flyout shows correct provenance (not always 'Unknown')
+    evidenceLevel:                 interpretation.evidenceLevel,
+    valueSpecificity:              interpretation.valueSpecificity,
     categoryPlausibilityCheck: interpretation.categoryPlausibilityCheck,
     energyConsistencyCheck: interpretation.energyConsistencyCheck,
     saltSodiumConsistencyCheck: interpretation.saltSodiumConsistencyCheck,
@@ -213,7 +288,8 @@ async function getProductInfo(payload, retailerCode) {
   };
 
   if (cacheKey && typeof NutriScoreDB !== "undefined" && NutriScoreDB.saveProduct) {
-    NutriScoreDB.saveProduct(cacheKey, result).catch(e => console.warn("[NutriScore SW] IndexedDB save:", e.message));
+    // D-20: clone before enrichment so tier/isPremium/activeTheme don't race into the cache
+    NutriScoreDB.saveProduct(cacheKey, structuredClone(result)).catch(() => {});
   }
 
   return await appendPremiumAssessment(result, retailerCode, productId, settings.activeTheme, tier);
@@ -264,9 +340,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       let tier = "basic";
       if (typeof NutriEntitlement !== "undefined") {
         try {
-          const supabase = NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
-          const { data: { session } } = await supabase.auth.getSession();
-          const res = await NutriEntitlement.resolveTier(session?.user?.id);
+          let userId = message.userId;
+          if (!userId) {
+            try {
+              const sessionDataStr = (await chrome.storage.local.get('nutri_supabase_session'))['nutri_supabase_session'];
+              if (sessionDataStr) userId = JSON.parse(sessionDataStr)?.user?.id;
+            } catch(e) {}
+          }
+          if (!userId) userId = (await sb().auth.getSession()).data?.session?.user?.id;
+          const res = await NutriEntitlement.resolveTier(userId);
           tier = res.tier;
         } catch (err) {
           console.warn("[NutriScore SW] CHECK_TIER error:", err);
@@ -277,10 +359,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // D-04: UI calls this right after savePremiumStatus() to trigger immediate
+  // token adoption in the SW, eliminating activation lag.
+  if (message.action === 'REFRESH_ENTITLEMENT') {
+    (async () => {
+      let tier = 'basic';
+      if (typeof NutriEntitlement !== 'undefined') {
+        try {
+          // D-05: invalidate tier memo on refresh so the next currentTier() call re-resolves
+          _tierAt = 0;
+          tier = await NutriEntitlement.refresh();
+        } catch (err) {
+          console.warn('[NutriScore SW] REFRESH_ENTITLEMENT error:', err);
+        }
+      }
+      sendResponse({ tier });
+    })();
+    return true;
+  }
+
+  // D-14: open the upgrade/renewal page in a new tab from the SW
+  // (content-script calls sendMessage — cannot open tabs directly)
+  if (message.action === 'OPEN_UPGRADE') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') + '?mode=renew' });
+    return false;
+  }
+
   if (message.action === "CHECK_PRODUCT_SCORE") {
     const retailerCode = message.retailer || "NAIVAS";
 
+    // D-30: guard against malformed messages — payload missing would throw TypeError
     const payload = message.payload;
+    if (!payload) {
+      sendResponse({ status: "ERROR", error: "Missing payload" });
+      return false;
+    }
+
     if (payload.retailer_product_id && payload.price && typeof NutriScoreDB !== "undefined" && NutriScoreDB.savePrice) {
       NutriScoreDB.savePrice(payload.retailer_product_id, payload.price).catch(()=>{});
     }
@@ -295,7 +409,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         sendResponse({
           status: "NOT_FOUND",
-          data: { product_name: message.payload.product_name, nutriscore_grade: "UNKNOWN" },
+          data: { product_name: payload.product_name, nutriscore_grade: "UNKNOWN" },
           error: err.message
         });
       });
@@ -307,23 +421,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const retailerCode = message.retailer || "NAIVAS";
     const payloads = message.payloads || [];
 
+    // F-19: reject oversized batches immediately
+    if (!Array.isArray(payloads) || payloads.length === 0) {
+      sendResponse({ status: "ERROR", error: "payloads must be a non-empty array" });
+      return false;
+    }
+    if (payloads.length > MAX_BATCH_ITEMS) {
+      sendResponse({ status: "ERROR", error: `Batch size ${payloads.length} exceeds MAX_BATCH_ITEMS (${MAX_BATCH_ITEMS})` });
+      return false;
+    }
+
     (async () => {
       try {
-        const results = await Promise.all(payloads.map(async (payload) => {
+        // F-03: hoist settings + tier to once per batch (was: once per card)
+        const ctx = await getBatchContext();
+
+        // F-03: sequential loop — one IDB transaction at a time, bounded lock contention.
+        const results = [];
+        for (const payload of payloads) {
           try {
             if (payload.retailer_product_id && payload.price && typeof NutriScoreDB !== "undefined" && NutriScoreDB.savePrice) {
               await NutriScoreDB.savePrice(payload.retailer_product_id, payload.price);
             }
-            const data = await getProductInfo(payload, retailerCode);
-            return { status: "SUCCESS", data };
+            const data = await getProductInfo(payload, retailerCode, ctx);
+            results.push({ status: "SUCCESS", data });
           } catch (err) {
-            return {
+            results.push({
               status: "NOT_FOUND",
               data: { product_name: payload.product_name, nutriscore_grade: "UNKNOWN" },
               error: err.message
-            };
+            });
           }
-        }));
+        }
         sendResponse({ status: "SUCCESS", results });
       } catch (err) {
         sendResponse({ status: "ERROR", error: err.message });
@@ -335,8 +464,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "LOG_CART_ADD") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.logCartEvent) {
           throw new Error("DB not initialized");
         }
@@ -409,11 +538,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "SYNC_CART_STATE") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.syncCart) {
           throw new Error("DB not initialized or syncCart missing");
         }
+
+        // F-06: reject stale snapshots from hidden/background tabs.
+        // capturedAt is the timestamp at which the content script captured the cart.
+        // If a newer snapshot already arrived, this one is a race loser — discard it.
+        const retailer = message.payload.retailer;
+        const capturedAt = message.payload.capturedAt ?? 0;
+        if (capturedAt <= (_lastCartAt[retailer] ?? 0)) {
+          if (sendResponse) sendResponse({ status: "STALE" });
+          return;
+        }
+        _lastCartAt[retailer] = capturedAt;
 
         // M2: Persist the payload to IDB before attempting the sync.
         // If the SW is killed mid-flight, the "retry-cart-sync" alarm (registered
@@ -447,8 +587,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "REMOVE_CART_ITEM") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         const { retailer, productId } = message.payload;
         console.log(`[NutriScore SW] Removing cart item ${productId} for ${retailer}`);
         if (NutriScoreDB.removeCartItem) {
@@ -464,8 +604,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "CART_CLEARED") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         const retailer = message.retailer;
         console.log(`[NutriScore SW] Cart cleared for ${retailer}`);
         if (NutriScoreDB.clearCartItems) {
@@ -481,8 +621,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "ORDER_PLACED") {
     (async () => {
-      await initializeDatabases();
       try {
+        await ensureStorageReady();
         const retailer = message.retailer;
         console.log(`[NutriScore SW] Order placed for ${retailer} -- marking items purchased`);
         if (NutriScoreDB.markCartPurchased) {
@@ -496,86 +636,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.action === "THEME_CHANGED") {
-    if (chrome.tabs) {
-      chrome.tabs.query({}, (tabs) => {
-        for (const tab of tabs) {
-          chrome.tabs.sendMessage(tab.id, message).catch(() => {});
-        }
-      });
-    }
-    return true;
-  }
 
-  // ── OAuth Login via chrome.identity.launchWebAuthFlow ──────────────────────
-  // Triggered from the React UI (OnboardingWizard) with a pre-built Supabase
-  // OAuth URL. We execute the auth flow here in the SW so it survives popup
-  // closure. On success, we return the raw tokens to the UI so it can call
-  // supabase.auth.setSession() and hydrate the chromeStorageAdapter.
-  if (message.action === "oauth_login") {
-    (async () => {
-      try {
-        const { authUrl } = message;
-        if (!authUrl) throw new Error("No authUrl provided in oauth_login message.");
 
-        // Log the exact URL so you can verify the redirect_to param matches
-        // what's registered in Supabase → Auth → URL Configuration → Redirect URLs.
-        // Check this in: chrome://extensions → Service Worker → Inspect → Console
-        console.log("[NutriScore SW] Starting OAuth flow. authUrl:", authUrl);
-
-        // launchWebAuthFlow opens a browser-managed auth popup. 'interactive: true'
-        // shows the Google account picker. When Supabase redirects back to the
-        // chrome extension's redirect URL, Chrome intercepts it and returns the
-        // full URL here — without ever opening a visible new tab.
-        const responseUrl = await chrome.identity.launchWebAuthFlow({
-          url: authUrl,
-          interactive: true,
-        });
-
-        if (!responseUrl) {
-          throw new Error("OAuth flow cancelled: auth window was closed prematurely.");
-        }
-
-        const url = new URL(responseUrl);
-
-        // Check for a provider-level error in the query string first.
-        // Supabase forwards OAuth errors as query params (e.g. ?error=access_denied).
-        const queryParams = new URLSearchParams(url.search);
-        const oauthError = queryParams.get("error_description") || queryParams.get("error");
-        if (oauthError) {
-          throw new Error(`OAuth provider error: ${oauthError}`);
-        }
-
-        // Supabase appends the session as a URI fragment (#) for implicit grant.
-        // Example: https://<ext-id>.chromiumapp.org/#access_token=...&refresh_token=...
-        const hashParams = new URLSearchParams(url.hash.substring(1));
-        const access_token = hashParams.get("access_token");
-        const refresh_token = hashParams.get("refresh_token");
-        const expires_in = hashParams.get("expires_in");
-
-        if (!access_token) {
-          throw new Error("Access token missing from redirect URL. Check Supabase redirect config.");
-        }
-
-        console.log("[NutriScore SW] OAuth flow successful. Returning tokens to UI.");
-        sendResponse({ success: true, access_token, refresh_token, expires_in });
-
-      } catch (err) {
-        // Common case: user closed the popup window. Treat gracefully.
-        const isUserCancelled =
-          err.message?.includes("cancelled") ||
-          err.message?.includes("closed") ||
-          err.message?.includes("The user did not approve access");
-
-        if (isUserCancelled) {
-          console.log("[NutriScore SW] OAuth flow cancelled by user.");
-        } else {
-          console.error("[NutriScore SW] OAuth flow failed:", err.message);
-        }
-        sendResponse({ success: false, error: err.message });
-      }
-    })();
-    // Return true to keep the message channel open while the async flow runs.
-    return true;
-  }
+  // D-21: oauth_login handler REMOVED.
+  // It had zero callers, returned raw access/refresh tokens to any extension sender,
+  // and logged the full auth URL. Re-implement with sender origin validation if needed.
 });

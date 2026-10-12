@@ -53,11 +53,12 @@ const NutriSharedUI = {
 
   // --------------------------------------------------------------------------- Feature C — Global Shadow Portal (Part C2) Creates window._nutriscoreGlobalPortal once, appended to document.body. All flyouts are portaled here; badges stay at z-index 10 in their cards. ---------------------------------------------------------------------------
   _ensureGlobalPortal() {
-    if (window._nutriscoreGlobalPortal) return window._nutriscoreGlobalPortal;
+    // D-15c: check isConnected to handle SPA body swaps that detach the portal
+    if (window._nutriscoreGlobalPortal?.isConnected) return window._nutriscoreGlobalPortal;
 
-    const portal = document.createElement("div");
-    portal.id = "nutriscore-global-portal";
-    portal.style.cssText = [
+    const host = document.createElement("div");
+    host.id = "nutriscore-global-portal-host";
+    host.style.cssText = [
       "position:fixed",
       "top:0",
       "left:0",
@@ -67,7 +68,28 @@ const NutriSharedUI = {
       "z-index:2147483647",
       "overflow:visible",
     ].join(";");
-    document.body.appendChild(portal);
+    
+    // Match dark theme from root element if present
+    if (document.documentElement.getAttribute('data-theme') === 'dark' || document.documentElement.classList.contains('dark')) {
+      host.setAttribute('data-theme', 'dark');
+    }
+    
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    
+    const style = document.createElement('style');
+    style.textContent = `
+:host { --ns-surface:#fff; --ns-surface-raised:#f8fafc; --ns-text:#0f172a; --ns-text-muted:#64748b; --ns-border:#e2e8f0; --ns-focus:#2563eb; --ns-radius:10px;
+        --ns-font-body: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+:host([data-theme="dark"]) { --ns-surface:#0f172a; --ns-surface-raised:#1e293b; --ns-text:#f8fafc; --ns-text-muted:#cbd5e1; --ns-border:#334155; --ns-focus:#60a5fa; }
+    `;
+    shadow.appendChild(style);
+
+    const portal = document.createElement("div");
+    portal.id = "nutriscore-global-portal";
+    shadow.appendChild(portal);
+
+    window._nutriscoreGlobalPortalHost = host;
     window._nutriscoreGlobalPortal = portal;
 
     // Passive scroll listener — close any open flyout on page scroll (Part C3).
@@ -81,9 +103,19 @@ const NutriSharedUI = {
   // Close whatever flyout is currently open (single-flyout constraint, Part C3).
   _closeActiveFlyout() {
     if (window._nutriscoreActiveFlyout) {
+      // D-27: remove Escape handler before removing element
+      if (window._nutriscoreActiveFlyout._nsEscHandler) {
+        document.removeEventListener('keydown', window._nutriscoreActiveFlyout._nsEscHandler);
+      }
       window._nutriscoreActiveFlyout.remove();
       window._nutriscoreActiveFlyout = null;
     }
+    // D-15b: always remove the outside-click listener to prevent leaks
+    if (window._nutriscoreOutside) {
+      document.removeEventListener('click', window._nutriscoreOutside, true);
+      window._nutriscoreOutside = null;
+    }
+    window._nutriscoreActiveTrigger = null;
   },
 
   // --------------------------------------------------------------------------- Main badge injection ---------------------------------------------------------------------------
@@ -130,7 +162,8 @@ const NutriSharedUI = {
     ];
 
     const rows = rawRows
-      .filter(r => r.val != null && r.val !== "" && Number(r.val) !== 0)
+      // D-19: preserve zero values (e.g. 0g sugar, 0mg sodium) — they are nutritionally significant
+      .filter(r => r.val !== null && r.val !== undefined && r.val !== '')
       .map(r => ({ label: r.label, value: `${this.escapeHTML(String(r.val))} ${r.unit}` }));
 
     const nutriRowsHTML = rows.map(r => `
@@ -192,26 +225,37 @@ const NutriSharedUI = {
     // --------------------------------------------------------------------------- Feature C — badge click: portal flyout into global overlay (Part C3) ---------------------------------------------------------------------------
     const trigger = shadow.querySelector(".badge-trigger");
 
+    // D-27: make badge keyboard-accessible
+    trigger.setAttribute('role', 'button');
+    trigger.setAttribute('tabindex', '0');
+    trigger.setAttribute('aria-label', `NutriScore ${grade}${info?.label ? ' — ' + info.label : ''}, tap to open details`);
+    trigger.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger.click(); }
+    });
+
     trigger.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
 
-      // Single-flyout constraint: close current flyout before opening new one.
+      // D-15a: toggle — if the same badge was already open, just close it
+      const wasOpen = window._nutriscoreActiveTrigger === trigger && !!window._nutriscoreActiveFlyout;
       NutriSharedUI._closeActiveFlyout();
+      if (wasOpen) return;
 
+      window._nutriscoreActiveTrigger = trigger;
       const portal = NutriSharedUI._ensureGlobalPortal();
 
       const flyoutEl = document.createElement("div");
       flyoutEl.style.cssText = [
         "position:absolute",
         "width:240px",
-        "background:#ffffff",
+        "background:var(--ns-surface)",
         "border-radius:16px",
         "box-shadow:0 10px 40px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.05)",
         "overflow:hidden",
-        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-        "color:#334155",
+        "font-family:var(--ns-font-body)",
+        "color:var(--ns-text)",
         "font-size:12px",
-        "border:1px solid #E2E8F0",
+        "border:1px solid var(--ns-border)",
         "pointer-events:auto",
         "z-index:999999",
         "visibility:hidden"
@@ -225,15 +269,15 @@ const NutriSharedUI = {
       let rowsHTML = "";
       if (scoringStatus === "insufficient_data" && productResult.plausibleFields && productResult.plausibleFields.length > 0) {
         rowsHTML = productResult.plausibleFields.map(r => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #F1F5F9;">
-            <span style="color:#334155;font-size:11px;font-style:italic;">${this.escapeHTML(r.field)}</span>
-            <span style="font-weight:600;font-size:11px;color:#0F172A;opacity:0.6;">${this.escapeHTML(String(r.value))} ${r.unit} (plausible)</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--ns-surface-raised);">
+            <span style="color:var(--ns-text-muted);font-size:11px;font-style:italic;">${this.escapeHTML(r.field)}</span>
+            <span style="font-weight:600;font-size:11px;color:var(--ns-text);opacity:0.6;">${this.escapeHTML(String(r.value))} ${r.unit} (plausible)</span>
           </div>`).join("");
       } else {
         rowsHTML = rows.map(r => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #F1F5F9;">
-            <span style="color:#334155;font-size:11px;">${r.label}</span>
-            <span style="font-weight:600;font-size:11px;color:#0F172A;">${r.value}</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--ns-surface-raised);">
+            <span style="color:var(--ns-text-muted);font-size:11px;">${r.label}</span>
+            <span style="font-weight:600;font-size:11px;color:var(--ns-text);">${r.value}</span>
           </div>`).join("");
       }
 
@@ -241,6 +285,7 @@ const NutriSharedUI = {
       const prof2 = productResult.nutritional_profile_display || {};
 
       const modeObj = self.NutriHealthModes && self.NutriHealthModes[activeTheme];
+      if (activeTheme !== 'general' && !modeObj) console.error('[NutriScore] NutriHealthModes missing in content world — check manifest.json content_scripts ordering');
       const tc = modeObj ? { bg: modeObj.palette.accentBg, accent: modeObj.palette.primary, label: modeObj.palette.primary, detail: modeObj.palette.headerSub } : null;
       const chipPrefix = modeObj ? modeObj.chipPrefix : "";
 
@@ -252,9 +297,8 @@ const NutriSharedUI = {
       if (activeTheme !== "general" && tc) {
         if (!productResult.isPremium) {
           diseaseHTML = `
-            <div style="background:${tc.bg};border:2px solid ${tc.label};border-radius:9999px;padding:6px 14px;margin-bottom:12px;cursor:pointer;transition:opacity 0.2s;display:flex;align-items:center;gap:6px;"
-                 onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'"
-                 onclick="chrome.runtime.sendMessage({action: 'OPEN_UPGRADE'})">
+            <div data-ns-upgrade="1"
+                 style="background:${tc.bg};border:2px solid ${tc.label};border-radius:9999px;padding:6px 14px;margin-bottom:12px;cursor:pointer;transition:opacity 0.2s;display:flex;align-items:center;gap:6px;">
               ${hazardSVG(tc.label)}
               <div style="color:${tc.label};font-size:11px;font-weight:600;flex:1;">Upgrade to Premium for ${this.escapeHTML(modeObj.label)} alerts</div>
             </div>`;
@@ -272,7 +316,7 @@ const NutriSharedUI = {
               </div>
             </div>`).join("");
           if (disclaimer) {
-             diseaseHTML += `<div style="font-size:10px;color:#94A3B8;margin-bottom:12px;line-height:1.3;">${this.escapeHTML(disclaimer)}</div>`;
+             diseaseHTML += `<div style="font-size:10px;color:var(--ns-text-muted);margin-bottom:12px;line-height:1.3;">${this.escapeHTML(disclaimer)}</div>`;
           } else {
              diseaseHTML += `<div style="height:4px;"></div>`;
           }
@@ -311,14 +355,30 @@ const NutriSharedUI = {
         </div>
         <div style="padding:11px 14px 13px 14px;">
           ${diseaseHTML}
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#64748B;margin:0 0 4px;">${sectionTitle}</div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--ns-text-muted);margin:0 0 4px;">${sectionTitle}</div>
           ${rowsHTML}
-          ${confLabel ? `<div style="font-size:11px;color:#6B7280;margin-top:6px;">${confLabel} &middot; ${this.escapeHTML(provCaption)}</div>` : ""}
+          ${confLabel ? `<div style="font-size:11px;color:var(--ns-text-muted);margin-top:6px;">${confLabel} &middot; ${this.escapeHTML(provCaption)}</div>` : ""}
         </div>
       `;
 
       portal.appendChild(flyoutEl);
       window._nutriscoreActiveFlyout = flyoutEl;
+
+      // D-27: flyout accessibility — role=dialog so screen readers announce it correctly
+      flyoutEl.setAttribute('role', 'dialog');
+      flyoutEl.setAttribute('aria-label', productInfo?.name || 'Product details');
+      flyoutEl.setAttribute('aria-modal', 'true');
+      // Move focus into flyout so SR announces it; first focusable element or the flyout itself
+      const firstFocusable = flyoutEl.querySelector('button,[tabindex="0"]');
+      (firstFocusable || flyoutEl).focus?.();
+
+      // D-27: Escape key closes flyout (auto-removed when flyout closes via _closeActiveFlyout)
+      const escHandler = (e) => {
+        if (e.key === 'Escape') { NutriSharedUI._closeActiveFlyout(); }
+      };
+      document.addEventListener('keydown', escHandler);
+      // Store on flyoutEl so _closeActiveFlyout can remove it
+      flyoutEl._nsEscHandler = escHandler;
 
       // Wire header close button
       const closeBtn = flyoutEl.querySelector("[data-ns-close]");
@@ -327,6 +387,17 @@ const NutriSharedUI = {
           ev.stopPropagation();
           NutriSharedUI._closeActiveFlyout();
         });
+      }
+
+      // D-14: wire upgrade CTA in the content-script world where chrome.runtime works
+      const upgradeCta = flyoutEl.querySelector('[data-ns-upgrade]');
+      if (upgradeCta) {
+        upgradeCta.addEventListener('click', () => {
+          chrome.runtime.sendMessage({ action: 'OPEN_UPGRADE' }).catch(() => {});
+        });
+        // CSS :hover substitute — inline style toggle in content world
+        upgradeCta.addEventListener('mouseenter', () => { upgradeCta.style.opacity = '0.8'; });
+        upgradeCta.addEventListener('mouseleave', () => { upgradeCta.style.opacity = '1'; });
       }
 
       // Dynamic Placement — deferred to requestAnimationFrame so getBoundingClientRect()
@@ -362,14 +433,13 @@ const NutriSharedUI = {
         flyoutEl.style.visibility = "visible";
       });
 
-      // Close on outside click
-      const outsideClick = (ev) => {
-        if (!flyoutEl.contains(ev.target) && ev.target !== trigger) {
+      // D-15b: store outside-click listener on window so _closeActiveFlyout can always remove it
+      window._nutriscoreOutside = (ev) => {
+        if (!ev.composedPath().includes(flyoutEl) && !ev.composedPath().includes(trigger)) {
           NutriSharedUI._closeActiveFlyout();
-          document.removeEventListener("click", outsideClick, true);
         }
       };
-      setTimeout(() => document.addEventListener("click", outsideClick, true), 0);
+      setTimeout(() => document.addEventListener('click', window._nutriscoreOutside, true), 0);
     });
 
     // Feature C Part C1: badge z-index is 10 (passive, inherits card stacking).
@@ -382,9 +452,9 @@ const NutriSharedUI = {
 
 };
 
-if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.action === "THEME_CHANGED") {
+if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.uiTheme) {
       // Instantly unmount any active flyout when the user switches modes in the dashboard
       if (window._nutriscoreActiveFlyout && NutriSharedUI._closeActiveFlyout) {
         NutriSharedUI._closeActiveFlyout();

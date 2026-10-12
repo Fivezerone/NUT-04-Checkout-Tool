@@ -104,6 +104,82 @@ const CarrefourAdapter = {
     return NutriSharedUI.injectBadge(card, productResult, price);
   },
 
+  /**
+   * F-05: candidatesIn(root) — scoped subtree scan for NutriScanner.
+   * Queries only inside `root` instead of the whole document.
+   * Returns Array<{ el: HTMLElement, item: ScoreItem }>.
+   */
+  candidatesIn(root) {
+    const candidates = [];
+    const processedCards = new Set();
+
+    // Use root.querySelectorAll when root is an Element, else document.querySelectorAll
+    const scope = (root instanceof Element || root instanceof Document) ? root : document;
+    const productLinks = scope.querySelectorAll("a[href*='/p/'], a[href*='/product/']");
+
+    productLinks.forEach((anchor) => {
+      let card = anchor.closest('[style*="grid-column"]') ||
+                 anchor.closest("li") ||
+                 anchor.closest("[data-testid='product-card']") ||
+                 anchor.closest(".cl-product-card") ||
+                 anchor.closest("li[class*='product']") ||
+                 anchor.closest("div[class*='product-card']") ||
+                 anchor.closest("div[class*='ProductCard']") ||
+                 anchor.closest(".flex-col.relative");
+      if (!card) card = anchor.parentElement;
+      if (card && card.parentElement && card.parentElement.style?.gridColumn) card = card.parentElement;
+      if (!card || processedCards.has(card)) return;
+      if (card.querySelector(".nutriscore-isolated-root")) return; // already injected
+
+      processedCards.add(card);
+
+      let retailerProductId = null;
+      const match = anchor.href.match(/\/(?:p|product)\/(\d+)/);
+      if (match) retailerProductId = match[1];
+      if (!retailerProductId) {
+        retailerProductId = card.getAttribute("data-product-id") || card.getAttribute("data-id") || null;
+      }
+
+      let name = "";
+      const nameEl = card.querySelector("[data-testid='product-title'], h2, h3, h4, [class*='title'], [class*='name'], .line-clamp-2, .line-clamp-1");
+      if (nameEl) name = nameEl.textContent?.trim() || "";
+      if (!name) name = anchor.getAttribute("title") || anchor.getAttribute("aria-label") || "";
+      if (!name) {
+        const text = anchor.textContent?.trim() || "";
+        if (text && !text.match(/^kes\s*[\d,.]+$/i)) name = text;
+      }
+      if (!name) return;
+
+      let priceNumeric = 0;
+      const priceEl = card.querySelector("[data-testid='product-price'], [class*='price'], [class*='Price'], .items-baseline, .text-lg.font-bold, .text-xl.font-bold");
+      if (priceEl) priceNumeric = NutriSharedUI.parsePrice(priceEl.textContent);
+
+      candidates.push({
+        el: card,
+        item: {
+          id:    retailerProductId,
+          name:  name,
+          price: priceNumeric,
+          url:   anchor.href,
+        },
+      });
+    });
+
+    return candidates;
+  },
+
+  /**
+   * F-05: inject(el, result) — idempotent badge injection for NutriScanner.
+   * Replaces an existing badge if present.
+   */
+  inject(el, result) {
+    // Remove stale badge before re-injecting (idempotent)
+    const existing = el.querySelector(".nutriscore-isolated-root");
+    if (existing) existing.remove();
+    el.removeAttribute("data-nutriscore-scanned");
+    NutriSharedUI.injectBadge(el, result, result?.price ?? 0);
+  },
+
   extractCartState() {
     const items = [];
     const cartContainers = document.querySelectorAll("a[href*='/p/']");

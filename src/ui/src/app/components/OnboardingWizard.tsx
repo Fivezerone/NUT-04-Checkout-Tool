@@ -4,7 +4,6 @@ declare global {
   interface Window {
     PaystackPop: any;
   }
-  var chrome: any;
 }
 import { useTheme } from "../context/ThemeContext";
 import { ExtensionStorage, supabase, savePremiumStatus, signOutUser } from "../../services/storage";
@@ -12,6 +11,9 @@ import { usePaymentState } from "../hooks/usePaymentState";
 import { isSubscriptionExpired } from "../lib/subscriptionUtils";
 import { HEALTH_MODES } from "../../../../shared/health-modes.mjs";
 import { persistOnboarding } from "../lib/persistOnboarding";
+import { CentralStorage, MultiLayerStorage } from "../../../../shared/storage";
+import { DECOY_TERMS_OF_SERVICE, DECOY_PRIVACY_POLICY, type LegalDoc } from "../legal/decoyLegalDocs";
+import { ConsentDocModal } from "./ConsentDocModal";
 /** Canonical user profile shape used by the dashboard greeting and settings. */
 export interface UserProfile {
   name: string;
@@ -83,6 +85,8 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
   const [notificationFrequency, setNotificationFrequency] = useState<"realtime" | "daily" | "weekly" | "off">("realtime");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [activeDoc, setActiveDoc] = useState<LegalDoc | null>(null);
+  const [isDocModalOpen, setIsDocModalOpen] = useState(false);
 
   // Step 4 State (Tier)
   const [tier, setTier] = useState<"basic" | "premium">("premium");
@@ -116,89 +120,85 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     }
   });
 
-  // ── Shared post-login router ─────────────────────────────────────────────
+  // ── Shared post-auth router (F-01, F-06) ─────────────────────────────────
   /**
-   * Called after ANY successful login (email/password or OAuth).
-   * Checks subscription status BEFORE routing. Critical rules:
+   * Single routing entry point for ALL auth methods (email, Google login, Google signup).
+   * Always queries the server — never relies on the global 'onboarding_completed' flag.
    *
-   *   • Expired users  → onboarding.html?mode=renew  (payment modal)
-   *     Session is KEPT ALIVE so Step 4 (payment) has a valid auth token.
-   *     Signing out here would break the payment flow — do NOT add signOut.
-   *
-   *   • Active users   → dashboard.html
-   *   • Not onboarded  → wizard step 2 (continue sign-up then pay)
+   * Routes:
+   *   • DB onboarding incomplete → continue wizard from incomplete step
+   *   • Premium active          → dashboard.html
+   *   • Basic tier              → show Basic confirmation
+   *   • Premium expired         → onboarding.html?mode=renew (session preserved)
+   *   • Transient DB error      → show retry (do NOT sign out)
    */
-  const redirectAfterLogin = async (userId: string) => {
-    // Check the local hint first — fast path, avoids DB round-trip for fresh sign-ups
-    const local = await chrome.storage.local.get('onboarding_completed');
-
-    if (!local.onboarding_completed) {
-      // New user (never completed payment) — continue the wizard from step 3
-      clearError();
-      setIsSubmitting(false);
-      setStep(3);
-      setWizardMode('signup');
-      return;
-    }
-
-    // Returning user — verify subscription status in Supabase before granting access
+  const routeAuthenticatedUser = async (userId: string) => {
     try {
+      // Always query server — never trust a global local flag (F-01)
       const { data: row, error: dbError } = await supabase
         .from('users')
-        .select('payment_received_at, subscription_status, onboarding_completed, trial_started_at')
+        .select('onboarding_completed, onboarding_step, condition')
         .eq('id', userId)
         .single();
 
       if (dbError && dbError.code !== 'PGRST116') {
+        // Transient DB error — show retry, preserve session
+        setError('Could not verify your account status. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // No profile row or onboarding not complete → resume wizard
+      if (!row?.onboarding_completed) {
+        clearError();
+        setIsSubmitting(false);
+        // Resume at the furthest incomplete step (default step 2 if no progress)
+        const resumeStep = (!row?.onboarding_step || row.onboarding_step < 2) ? 2
+          : (!row?.condition) ? 2
+          : row.onboarding_step + 1;
+        setStep(Math.min(resumeStep, 4));
+        setWizardMode('signup');
+        return;
+      }
+
+      const { data: ent, error: entError } = await supabase.rpc('get_my_entitlement');
+      if (entError) {
         setError('Could not verify subscription status. Please try again.');
         setIsSubmitting(false);
         return;
       }
 
-      const r = row as any;
+      // Distinguish: basic (never had premium) vs expired (ever_premium=true)
+      const isActive = ent.tier === 'premium' && !isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
+      const isBasic = !isActive && !ent.ever_premium;
+      const isExpired = !isActive && ent.ever_premium;
 
-      // Cross-check DB onboarding status (in case local hint is stale)
-      if (!r?.onboarding_completed) {
+      if (isBasic) {
         clearError();
         setIsSubmitting(false);
-        setStep(3);
-        setWizardMode('signup');
+        // Basic user — completed onboarding; dashboard will show basic gate
+        window.location.href = chrome.runtime.getURL('dashboard.html');
         return;
       }
 
-      const paymentReceivedAt = r?.payment_received_at ?? null;
-      const trialStartedAt    = r?.trial_started_at    ?? null;
-      const dbStatus         = r?.subscription_status  ?? null;
-
-      const expired =
-        isSubscriptionExpired(paymentReceivedAt, trialStartedAt) || dbStatus === 'expired';
-
-      if (expired) {
-        // D-08: subscription_status only — is_premium is a billing column
-        if (dbStatus !== 'expired') {
-          await supabase
-            .from('users')
-            .update({ subscription_status: 'expired' })
-            .eq('id', userId);
-        }
-        // D-04/D-08: use savePremiumStatus(false) which clears nutri_entitlement (the key SW reads)
+      if (isExpired) {
         await savePremiumStatus(false);
-
-        // Keep the session alive so they can process payment on the next step.
-        // Redirect to the payment wizard.
+        // Expired — keep session alive for payment
         window.location.href = chrome.runtime.getURL('onboarding.html') + '?mode=renew';
         return;
       }
-    } catch (err: any) {
-      console.error('[redirectAfterLogin] DB check failed:', err);
-      setError('System Error: ' + (err?.message || 'Unable to load profile data. Ensure your database is updated.'));
-      setIsSubmitting(false);
-      return;
-    }
 
-    // Active subscription — open the dashboard
-    window.location.href = chrome.runtime.getURL('dashboard.html');
+      // Active premium
+      window.location.href = chrome.runtime.getURL('dashboard.html');
+    } catch (err: any) {
+      console.error('[routeAuthenticatedUser] error:', err?.message);
+      setError('Unable to verify your account. Please try again.');
+      setIsSubmitting(false);
+    }
   };
+
+  /** @deprecated Use routeAuthenticatedUser — kept for backward compat call sites */
+  const redirectAfterLogin = routeAuthenticatedUser;
 
   // ── Login handler (email / password) ────────────────────────────────────
   const handleLogin = async () => {
@@ -357,19 +357,109 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     setStep(step + 1);
   };
 
-  const handleStep2Next = () => {
+  const handleStep2Next = async () => {
     if (!condition) {
       setError("Please select a primary health focus.");
       return;
     }
+    setIsSubmitting(true);
+    let rpcSuccess = false;
+    try {
+      const { data, error } = await supabase.rpc('save_onboarding_step2', { p_condition: condition, p_metric: metric });
+      if (!error && !(data && data.error)) {
+        rpcSuccess = true;
+      } else {
+        console.warn('[OnboardingWizard] save_onboarding_step2 RPC error, invoking resilient fallback:', error?.message || data?.error);
+      }
+    } catch (e: any) {
+      console.warn('[OnboardingWizard] save_onboarding_step2 exception, invoking resilient fallback:', e?.message || e);
+    }
+
+    if (!rpcSuccess) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
+        if (userId) {
+          const { error: directErr } = await supabase.from('users').update({
+            condition,
+            metric,
+            health_mode: condition !== 'general',
+            selected_tags: [condition, metric].filter(Boolean),
+            onboarding_step: 2,
+            updated_at: new Date().toISOString()
+          }).eq('id', userId);
+          if (directErr) {
+            console.warn('[OnboardingWizard] step 2 direct update fallback warning:', directErr.message);
+          }
+        }
+      } catch (err: any) {
+        console.warn('[OnboardingWizard] step 2 direct fallback error:', err?.message || err);
+      }
+    }
+
+    setIsSubmitting(false);
     setStep(step + 1);
   };
 
-  const handleStep3Next = () => {
+  const handleStep3Next = async () => {
     if (!termsAccepted || !privacyAccepted) {
       setError("Please accept both the Terms of Service and Privacy Policy.");
       return;
     }
+    const termsVersion = ((import.meta as unknown as Record<string, Record<string, string>>).env?.VITE_TERMS_VERSION) || DECOY_TERMS_OF_SERVICE.version;
+    const privacyVersion = ((import.meta as unknown as Record<string, Record<string, string>>).env?.VITE_PRIVACY_VERSION) || DECOY_PRIVACY_POLICY.version;
+
+    setIsSubmitting(true);
+    let rpcSuccess = false;
+    try {
+      const { data, error } = await supabase.rpc('save_onboarding_step3', { 
+        p_terms_accepted: termsAccepted, 
+        p_privacy_accepted: privacyAccepted,
+        p_terms_version: termsVersion,
+        p_privacy_version: privacyVersion
+      });
+      if (!error && !(data && data.error)) {
+        rpcSuccess = true;
+      } else {
+        console.warn('[OnboardingWizard] save_onboarding_step3 RPC error, invoking resilient fallback:', error?.message || data?.error);
+      }
+    } catch (e: any) {
+      console.warn('[OnboardingWizard] save_onboarding_step3 exception, invoking resilient fallback:', e?.message || e);
+    }
+
+    if (!rpcSuccess) {
+      // Resilient fallback: direct update to public.users and local extension storage
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
+        if (userId) {
+          const now = new Date().toISOString();
+          const { error: directError } = await supabase.from('users').update({
+            terms_accepted: termsAccepted,
+            privacy_accepted: privacyAccepted,
+            terms_version: termsVersion,
+            privacy_version: privacyVersion,
+            terms_accepted_at: now,
+            privacy_accepted_at: now,
+            consent_timestamp: now,
+            onboarding_step: 3,
+            updated_at: now
+          }).eq('id', userId);
+          if (directError) {
+            console.warn('[OnboardingWizard] direct users update fallback warning:', directError.message);
+          }
+        }
+      } catch (err: any) {
+        console.warn('[OnboardingWizard] direct fallback error:', err?.message || err);
+      }
+
+      await ExtensionStorage.setPartialOnboardingData({
+        termsAccepted,
+        privacyAccepted
+      });
+    }
+
+    setIsSubmitting(false);
     setStep(step + 1);
   };
 
@@ -387,8 +477,8 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
   const handleNext = async () => {
     clearError();
     if (step === 1) await handleStep1Next();
-    else if (step === 2) handleStep2Next();
-    else if (step === 3) handleStep3Next();
+    else if (step === 2) await handleStep2Next();
+    else if (step === 3) await handleStep3Next();
     else if (step === 4) await handleStep4Next();
   };
 
@@ -404,23 +494,34 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     setCondition(conditionKey);
     setMetric(metricKey);
     setTheme(conditionKey as any);
+    MultiLayerStorage.updateDraft({ uiTheme: conditionKey });
   };
 
   const finishOnboarding = async (paymentRef: string, method: string, token?: string) => {
     const { data: { user } } = await supabase.auth.getUser();
     const userId = user?.id;
 
-    await persistOnboarding({
+    const success = await persistOnboarding({
       paymentRef, method, token, userId, user, fullName, email, dob, gender,
       condition, metric, notificationFrequency, termsAccepted, privacyAccepted,
-      initialMode, setFinishError
+      initialMode, setFinishError, tier
     });
+
+    if (!success) return;
 
     // CRITICAL FIX: Clear the pending payment trap. If we don't do this, any
     // future visit to onboarding.html will forcibly jump to Step 4 and loop.
     await ExtensionStorage.setActivePayment(null, null);
     setActivePaymentRef(null);
     setActivePaymentMethod(null);
+
+    if (tier === "basic") {
+      if (typeof chrome !== "undefined" && chrome.tabs) {
+        window.close();
+      }
+      setError("You are on Basic tier. Please close this window to continue.");
+      return;
+    }
 
     if (onComplete) onComplete();
     window.location.href = chrome.runtime.getURL('dashboard.html');
@@ -803,14 +904,9 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
                   clearError();
                   setIsSubmitting(true);
                   try {
-                    // Step 1: Ask Supabase for the OAuth URL without opening a tab.
-                    // 'skipBrowserRedirect: true' gives us the URL to pass to the
-                    // background script without navigating the popup away.
+                    // F-05/F-06: Handle PKCE code exchange for Chrome extension OAuth.
+                    // detectSessionInUrl is false so we must handle the callback explicitly.
                     const redirectTo = chrome.identity.getRedirectURL();
-
-                    // DEBUG: Log to background SW console (chrome://extensions → SW → Inspect)
-                    // so you can copy the exact redirect URL and add it to Supabase's allowlist.
-                    console.log("[NutriScore OAuth] redirectTo:", redirectTo);
 
                     const { data, error: oauthUrlError } = await supabase.auth.signInWithOAuth({
                       provider: 'google',
@@ -825,8 +921,6 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
                       throw new Error(oauthUrlError?.message || "Could not build OAuth URL.");
                     }
 
-                    console.log("[NutriScore OAuth] authUrl built:", data.url);
-
                     const responseUrl = await chrome.identity.launchWebAuthFlow({
                       url: data.url,
                       interactive: true,
@@ -834,33 +928,39 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
                     
                     if (!responseUrl) throw new Error('OAuth flow was cancelled.');
                     
+                    // F-05: Handle PKCE code (query param) preferentially, then fragment fallback
                     const url = new URL(responseUrl);
-                    const hashParams = new URLSearchParams(url.hash.substring(1));
-                    const access_token = hashParams.get("access_token");
-                    const refresh_token = hashParams.get("refresh_token");
-                    
-                    if (!access_token || !refresh_token) {
-                      throw new Error('OAuth provider error or missing tokens in redirect.');
+                    const code = url.searchParams.get('code');
+                    const providerError = url.searchParams.get('error');
+
+                    if (providerError) {
+                      throw new Error(`OAuth provider error: ${url.searchParams.get('error_description') || providerError}`);
                     }
 
-                    const { error: sessionError } = await supabase.auth.setSession({
-                      access_token,
-                      refresh_token,
-                    });
-
-                    if (sessionError) {
-                      throw new Error("Failed to set session: " + sessionError.message);
+                    if (code) {
+                      // PKCE flow: exchange code for session
+                      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+                      if (exchangeError) throw new Error('Failed to exchange auth code: ' + exchangeError.message);
+                    } else {
+                      // Implicit fragment fallback (only if deliberately configured)
+                      const hashParams = new URLSearchParams(url.hash.substring(1));
+                      const access_token = hashParams.get('access_token');
+                      const refresh_token = hashParams.get('refresh_token');
+                      if (!access_token || !refresh_token) {
+                        throw new Error('OAuth callback missing both code and tokens. Check Supabase OAuth flow configuration.');
+                      }
+                      const { error: sessionError } = await supabase.auth.setSession({ access_token, refresh_token });
+                      if (sessionError) throw new Error('Failed to set session: ' + sessionError.message);
                     }
 
-                    // Step 4: Populate the email field from the authenticated user
-                    // so downstream payment steps have the correct address.
+                    // F-06: Use shared router for both signup and login paths
                     const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) throw new Error('Could not retrieve user after OAuth.');
                     if (user?.email) setEmail(user.email);
                     if (user?.user_metadata?.full_name) setFullName(user.user_metadata.full_name);
-
-                    // Advance to step 2 (Health Focus).
+                    // Route via the shared helper — checks server DB before deciding next step
+                    await routeAuthenticatedUser(user.id);
                     clearError();
-                    setStep(2);
 
                   } catch (err: any) {
                     setError(err.message || "Google sign-in failed. Please try again.");
@@ -919,29 +1019,76 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
           {step === 3 && (
             <div className="wizard-step">
               <h2 className="text-xl font-bold text-slate-800">Preferences & Consent</h2>
-              <p className="text-xs text-slate-500 mt-1 mb-4">Set how you want to be notified.</p>
-              
-              <label htmlFor="signup-frequency" className="block text-xs font-semibold text-slate-700 uppercase mb-1">Notification Frequency</label>
-              <select 
-                id="signup-frequency"
-                value={notificationFrequency} 
-                onChange={(e) => setNotificationFrequency(e.target.value as any)}
-                className="w-full rounded-lg border border-slate-300 p-2.5 text-sm outline-none focus:border-blue-600 mb-4"
-              >
-                <option value="realtime">Real-time (While shopping)</option>
-                <option value="daily">Daily Summary</option>
-                <option value="weekly">Weekly Summary</option>
-                <option value="off">Off</option>
-              </select>
+              <p className="text-xs text-slate-500 mt-1 mb-4">Please review and accept our terms to continue.</p>
 
-              <div className="flex items-center gap-2 mb-2 mt-4">
-                <input type="checkbox" id="terms" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} />
-                <label htmlFor="terms" className="text-sm text-slate-700">I accept the Terms of Service</label>
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="privacy" checked={privacyAccepted} onChange={(e) => setPrivacyAccepted(e.target.checked)} />
-                <label htmlFor="privacy" className="text-sm text-slate-700">I accept the Privacy Policy</label>
+              <div className="space-y-3 mt-4">
+                <div className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition">
+                  <input
+                    type="checkbox"
+                    id="terms"
+                    checked={termsAccepted}
+                    onChange={(e) => setTermsAccepted(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <div className="text-xs text-slate-700 leading-relaxed flex-1">
+                    <label htmlFor="terms" className="cursor-pointer font-medium">
+                      I accept the{" "}
+                    </label>
+                    <button
+                      type="button"
+                      id="view-terms-link"
+                      onClick={() => {
+                        setActiveDoc(DECOY_TERMS_OF_SERVICE);
+                        setIsDocModalOpen(true);
+                      }}
+                      className="text-blue-600 font-semibold hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Terms of Service
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <line x1="10" y1="14" x2="21" y2="3"></line>
+                      </svg>
+                    </button>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Review health disclaimer, nutritional analysis limits, and service terms (decoy draft).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition">
+                  <input
+                    type="checkbox"
+                    id="privacy"
+                    checked={privacyAccepted}
+                    onChange={(e) => setPrivacyAccepted(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <div className="text-xs text-slate-700 leading-relaxed flex-1">
+                    <label htmlFor="privacy" className="cursor-pointer font-medium">
+                      I accept the{" "}
+                    </label>
+                    <button
+                      type="button"
+                      id="view-privacy-link"
+                      onClick={() => {
+                        setActiveDoc(DECOY_PRIVACY_POLICY);
+                        setIsDocModalOpen(true);
+                      }}
+                      className="text-blue-600 font-semibold hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Privacy Policy
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <line x1="10" y1="14" x2="21" y2="3"></line>
+                      </svg>
+                    </button>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Learn about local-first nutritional evaluation and how zero browsing data is sold (decoy draft).
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1135,6 +1282,20 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
         </div>
 
       </div>
+
+      {/* Decoy Legal Documents Modal */}
+      <ConsentDocModal
+        isOpen={isDocModalOpen}
+        doc={activeDoc}
+        onClose={() => setIsDocModalOpen(false)}
+        onAccept={() => {
+          if (activeDoc === DECOY_TERMS_OF_SERVICE) {
+            setTermsAccepted(true);
+          } else if (activeDoc === DECOY_PRIVACY_POLICY) {
+            setPrivacyAccepted(true);
+          }
+        }}
+      />
     </div>
   );
 }
