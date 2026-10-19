@@ -696,7 +696,7 @@ var NutriScoreDB = (() => {
       return { grade: "UNKNOWN", status: "insufficient_data", plausibleFields };
     }
     const safePos = (v) => v == null ? 0 : v;
-    let ctx = {
+    const ctx = {
       nEnergy: Math.min(Math.floor(energy / 335), 10),
       nSugars: Math.min(Math.floor(safePos(sugars) / 3.4), 15),
       nSatFat: Math.min(Math.floor(safePos(satFat) / 1), 10),
@@ -1094,7 +1094,8 @@ var NutriScoreDB = (() => {
   // src/ui/src/app/lib/db/analytics.ts
   function resolveTimeframe(timeframeKey, now = Date.now()) {
     const start = new Date(now);
-    let bucketUnit = "day", bucketCount = 1, tickLabelFormat = "short";
+    let bucketUnit = "day", bucketCount = 1;
+    const tickLabelFormat = "short";
     if (timeframeKey === "today") {
       start.setHours(0, 0, 0, 0);
       bucketUnit = "hour";

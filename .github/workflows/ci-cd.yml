@@ -26,7 +26,7 @@ concurrency:
 # Shared environment
 # ─────────────────────────────────────────────────────────────────────────────
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: '20'
 
 permissions:
   contents: read
@@ -42,7 +42,7 @@ jobs:
   # Triggered on: all PRs and pushes to main
   # ─────────────────────────────────────────────────────────────────────────
   lint-verify:
-    name: "🔍 Lint & Verify"
+    name: '🔍 Lint & Verify'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -54,7 +54,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -79,7 +79,7 @@ jobs:
   # Triggered on: all PRs and pushes to main
   # ─────────────────────────────────────────────────────────────────────────
   test:
-    name: "🧪 Test"
+    name: '🧪 Test'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -91,7 +91,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -100,8 +100,8 @@ jobs:
         run: npx vitest run src/ui/src/app/__tests__ --coverage --reporter=verbose
         env:
           # Supply dummy env vars so Supabase client instantiation doesn't crash
-          VITE_SUPABASE_URL: "https://placeholder.supabase.co"
-          VITE_SUPABASE_ANON_KEY: "placeholder-anon-key"
+          VITE_SUPABASE_URL: 'https://placeholder.supabase.co'
+          VITE_SUPABASE_ANON_KEY: 'placeholder-anon-key'
 
       - name: Upload coverage report
         if: always()
@@ -116,7 +116,7 @@ jobs:
   # Triggered on: push to main only (i.e. merged PRs)
   # ─────────────────────────────────────────────────────────────────────────
   build:
-    name: "📦 Build & Package"
+    name: '📦 Build & Package'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [lint-verify, test]
@@ -133,7 +133,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -206,7 +206,7 @@ jobs:
   # Triggered on: successful build job (main branch only)
   # ─────────────────────────────────────────────────────────────────────────
   deploy:
-    name: "🚀 Deploy to Chrome Web Store"
+    name: '🚀 Deploy to Chrome Web Store'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [build]
@@ -256,7 +256,7 @@ jobs:
           script: |
             const fs = require('fs');
             const zipPath = `nut04-extension-${context.sha}.zip`;
-            
+
             const release = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -289,21 +289,32 @@ jobs:
   # Notification: Email on Deploy Failure (SendGrid)
   # ─────────────────────────────────────────────────────────────────────────
   notify-failure:
-    name: "📧 Notify on Failure"
+    name: '📧 Notify on Failure'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [deploy]
     if: failure()
 
     steps:
+      - name: Check if email secrets are configured
+        id: check-secrets
+        run: |
+          if [ -n "${{ secrets.SENDGRID_API_KEY }}" ] && [ -n "${{ secrets.ALERT_EMAIL_FROM }}" ] && [ -n "${{ secrets.ALERT_EMAIL_TO }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "SendGrid secrets (SENDGRID_API_KEY, ALERT_EMAIL_FROM, ALERT_EMAIL_TO) not configured. Skipping email notification."
+          fi
+
       - name: Send failure email via SendGrid
+        if: steps.check-secrets.outputs.configured == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.sendgrid.net
           server_port: 587
           username: apikey
           password: ${{ secrets.SENDGRID_API_KEY }}
-          subject: "🔴 NUT-04 Deployment Failed — ${{ github.repository }}"
+          subject: '🔴 NUT-04 Deployment Failed — ${{ github.repository }}'
           to: ${{ secrets.ALERT_EMAIL_TO }}
           from: ${{ secrets.ALERT_EMAIL_FROM }}
           content_type: text/html

@@ -49,7 +49,7 @@ const chromeStorageAdapter = {
       await chrome.storage.local.set({ [key]: value });
     } catch (err) {
       // Re-throw so Supabase auth knows the write failed (F-04)
-      throw new Error('[chromeStorageAdapter] setItem failed: ' + (err as Error)?.message);
+      throw new Error('[chromeStorageAdapter] setItem failed: ' + (err as Error)?.message, { cause: err });
     }
   },
   removeItem: async (key: string): Promise<void> => {
@@ -57,7 +57,7 @@ const chromeStorageAdapter = {
     try {
       await chrome.storage.local.remove(key);
     } catch (err) {
-      throw new Error('[chromeStorageAdapter] removeItem failed: ' + (err as Error)?.message);
+      throw new Error('[chromeStorageAdapter] removeItem failed: ' + (err as Error)?.message, { cause: err });
     }
   },
 };

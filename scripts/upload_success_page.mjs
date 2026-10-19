@@ -1,15 +1,15 @@
-import { createClient } from '@supabase/supabase-js';
-import * as fs from 'fs';
+import { createClient } from '@supabase/supabase-js'
+import * as fs from 'fs'
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL
+const SUPABASE_KEY = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-  process.exit(1);
+  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')
+  process.exit(1)
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 const htmlContent = `<!DOCTYPE html>
 <html lang="en">
@@ -72,14 +72,14 @@ const htmlContent = `<!DOCTYPE html>
     <button onclick="window.close()">Close This Tab</button>
   </div>
 </body>
-</html>`;
+</html>`
 
 async function main() {
   // 1. Create a public bucket if it doesn't exist
-  const { data: buckets } = await supabase.storage.listBuckets();
-  if (!buckets?.find(b => b.name === 'public-assets')) {
-    await supabase.storage.createBucket('public-assets', { public: true });
-    console.log("Created bucket: public-assets");
+  const { data: buckets } = await supabase.storage.listBuckets()
+  if (!buckets?.find((b) => b.name === 'public-assets')) {
+    await supabase.storage.createBucket('public-assets', { public: true })
+    console.log('Created bucket: public-assets')
   }
 
   // 2. Upload the HTML file
@@ -87,20 +87,20 @@ async function main() {
     .from('public-assets')
     .upload('success.html', htmlContent, {
       contentType: 'text/html; charset=utf-8',
-      upsert: true
-    });
+      upsert: true,
+    })
 
   if (error) {
-    console.error("Upload failed:", error.message);
-    process.exit(1);
+    console.error('Upload failed:', error.message)
+    process.exit(1)
   }
 
   // 3. Get the public URL
-  const { data: { publicUrl } } = supabase.storage
-    .from('public-assets')
-    .getPublicUrl('success.html');
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from('public-assets').getPublicUrl('success.html')
 
-  console.log("Success page uploaded! Public URL:", publicUrl);
+  console.log('Success page uploaded! Public URL:', publicUrl)
 }
 
-main();
+main()

@@ -18,44 +18,44 @@
  * @returns {string} UTF-8 safe JSON with sorted keys
  */
 export function stableStringify(value) {
-  if (value === null) return 'null';
-  if (value === undefined) return undefined; // caller must filter
+  if (value === null) return 'null'
+  if (value === undefined) return undefined // caller must filter
 
-  const t = typeof value;
+  const t = typeof value
 
-  if (t === 'boolean' || t === 'string') return JSON.stringify(value);
+  if (t === 'boolean' || t === 'string') return JSON.stringify(value)
 
   if (t === 'number') {
     if (!Number.isFinite(value)) {
-      throw new TypeError(`stableStringify: non-finite number ${value} cannot be serialised`);
+      throw new TypeError(`stableStringify: non-finite number ${value} cannot be serialised`)
     }
-    return JSON.stringify(value);
+    return JSON.stringify(value)
   }
 
   if (Array.isArray(value)) {
-    const items = value.map(v => {
-      const s = stableStringify(v);
-      return s === undefined ? 'null' : s;
-    });
-    return '[' + items.join(',') + ']';
+    const items = value.map((v) => {
+      const s = stableStringify(v)
+      return s === undefined ? 'null' : s
+    })
+    return '[' + items.join(',') + ']'
   }
 
   if (t === 'object') {
-    const keys = Object.keys(value).sort(); // Unicode code-point order
-    const parts = [];
+    const keys = Object.keys(value).sort() // Unicode code-point order
+    const parts = []
     for (const k of keys) {
       if (Object.prototype.hasOwnProperty.call(value, k) && value[k] !== undefined) {
-        const v = stableStringify(value[k]);
+        const v = stableStringify(value[k])
         if (v !== undefined) {
-          parts.push(JSON.stringify(k) + ':' + v);
+          parts.push(JSON.stringify(k) + ':' + v)
         }
       }
     }
-    return '{' + parts.join(',') + '}';
+    return '{' + parts.join(',') + '}'
   }
 
   // functions, symbols → omit (same as JSON.stringify behaviour)
-  return undefined;
+  return undefined
 }
 
 /**
@@ -65,11 +65,11 @@ export function stableStringify(value) {
  * @returns {Promise<string>} hex string
  */
 export async function sha256Hex(str) {
-  const bytes = new TextEncoder().encode(str);
-  const buf = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  const bytes = new TextEncoder().encode(str)
+  const buf = await globalThis.crypto.subtle.digest('SHA-256', bytes)
   return Array.from(new Uint8Array(buf))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 /**
@@ -78,7 +78,7 @@ export async function sha256Hex(str) {
  * @returns {Promise<string>} hex string
  */
 export async function recordHash(obj) {
-  return sha256Hex(stableStringify(obj));
+  return sha256Hex(stableStringify(obj))
 }
 
 /**
@@ -91,10 +91,10 @@ export async function recordHash(obj) {
  */
 export async function computeCatalogHash(rows) {
   const sorted = [...rows].sort((a, b) => {
-    const r = a.retailer.localeCompare(b.retailer, 'en', { sensitivity: 'variant' });
-    if (r !== 0) return r;
-    return a.product_id.localeCompare(b.product_id, 'en', { sensitivity: 'variant' });
-  });
-  const lines = sorted.map(r => `${r.retailer}|${r.product_id}|${r.record_hash}\n`).join('');
-  return sha256Hex(lines);
+    const r = a.retailer.localeCompare(b.retailer, 'en', { sensitivity: 'variant' })
+    if (r !== 0) return r
+    return a.product_id.localeCompare(b.product_id, 'en', { sensitivity: 'variant' })
+  })
+  const lines = sorted.map((r) => `${r.retailer}|${r.product_id}|${r.record_hash}\n`).join('')
+  return sha256Hex(lines)
 }

@@ -256,6 +256,10 @@ if (typeof module !== "undefined" && module.exports) {
 }
 
 // Fix #2: single registration — self covers SW (self===globalThis) and content/window contexts.
+if (typeof globalThis !== "undefined") {
+  globalThis.DiseaseEngine = DiseaseEngine;
+  globalThis.DISEASE_RULES = DISEASE_RULES;
+}
 if (typeof self !== "undefined") {
   self.DiseaseEngine = DiseaseEngine;
   self.DISEASE_RULES = DISEASE_RULES;

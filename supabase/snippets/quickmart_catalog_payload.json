@@ -1,0 +1,655 @@
+{
+  "retailer": "QUICKMART",
+  "productRowsCount": 3668,
+  "premiumRowsCount": 3668,
+  "legacyRowsCount": 3668,
+  "productRows": [
+    {
+      "retailer": "QUICKMART",
+      "product_id": "624045",
+      "record": {
+        "Identity": {
+          "ProductID": "624045",
+          "ProductName": "Tuzo Lala Sachet 500Gm",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/tuzo-lala-sachet-500gm-51",
+          "NormalizedName": "tuzo lala sachet 500gm",
+          "BrandName": "food_tuzo"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy",
+          "NOVA": {
+            "Level": 1,
+            "Confidence": "medium"
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": "g"
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": 275,
+          "EnergyKcal": 65,
+          "SugarsG": 4.7,
+          "SaturatedFatG": null,
+          "FatG": 3.7,
+          "CarbohydratesG": 4.7,
+          "FibreG": 0,
+          "ProteinG": 3.4,
+          "SodiumMG": 0,
+          "SaltG": 0,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "product_specific",
+          "EvidenceLevel": "direct_label",
+          "SourceID": "212749",
+          "SourceName": "Carrefour Match"
+        },
+        "Validation": {
+          "ReviewState": "HIGH_CONFIDENCE",
+          "ConsistencyChecks": {
+            "Atwater": "passed",
+            "SaltSodium": "passed",
+            "CategoryPlausibility": "passed"
+          },
+          "DataQualityFlags": [
+            "matched_carrefour_fallback",
+            "nutrition_inherited_from_carrefour_match",
+            "nova_inherited_from_carrefour_match",
+            "nutrition_category_migrated_to_kfct_14tier"
+          ],
+          "validation_status": "HIGH_CONFIDENCE"
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        },
+        "nova_confidence": "High",
+        "nutrition_provenance": "Carrefour Match",
+        "data_quality_flags": [
+          "matched_carrefour_fallback",
+          "nutrition_inherited_from_carrefour_match",
+          "nova_inherited_from_carrefour_match",
+          "nutrition_category_migrated_to_kfct_14tier"
+        ],
+        "validation_status": "HIGH_CONFIDENCE"
+      },
+      "record_hash": "948ce7efd0277da1ec09770b003efda0657432a31863bb88e18d19176ece3181",
+      "review_state": "HIGH_CONFIDENCE"
+    },
+    {
+      "retailer": "QUICKMART",
+      "product_id": "475830",
+      "record": {
+        "Identity": {
+          "ProductID": "475830",
+          "ProductName": "Fresha Yoghurt Strawberry 250Ml Pkt",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/fresha-yoghurt-strawberry-250ml-pkt-48",
+          "NormalizedName": "fresha yoghurt strawberry 250ml pkt",
+          "BrandName": "food_fresha"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy Products",
+          "NOVA": {
+            "Level": null,
+            "Confidence": null
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": "ml"
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": null,
+          "EnergyKcal": null,
+          "SugarsG": null,
+          "SaturatedFatG": null,
+          "FatG": null,
+          "CarbohydratesG": null,
+          "FibreG": null,
+          "ProteinG": null,
+          "SodiumMG": null,
+          "SaltG": null,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "product_specific",
+          "EvidenceLevel": "direct_label",
+          "SourceID": null,
+          "SourceName": "Quickmart Kenya PDP"
+        },
+        "Validation": {
+          "ReviewState": "UNVERIFIED",
+          "ConsistencyChecks": {
+            "Atwater": "not_checked",
+            "SaltSodium": "not_checked",
+            "CategoryPlausibility": "not_checked"
+          },
+          "DataQualityFlags": []
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        }
+      },
+      "record_hash": "271fc197ce415fad016874e57d1e45e26542cf4808bb1ce897c491aab1ac3d6a",
+      "review_state": "UNVERIFIED"
+    },
+    {
+      "retailer": "QUICKMART",
+      "product_id": "475758",
+      "record": {
+        "Identity": {
+          "ProductID": "475758",
+          "ProductName": "Jolly Fresh Yoghurt Strawberry 1L",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/jolly-fresh-yoghurt-strawberry-1l-36",
+          "NormalizedName": "jolly fresh yoghurt strawberry 1l",
+          "BrandName": "food_jolly"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy Products",
+          "NOVA": {
+            "Level": null,
+            "Confidence": null
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": "ml"
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": null,
+          "EnergyKcal": null,
+          "SugarsG": null,
+          "SaturatedFatG": null,
+          "FatG": null,
+          "CarbohydratesG": null,
+          "FibreG": null,
+          "ProteinG": null,
+          "SodiumMG": null,
+          "SaltG": null,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "product_specific",
+          "EvidenceLevel": "direct_label",
+          "SourceID": null,
+          "SourceName": "Quickmart Kenya PDP"
+        },
+        "Validation": {
+          "ReviewState": "UNVERIFIED",
+          "ConsistencyChecks": {
+            "Atwater": "not_checked",
+            "SaltSodium": "not_checked",
+            "CategoryPlausibility": "not_checked"
+          },
+          "DataQualityFlags": []
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        }
+      },
+      "record_hash": "b56f1889011e79ce8b7223fbfeae606a7a18d92ab4496f5941256ed4788d1470",
+      "review_state": "UNVERIFIED"
+    },
+    {
+      "retailer": "QUICKMART",
+      "product_id": "478628",
+      "record": {
+        "Identity": {
+          "ProductID": "478628",
+          "ProductName": "Brookside Uht Whole Milk Tca 200Ml",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/brookside-uht-whole-milk-tca-200ml-32",
+          "NormalizedName": "brookside uht whole milk tca 200ml",
+          "BrandName": "food_brookside"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy Products",
+          "NOVA": {
+            "Level": null,
+            "Confidence": null
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": "ml"
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": null,
+          "EnergyKcal": null,
+          "SugarsG": null,
+          "SaturatedFatG": null,
+          "FatG": null,
+          "CarbohydratesG": null,
+          "FibreG": null,
+          "ProteinG": null,
+          "SodiumMG": null,
+          "SaltG": null,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "product_specific",
+          "EvidenceLevel": "direct_label",
+          "SourceID": null,
+          "SourceName": "Quickmart Kenya PDP"
+        },
+        "Validation": {
+          "ReviewState": "UNVERIFIED",
+          "ConsistencyChecks": {
+            "Atwater": "not_checked",
+            "SaltSodium": "not_checked",
+            "CategoryPlausibility": "not_checked"
+          },
+          "DataQualityFlags": []
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        }
+      },
+      "record_hash": "bc69840bf04f98b27bd33d460c4d6e8991b968b766c5b9a3dedb470e8f90068c",
+      "review_state": "UNVERIFIED"
+    },
+    {
+      "retailer": "QUICKMART",
+      "product_id": "481494",
+      "record": {
+        "Identity": {
+          "ProductID": "481494",
+          "ProductName": "Gracies Vanilla Yoghurt 1Lt",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/gracies-vanilla-yoghurt-1lt-51",
+          "NormalizedName": "gracies vanilla yoghurt 1lt",
+          "BrandName": "food_gracies"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy Products",
+          "NOVA": {
+            "Level": null,
+            "Confidence": null
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": null
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": null,
+          "EnergyKcal": null,
+          "SugarsG": null,
+          "SaturatedFatG": null,
+          "FatG": null,
+          "CarbohydratesG": null,
+          "FibreG": null,
+          "ProteinG": null,
+          "SodiumMG": null,
+          "SaltG": null,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "product_specific",
+          "EvidenceLevel": "direct_label",
+          "SourceID": null,
+          "SourceName": "Quickmart Kenya PDP"
+        },
+        "Validation": {
+          "ReviewState": "UNVERIFIED",
+          "ConsistencyChecks": {
+            "Atwater": "not_checked",
+            "SaltSodium": "not_checked",
+            "CategoryPlausibility": "not_checked"
+          },
+          "DataQualityFlags": []
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        }
+      },
+      "record_hash": "504d971cb6c0ed0616c78d84ebe69f0e76b00445eb6f73c67475fbfe45972589",
+      "review_state": "UNVERIFIED"
+    },
+    {
+      "retailer": "QUICKMART",
+      "product_id": "481970",
+      "record": {
+        "Identity": {
+          "ProductID": "481970",
+          "ProductName": "Tuzo Vanilla Yogurt 200G",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/tuzo-vanilla-yogurt-200g-38",
+          "NormalizedName": "tuzo vanilla yogurt 200g",
+          "BrandName": "food_tuzo"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy",
+          "NOVA": {
+            "Level": 4,
+            "Confidence": "high"
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": "g"
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": 393,
+          "EnergyKcal": 94,
+          "SugarsG": null,
+          "SaturatedFatG": null,
+          "FatG": 2.7,
+          "CarbohydratesG": 14,
+          "FibreG": null,
+          "ProteinG": 2.8,
+          "SodiumMG": null,
+          "SaltG": null,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "product_specific",
+          "EvidenceLevel": "direct_label",
+          "SourceID": "139897",
+          "SourceName": "Carrefour Match"
+        },
+        "Validation": {
+          "ReviewState": "VERIFIED",
+          "ConsistencyChecks": {
+            "Atwater": "passed",
+            "SaltSodium": "not_applicable",
+            "CategoryPlausibility": "passed"
+          },
+          "DataQualityFlags": [
+            "matched_carrefour_fallback",
+            "nutrition_inherited_from_carrefour_match",
+            "nova_inherited_from_carrefour_match",
+            "nutrition_category_migrated_to_kfct_14tier"
+          ],
+          "validation_status": "VERIFIED"
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        },
+        "nova_confidence": "High",
+        "nutrition_provenance": "Carrefour Match",
+        "data_quality_flags": [
+          "matched_carrefour_fallback",
+          "nutrition_inherited_from_carrefour_match",
+          "nova_inherited_from_carrefour_match",
+          "nutrition_category_migrated_to_kfct_14tier"
+        ],
+        "validation_status": "VERIFIED"
+      },
+      "record_hash": "c067fb65eaad0b13ef4761cd6a95935f7ee6306e28f93e0713613b3ec0f85b5b",
+      "review_state": "VERIFIED"
+    },
+    {
+      "retailer": "QUICKMART",
+      "product_id": "476579",
+      "record": {
+        "Identity": {
+          "ProductID": "476579",
+          "ProductName": "Fresha Maziwa Lala Pouch 500Ml",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/fresha-maziwa-lala-pouch-500ml-8",
+          "NormalizedName": "fresha maziwa lala pouch 500ml",
+          "BrandName": "food_fresha"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy Products",
+          "NOVA": {
+            "Level": null,
+            "Confidence": null
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": "ml"
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": null,
+          "EnergyKcal": null,
+          "SugarsG": null,
+          "SaturatedFatG": null,
+          "FatG": null,
+          "CarbohydratesG": null,
+          "FibreG": null,
+          "ProteinG": null,
+          "SodiumMG": null,
+          "SaltG": null,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "product_specific",
+          "EvidenceLevel": "direct_label",
+          "SourceID": null,
+          "SourceName": "Quickmart Kenya PDP"
+        },
+        "Validation": {
+          "ReviewState": "UNVERIFIED",
+          "ConsistencyChecks": {
+            "Atwater": "not_checked",
+            "SaltSodium": "not_checked",
+            "CategoryPlausibility": "not_checked"
+          },
+          "DataQualityFlags": []
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        }
+      },
+      "record_hash": "623cdbbd6dc8253c776f001fc9d013db9845ed06e4971bc3a1661f4b1d66902f",
+      "review_state": "UNVERIFIED"
+    },
+    {
+      "retailer": "QUICKMART",
+      "product_id": "481489",
+      "record": {
+        "Identity": {
+          "ProductID": "481489",
+          "ProductName": "Gracies Vanilla Yoghurt 500Ml",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/gracies-vanilla-yoghurt-500ml-35",
+          "NormalizedName": "gracies vanilla yoghurt 500ml",
+          "BrandName": "food_gracies"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy Products",
+          "NOVA": {
+            "Level": null,
+            "Confidence": null
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": "ml"
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": null,
+          "EnergyKcal": null,
+          "SugarsG": null,
+          "SaturatedFatG": null,
+          "FatG": null,
+          "CarbohydratesG": null,
+          "FibreG": null,
+          "ProteinG": null,
+          "SodiumMG": null,
+          "SaltG": null,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "product_specific",
+          "EvidenceLevel": "direct_label",
+          "SourceID": null,
+          "SourceName": "Quickmart Kenya PDP"
+        },
+        "Validation": {
+          "ReviewState": "UNVERIFIED",
+          "ConsistencyChecks": {
+            "Atwater": "not_checked",
+            "SaltSodium": "not_checked",
+            "CategoryPlausibility": "not_checked"
+          },
+          "DataQualityFlags": []
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        }
+      },
+      "record_hash": "af2bea6332c7afc0996d9ee809fa0a3989bc3384f71ce481db63cffe8fd3a64e",
+      "review_state": "UNVERIFIED"
+    },
+    {
+      "retailer": "QUICKMART",
+      "product_id": "481940",
+      "record": {
+        "Identity": {
+          "ProductID": "481940",
+          "ProductName": "Gracies Vanilla Yoghurt 250Ml",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/gracies-vanilla-yoghurt-250ml-42",
+          "NormalizedName": "gracies vanilla yoghurt 250ml",
+          "BrandName": "food_gracies"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy Products",
+          "NOVA": {
+            "Level": null,
+            "Confidence": null
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": "ml"
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": null,
+          "EnergyKcal": null,
+          "SugarsG": null,
+          "SaturatedFatG": null,
+          "FatG": null,
+          "CarbohydratesG": null,
+          "FibreG": null,
+          "ProteinG": null,
+          "SodiumMG": null,
+          "SaltG": null,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "product_specific",
+          "EvidenceLevel": "direct_label",
+          "SourceID": null,
+          "SourceName": "Quickmart Kenya PDP"
+        },
+        "Validation": {
+          "ReviewState": "UNVERIFIED",
+          "ConsistencyChecks": {
+            "Atwater": "not_checked",
+            "SaltSodium": "not_checked",
+            "CategoryPlausibility": "not_checked"
+          },
+          "DataQualityFlags": []
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        }
+      },
+      "record_hash": "1de418b1c891711ab5bbd738c3b29d31c15855af73b23d290dc4d21b0751585b",
+      "review_state": "UNVERIFIED"
+    },
+    {
+      "retailer": "QUICKMART",
+      "product_id": "614516",
+      "record": {
+        "Identity": {
+          "ProductID": "614516",
+          "ProductName": "Daima Strawberry Milk 480Ml",
+          "Retailer": "QUICKMART",
+          "RetailerProductUrl": "https://www.quickmart.co.ke/daima-strawberry-milk-480ml-37",
+          "NormalizedName": "daima strawberry milk 480ml",
+          "BrandName": "food_daima"
+        },
+        "Classification": {
+          "NutritionCategory": "Dairy",
+          "NOVA": {
+            "Level": 4,
+            "Confidence": "medium"
+          }
+        },
+        "Packaging": {
+          "PackSizeUnit": "ml"
+        },
+        "Nutrition": {
+          "Basis": "per_100",
+          "EnergyKJ": 288.696,
+          "EnergyKcal": 69,
+          "SugarsG": 9,
+          "SaturatedFatG": null,
+          "FatG": 1,
+          "CarbohydratesG": 9,
+          "FibreG": null,
+          "ProteinG": 3,
+          "SodiumMG": 50,
+          "SaltG": 0.13,
+          "FVL": {
+            "Percentage": null
+          }
+        },
+        "NutritionProvenance": {
+          "ValueSpecificity": "category_specific",
+          "EvidenceLevel": "derived",
+          "SourceID": "111025",
+          "SourceName": "Carrefour Match"
+        },
+        "Validation": {
+          "ReviewState": "ESTIMATED",
+          "ConsistencyChecks": {
+            "Atwater": "not_applicable",
+            "SaltSodium": "not_applicable",
+            "CategoryPlausibility": "passed"
+          },
+          "DataQualityFlags": [
+            "matched_carrefour_fallback",
+            "nutrition_inherited_from_carrefour_match",
+            "nova_inherited_from_carrefour_match",
+            "nutrition_category_migrated_to_kfct_14tier",
+            "flavour_disparity_match_estimated"
+          ],
+          "validation_status": "ESTIMATED"
+        },
+        "Price": {
+          "CurrentPriceKES": 0
+        },
+        "nova_confidence": "Medium",
+        "nutrition_provenance": "Carrefour Match",
+        "data_quality_flags": [
+          "matched_carrefour_fallback",
+          "nutrition_inherited_from_carrefour_match",
+          "nova_inherited_from_carrefour_match",
+          "nutrition_category_migrated_to_kfct_14tier",
+          "flavour_disparity_match_estimated"
+        ],
+        "validation_status": "ESTIMATED"
+      },
+      "record_hash": "a2c4055df028a3c2cbdc748fd628982e7ae9fe5b602f66ccdd2468d0888a204d",
+      "review_state": "ESTIMATED"
+    }
+  ]
+}

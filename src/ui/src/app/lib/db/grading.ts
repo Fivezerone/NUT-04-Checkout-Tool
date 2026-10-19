@@ -140,7 +140,7 @@ export function computeGradeFromProduct(p: any): GradeResult {
   const safePos = (v: number | null) => (v == null ? 0 : v);
 
   // Base scoring components — may be adjusted by category strategy below.
-  let ctx: ScoringCtx = {
+  const ctx: ScoringCtx = {
     nEnergy: Math.min(Math.floor(energy / 335), 10),
     nSugars: Math.min(Math.floor(safePos(sugars) / 3.4), 15),
     nSatFat: Math.min(Math.floor(safePos(satFat) / 1), 10),

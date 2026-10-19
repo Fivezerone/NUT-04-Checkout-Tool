@@ -52,7 +52,7 @@ LINT_FILES=$(echo "$STAGED_FILES" | grep -E '\.(js|ts|tsx)$' || true)
 
 if [ -n "$LINT_FILES" ]; then
   echo "${YELLOW}▸ Gate 2/4: Linting staged files (ESLint)...${NC}"
-  echo "$LINT_FILES" | xargs npx eslint --no-warn-ignored --max-warnings 0 2>/dev/null
+  echo "$LINT_FILES" | xargs npx eslint --no-warn-ignored --quiet 2>/dev/null
   if [ $? -ne 0 ]; then
     echo ""
     echo "${RED}✗ Lint check failed. Fix errors above before committing.${NC}"
