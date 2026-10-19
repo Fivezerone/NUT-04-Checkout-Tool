@@ -1,9 +1,12 @@
-/**
- * Naivas Retailer Adapter
- * Implements IRetailerAdapter contract
- * Naivas uses Magento 2 -- cart data is available via the section load API
- * and via DOM selectors on the cart page and mini-cart sidebar.
- */
+/* Naivas Retailer Adapter Implements IRetailerAdapter contract Naivas uses Magento 2 -- cart data is available via the section load API and via DOM selectors on the cart page and mini-cart sidebar. */
+
+// ARCH-002: Guard against manifest.json load-order violations.
+// shared-ui.js must appear before this file in the content_scripts array.
+if (typeof NutriSharedUI === "undefined") {
+  console.error("[NutriScore] Load-order violation: adapters/shared-ui.js must load before naivas.js. Check manifest.json content_scripts array.");
+  // Bail out so content script does not crash with confusing 'NutriSharedUI is not defined'.
+  throw new Error("[NutriScore] naivas.js: NutriSharedUI not available");
+}
 
 const NaivasAdapter = {
 
@@ -12,7 +15,9 @@ const NaivasAdapter = {
   },
 
   getObserveTarget() {
-    return document.body;
+    return document.querySelector(".products.list.items.product-items") || 
+           document.querySelector(".columns") || 
+           document.body;
   },
 
   detectProducts() {
@@ -76,23 +81,91 @@ const NaivasAdapter = {
   },
 
   /**
-   * Walk the DOM with TreeWalker to find all elements that have a wire:click attribute.
-   * Avoids CSS selector colon-escaping bugs entirely.
+   * F-05: candidatesIn(root) — scoped subtree scan for NutriScanner.
+   * Queries only inside `root` instead of the whole document.
+   * Returns Array<{ el: HTMLElement, item: ScoreItem }>.
+   *
+   * Note: category text is still read from the full document because
+   * breadcrumbs live outside product-card subtrees — this is a one-time
+   * read per drain cycle (not per card), so the cost is acceptable.
    */
-  _wireClickElements() {
-    const results = [];
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
-    let node;
-    while ((node = walker.nextNode())) {
-      if (node.hasAttribute('wire:click')) results.push(node);
-    }
-    return results;
+  candidatesIn(root) {
+    // Category from document-level breadcrumbs (unavoidable full-doc read)
+    let categoryText = "";
+    const categorySelector = ".category-description, .items.breadcrumbs, .breadcrumb, .page-title-wrapper";
+    document.querySelectorAll(categorySelector).forEach((el) => {
+      categoryText += " " + (el?.textContent?.trim() || "");
+    });
+    const pageCategory = categoryText.toLowerCase();
+
+    const candidates = [];
+    const productSelector = "[class*='border-naivas-bg'], .product-item";
+    const nameSelector = "span.line-clamp-2, [class*='line-clamp'], .product-item-name a, a[href*='.html'], h3, h4";
+    const priceSelector = "span[class*='text-naivas-green'], .product-price, .price-box .price, .price";
+
+    const scope = (root instanceof Element || root instanceof Document) ? root : document;
+    const cards = scope.querySelectorAll(productSelector);
+
+    cards.forEach((card) => {
+      if (card.querySelector(".nutriscore-isolated-root")) return; // already injected
+
+      const nameEl = card.querySelector(nameSelector);
+      let name = nameEl?.textContent?.trim() || "";
+      if (!name && nameEl?.tagName?.toLowerCase() === "a") {
+        name = nameEl?.getAttribute("title") || nameEl?.getAttribute("aria-label") || "";
+      }
+      if (!name) return;
+
+      let priceNumeric = 0;
+      const priceEl = card.querySelector(priceSelector);
+      if (priceEl) priceNumeric = NutriSharedUI.parsePrice(priceEl.textContent);
+
+      const id = card.getAttribute("data-product-id") ||
+                 card.getAttribute("data-sku") ||
+                 NutriSharedUI.generateIdFromName(name);
+
+      candidates.push({
+        el: card,
+        item: {
+          id:              id,
+          name:            name,
+          price:           priceNumeric,
+          url:             card.querySelector("a[href]")?.href || null,
+          scrapedCategory: pageCategory,
+        },
+      });
+    });
+
+    return candidates;
   },
 
   /**
-   * Scrape visible cart items from the Naivas Livewire-based cart UI.
-   * Uses TreeWalker instead of querySelectorAll to avoid CSS colon-escaping issues.
+   * F-05: inject(el, result) — idempotent badge injection for NutriScanner.
    */
+  inject(el, result) {
+    const existing = el.querySelector(".nutriscore-isolated-root");
+    if (existing) existing.remove();
+    el.removeAttribute("data-nutriscore-scanned");
+    NutriSharedUI.injectBadge(el, result, result?.price ?? 0);
+  },
+
+  /* Returns all elements with a wire:click attribute. P6 perf fix: uses querySelectorAll (browser-indexed) instead of a full TreeWalker DOM walk. 'wire:click' contains a colon — CSS.escape handles it safely across browsers. */
+  _wireClickElements() {
+    try {
+      return Array.from(document.querySelectorAll("[wire\\:click]"));
+    } catch (e) {
+      // Fallback to TreeWalker if the selector is rejected by an older engine
+      const results = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.hasAttribute('wire:click')) results.push(node);
+      }
+      return results;
+    }
+  },
+
+  /* Scrape visible cart items from the Naivas Livewire-based cart UI. Uses TreeWalker instead of querySelectorAll to avoid CSS colon-escaping issues. */
   extractCartState() {
     const items = [];
     const seen = new Set();
@@ -151,21 +224,37 @@ const NaivasAdapter = {
     return items;
   },
 
-  /**
-   * Fetch cart contents using multiple strategies:
-   * 1. Livewire v3 wire:snapshot attributes (JSON component data in the DOM)
-   * 2. Livewire v2 window.Livewire JS object
-   * 3. Magento section load API (fallback for hybrid setups)
-   */
-  async fetchCartFromAPI() {
-    // --- Strategy 1: Livewire v3 wire:snapshot in DOM ---
-    try {
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
-      let node;
-      while ((node = walker.nextNode())) {
-        if (!node.hasAttribute('wire:snapshot')) continue;
-        const snapshot = JSON.parse(node.getAttribute('wire:snapshot'));
-        const data = snapshot?.data || {};
+  async _cartFromLivewireV3Snapshot() {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!node.hasAttribute('wire:snapshot')) continue;
+      const snapshot = JSON.parse(node.getAttribute('wire:snapshot'));
+      const data = snapshot?.data || {};
+      const rawItems = data.cartItems || data.cart_items
+        || data.cart?.items || data.items || [];
+      if (rawItems.length > 0) {
+        return rawItems
+          .filter(i => i.id || i.product_id || i.productId)
+          .map(i => ({
+            retailer: 'NAIVAS',
+            productId: String(i.id || i.product_id || i.productId),
+            product_name: i.name || i.product_name || i.title || '',
+            priceSnapshot: parseFloat(i.price || i.subtotal || 0),
+            quantity: i.quantity || i.qty || 1
+          }));
+      }
+    }
+    return [];
+  },
+
+  async _cartFromLivewireV2Object() {
+    if (window.Livewire) {
+      const components = Object.values(
+        window.Livewire.components?.componentsById || {}
+      );
+      for (const component of components) {
+        const data = component.data || {};
         const rawItems = data.cartItems || data.cart_items
           || data.cart?.items || data.items || [];
         if (rawItems.length > 0) {
@@ -174,76 +263,55 @@ const NaivasAdapter = {
             .map(i => ({
               retailer: 'NAIVAS',
               productId: String(i.id || i.product_id || i.productId),
-              product_name: i.name || i.product_name || i.title || '',
-              priceSnapshot: parseFloat(i.price || i.subtotal || 0),
+              product_name: i.name || i.product_name || '',
+              priceSnapshot: parseFloat(i.price || 0),
               quantity: i.quantity || i.qty || 1
             }));
         }
       }
-    } catch (e) { /* silent */ }
-
-    // --- Strategy 2: Livewire v2 window.Livewire object ---
-    try {
-      if (window.Livewire) {
-        const components = Object.values(
-          window.Livewire.components?.componentsById || {}
-        );
-        for (const component of components) {
-          const data = component.data || {};
-          const rawItems = data.cartItems || data.cart_items
-            || data.cart?.items || data.items || [];
-          if (rawItems.length > 0) {
-            return rawItems
-              .filter(i => i.id || i.product_id || i.productId)
-              .map(i => ({
-                retailer: 'NAIVAS',
-                productId: String(i.id || i.product_id || i.productId),
-                product_name: i.name || i.product_name || '',
-                priceSnapshot: parseFloat(i.price || 0),
-                quantity: i.quantity || i.qty || 1
-              }));
-          }
-        }
-      }
-    } catch (e) { /* silent */ }
-
-    // --- Strategy 3: Magento / custom section load API ---
-    try {
-      const ts = Date.now();
-      const res = await fetch(
-        '/customer/section/load/?sections=cart&force_new_section_timestamp=false&_=' + ts,
-        { credentials: 'include', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }
-      );
-      if (res.ok) {
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('json')) {
-          const data = await res.json();
-          const rawItems = data?.cart?.items || [];
-          if (rawItems.length > 0) {
-            return rawItems
-              .filter(i => i.item_id || i.product_id)
-              .map(i => ({
-                retailer: 'NAIVAS',
-                productId: String(i.product_id || i.item_id),
-                product_name: i.product_name || i.name || '',
-                priceSnapshot: NutriSharedUI.parsePrice(String(i.product_price || i.price || '0')),
-                quantity: i.qty || 1,
-                url: i.product_url || null
-              }));
-          }
-        }
-      }
-    } catch (e) { /* silent — Naivas is not a Magento section-load site */ }
-
+    }
     return [];
   },
 
+  async _cartFromMagentoSections() {
+    const ts = Date.now();
+    const res = await NutriSharedUI.fetchWithRetry(
+      '/customer/section/load/?sections=cart&force_new_section_timestamp=false&_=' + ts,
+      { credentials: 'include', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }
+    );
+    if (res.ok) {
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('json')) {
+        const data = await res.json();
+        const rawItems = data?.cart?.items || [];
+        if (rawItems.length > 0) {
+          return rawItems
+            .filter(i => i.item_id || i.product_id)
+            .map(i => ({
+              retailer: 'NAIVAS',
+              productId: String(i.product_id || i.item_id),
+              product_name: i.product_name || i.name || '',
+              priceSnapshot: NutriSharedUI.parsePrice(String(i.product_price || i.price || '0')),
+              quantity: i.qty || 1,
+              url: i.product_url || null
+            }));
+        }
+      }
+    }
+    return [];
+  },
 
-  /**
-   * Detect clicks on Naivas "Add to Cart" buttons.
-   * Naivas uses Livewire; add-to-cart anchors have wire:click="addToCart(...)" or similar.
-   * Also handles standard Magento 2 .tocart buttons as a fallback.
-   */
+  /* Fetch cart contents using multiple strategies: 1. Livewire v3 wire:snapshot attributes (JSON component data in the DOM) 2. Livewire v2 window.Livewire JS object 3. Magento section load API (fallback for hybrid setups) */
+  async fetchCartFromAPI() {
+    return await NutriSharedUI.firstNonEmpty([
+      this._cartFromLivewireV3Snapshot.bind(this),
+      this._cartFromLivewireV2Object.bind(this),
+      this._cartFromMagentoSections.bind(this)
+    ]);
+  },
+
+
+  /* Detect clicks on Naivas "Add to Cart" buttons. Naivas uses Livewire; add-to-cart anchors have wire:click="addToCart(...)" or similar. Also handles standard Magento 2 .tocart buttons as a fallback. */
   extractCartAction(node) {
     // --- A. Livewire add-to-cart: <a wire:click="addToCart(ID)"> or <button wire:click="addToCart(ID)">
     const wireEl = node.closest('[wire\\:click]');
@@ -314,10 +382,7 @@ const NaivasAdapter = {
     };
   },
 
-  /**
-   * Detect clicks on Naivas remove/delete buttons OR the 'Clear Cart' button.
-   * Returns { retailer, productId, clearAll } or null.
-   */
+  /* Detect clicks on Naivas remove/delete buttons OR the 'Clear Cart' button. Returns { retailer, productId, clearAll } or null. */
   extractRemoveAction(node) {
     let el = node;
     for (let i = 0; i < 6; i++) {
@@ -337,9 +402,7 @@ const NaivasAdapter = {
     return null;
   },
 
-  /**
-   * Returns true when the current page is an order confirmation / success page.
-   */
+  /* Returns true when the current page is an order confirmation / success page. */
   detectOrderConfirmation() {
     const url = window.location.href.toLowerCase();
     const successUrls = [

@@ -1,0 +1,284 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Characterization Tests > NutritionContextEngine / DiseaseEngine scorers 1`] = `
+{
+  "detail": {
+    "DiabeticFriendly": {
+      "fibreThreshold": 3,
+      "highSugar": true,
+      "lowFibre": true,
+      "sugarThreshold": 22.5,
+    },
+    "IsEnergyDense": {
+      "actual": 450,
+      "basis": "per_100g",
+      "threshold": 275,
+    },
+    "IsHighSodium": {
+      "actual": 150,
+      "derivedFromSalt": false,
+      "threshold": 600,
+    },
+    "RenalSafe": {
+      "breaches": [],
+      "missingCriteria": [
+        "PhosphorusMG",
+      ],
+      "servingBasis": "estimated_per_100_proxy",
+      "servingConfidence": "low",
+    },
+  },
+  "flags": {
+    "DiabeticFriendly": false,
+    "IsEnergyDense": true,
+    "IsHighSodium": false,
+    "RenalSafe": null,
+  },
+}
+`;
+
+exports[`Characterization Tests > NutritionContextEngine / DiseaseEngine scorers 2`] = `
+{
+  "disclaimer": "This information assesses dietary composition against standard benchmarks. It is not a prediction of disease probability or medical advice.",
+  "diseaseAssessment": {
+    "diabetes": {
+      "dataConfidence": "degraded",
+      "level": "moderate",
+      "missingDrivers": [
+        "CarbohydratesG",
+      ],
+      "score": 48,
+    },
+    "hypertension": {
+      "dataConfidence": "high",
+      "level": "moderate",
+      "missingDrivers": [],
+      "score": 56,
+    },
+  },
+  "interactionBurden": [],
+  "productId": "DUMMY1",
+  "warnings": [
+    {
+      "condition": "High sugar (>22.5g per 100g)",
+      "disease": "Diabetes Risk",
+      "triggerQuantity": "30g",
+    },
+    {
+      "condition": "High calories (>400kcal per 100g)",
+      "disease": "Diabetes Risk",
+      "triggerQuantity": "450kcal",
+    },
+    {
+      "condition": "High saturated fat (>5g per 100g)",
+      "disease": "Hypertension Risk",
+      "triggerQuantity": "15g",
+    },
+  ],
+}
+`;
+
+exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
+{
+  "basketQuality": {
+    "averageGrade": "A",
+    "distribution": {
+      "A": 0,
+      "B": 0,
+      "C": 0,
+      "D": 0,
+      "E": 0,
+      "undefined": 1,
+    },
+    "pts": 0,
+  },
+  "categoryInsights": [],
+  "filteredPeriodEvents": 1,
+  "healthAlerts": {
+    "cvd": 0,
+    "diabetes": 0,
+    "hypertension": 0,
+    "kidney": 0,
+    "obesity": 0,
+  },
+  "nutrientTrends": {
+    "data": [
+      {
+        "hasData": false,
+        "id": "day-1788210000000",
+        "label": "1 Sept",
+        "satFat": 0,
+        "satFatG": null,
+        "sodium": 0,
+        "sodiumMg": null,
+        "sugar": 0,
+        "sugarsG": null,
+        "ts": 1788210000000,
+      },
+      {
+        "hasData": false,
+        "id": "day-1788296400000",
+        "label": "2 Sept",
+        "satFat": 0,
+        "satFatG": null,
+        "sodium": 0,
+        "sodiumMg": null,
+        "sugar": 0,
+        "sugarsG": null,
+        "ts": 1788296400000,
+      },
+      {
+        "hasData": false,
+        "id": "day-1788382800000",
+        "label": "3 Sept",
+        "satFat": 0,
+        "satFatG": null,
+        "sodium": 0,
+        "sodiumMg": null,
+        "sugar": 0,
+        "sugarsG": null,
+        "ts": 1788382800000,
+      },
+      {
+        "hasData": false,
+        "id": "day-1788469200000",
+        "label": "4 Sept",
+        "satFat": 0,
+        "satFatG": null,
+        "sodium": 0,
+        "sodiumMg": null,
+        "sugar": 0,
+        "sugarsG": null,
+        "ts": 1788469200000,
+      },
+      {
+        "hasData": false,
+        "id": "day-1788555600000",
+        "label": "5 Sept",
+        "satFat": 0,
+        "satFatG": null,
+        "sodium": 0,
+        "sodiumMg": null,
+        "sugar": 0,
+        "sugarsG": null,
+        "ts": 1788555600000,
+      },
+      {
+        "hasData": false,
+        "id": "day-1788642000000",
+        "label": "6 Sept",
+        "satFat": 0,
+        "satFatG": null,
+        "sodium": 0,
+        "sodiumMg": null,
+        "sugar": 0,
+        "sugarsG": null,
+        "ts": 1788642000000,
+      },
+      {
+        "hasData": false,
+        "id": "day-1788728400000",
+        "label": "7 Sept",
+        "satFat": 0,
+        "satFatG": null,
+        "sodium": 0,
+        "sodiumMg": null,
+        "sugar": 0,
+        "sugarsG": null,
+        "ts": 1788728400000,
+      },
+      {
+        "hasData": false,
+        "id": "day-1788814800000",
+        "label": "8 Sept",
+        "satFat": 0,
+        "satFatG": null,
+        "sodium": 0,
+        "sodiumMg": null,
+        "sugar": 0,
+        "sugarsG": null,
+        "ts": 1788814800000,
+      },
+    ],
+    "missingCount": 1,
+    "ticks": [
+      {
+        "label": "1 Sept",
+        "ts": 1788210000000,
+      },
+      {
+        "label": "2 Sept",
+        "ts": 1788296400000,
+      },
+      {
+        "label": "3 Sept",
+        "ts": 1788382800000,
+      },
+      {
+        "label": "4 Sept",
+        "ts": 1788469200000,
+      },
+      {
+        "label": "5 Sept",
+        "ts": 1788555600000,
+      },
+      {
+        "label": "6 Sept",
+        "ts": 1788642000000,
+      },
+      {
+        "label": "7 Sept",
+        "ts": 1788728400000,
+      },
+      {
+        "label": "8 Sept",
+        "ts": 1788814800000,
+      },
+    ],
+    "validCount": 0,
+    "windowEnd": 1788868800000,
+    "windowStart": 1788264000000,
+  },
+  "totalStoredEvents": 1,
+}
+`;
+
+exports[`Characterization Tests > interpretProduct and computeGradeFromProduct snapshot for sample products 1`] = `
+[
+  {
+    "canDisplayGrade": false,
+    "dataQualityFlags": [
+      "unrecognised_review_state",
+    ],
+    "evidenceLevel": "unknown",
+    "foodCategory": "Confectionery",
+    "novaConfidence": null,
+    "novaLevel": null,
+    "nutrientAlgorithmVariant": "GENERAL_FOOD",
+    "reviewState": "UNVERIFIED",
+    "scoringStatus": "not_attempted",
+    "valueSpecificity": "unknown",
+  },
+  {
+    "canDisplayGrade": false,
+    "dataQualityFlags": [
+      "unrecognised_review_state",
+    ],
+    "evidenceLevel": "unknown",
+    "foodCategory": "Confectionery",
+    "novaConfidence": null,
+    "novaLevel": null,
+    "nutrientAlgorithmVariant": "GENERAL_FOOD",
+    "reviewState": "UNVERIFIED",
+    "scoringStatus": "not_attempted",
+    "valueSpecificity": "unknown",
+  },
+]
+`;
+
+exports[`Characterization Tests > interpretProduct and computeGradeFromProduct snapshot for sample products 2`] = `
+[
+  undefined,
+  undefined,
+]
+`;

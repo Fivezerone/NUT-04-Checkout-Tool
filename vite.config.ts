@@ -18,6 +18,9 @@ function figmaAssetResolver() {
 export default defineConfig({
   root: 'src/ui',
   base: './',
+  // envDir must be set explicitly: when root='src/ui', Vite defaults envDir
+  // to src/ui/ and won't find the .env at the project root.
+  envDir: __dirname,
   plugins: [
     figmaAssetResolver(),
     react({ jsxRuntime: 'classic' }),
@@ -38,9 +41,12 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: path.resolve(__dirname, 'src/ui/popup.html'),
-        dashboard: path.resolve(__dirname, 'src/ui/dashboard.html')
+        dashboard: path.resolve(__dirname, 'src/ui/dashboard.html'),
+        options: path.resolve(__dirname, 'src/ui/options.html'),
+        onboarding: path.resolve(__dirname, 'src/ui/onboarding.html')
       }
     }
   },
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
+

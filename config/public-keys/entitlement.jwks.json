@@ -1,0 +1,15 @@
+{
+  "keys": [
+    {
+      "key_ops": [
+        "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "Yhm24FaU-4eauG5Ve5Ko22a5eWtTFVwsN0TBpadvFvA",
+      "y": "sPEdpvJgGq-02TWMWkElbnCdPwLsL1DwFXD1K_Pvivo",
+      "crv": "P-256",
+      "kid": "entitlement-v1"
+    }
+  ]
+}
