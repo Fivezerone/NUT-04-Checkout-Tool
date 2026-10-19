@@ -1,0 +1,322 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# NUT-04 Checkout Tool — CI/CD Pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Job 1 (lint-verify):  Runs on every PR → formatting, linting, typecheck
+# Job 2 (test):         Runs on every PR → vitest unit/integration tests + coverage
+# Job 3 (build):        Runs only on merge to main → full build + artifact + gitleaks
+# Job 4 (deploy):       Runs after build → publish to Chrome Web Store
+# Notify:               Fires on deploy failure → sends email via SendGrid
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-flight runs for the same PR / branch to save minutes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared environment
+# ─────────────────────────────────────────────────────────────────────────────
+env:
+  NODE_VERSION: "20"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# ═════════════════════════════════════════════════════════════════════════════
+# JOBS
+# ═════════════════════════════════════════════════════════════════════════════
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 1: Lint & Verify
+  # Triggered on: all PRs and pushes to main
+  # ─────────────────────────────────────────────────────────────────────────
+  lint-verify:
+    name: "🔍 Lint & Verify"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Prettier formatting
+        run: npx prettier --check .
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript type-check
+        run: npm run typecheck
+
+      - name: Verify manifest globals
+        run: npm run check:manifest
+
+      - name: Syntax-check content.js
+        run: node --check src/extension/content.js
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 2: Automated Testing
+  # Triggered on: all PRs and pushes to main
+  # ─────────────────────────────────────────────────────────────────────────
+  test:
+    name: "🧪 Test"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run test suite with coverage
+        run: npx vitest run src/ui/src/app/__tests__ --coverage --reporter=verbose
+        env:
+          # Supply dummy env vars so Supabase client instantiation doesn't crash
+          VITE_SUPABASE_URL: "https://placeholder.supabase.co"
+          VITE_SUPABASE_ANON_KEY: "placeholder-anon-key"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 3: Secure & Build (Build-on-Merge)
+  # Triggered on: push to main only (i.e. merged PRs)
+  # ─────────────────────────────────────────────────────────────────────────
+  build:
+    name: "📦 Build & Package"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint-verify, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Build database module
+        run: npm run build:db
+
+      - name: Verify db.js is up to date
+        run: |
+          if [[ -n $(git status --porcelain src/extension/db.js) ]]; then
+            echo "::error::src/extension/db.js is out of date. Run 'npm run build:db' and commit."
+            git diff src/extension/db.js
+            exit 1
+          fi
+
+      - name: Build UI (Vite)
+        run: npm run build:ui
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Build extension bundle
+        run: npm run build:ext
+
+      - name: Assert critical HTML files exist
+        run: |
+          MISSING=0
+          for file in dist/popup.html dist/dashboard.html dist/options.html dist/onboarding.html; do
+            if [ ! -s "$file" ]; then
+              echo "::error::$file is missing or empty!"
+              MISSING=1
+            fi
+          done
+          if [ "$MISSING" -eq 1 ]; then exit 1; fi
+          echo "✓ All HTML entry points verified."
+
+      - name: Assert manifest.json exists
+        run: |
+          if [ ! -s "dist/manifest.json" ]; then
+            echo "::error::dist/manifest.json is missing!"
+            exit 1
+          fi
+          echo "✓ manifest.json present in dist/"
+
+      - name: Package extension as .zip
+        run: |
+          cd dist
+          zip -r ../nut04-extension-${{ github.sha }}.zip .
+          cd ..
+          echo "EXTENSION_ZIP=nut04-extension-${{ github.sha }}.zip" >> "$GITHUB_ENV"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-build-${{ github.sha }}
+          path: ${{ env.EXTENSION_ZIP }}
+          retention-days: 90
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 4: Deploy to Chrome Web Store
+  # Triggered on: successful build job (main branch only)
+  # ─────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: "🚀 Deploy to Chrome Web Store"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-build-${{ github.sha }}
+
+      - name: Upload to Chrome Web Store
+        uses: mnao305/chrome-extension-upload@v5.0.0
+        with:
+          file-path: nut04-extension-${{ github.sha }}.zip
+          extension-id: ${{ secrets.CWS_EXTENSION_ID }}
+          client-id: ${{ secrets.CWS_CLIENT_ID }}
+          client-secret: ${{ secrets.CWS_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CWS_REFRESH_TOKEN }}
+          publish: true
+
+      - name: Create Git tag for release
+        run: |
+          VERSION=$(jq -r '.version' <(unzip -p nut04-extension-${{ github.sha }}.zip manifest.json))
+          TAG="v${VERSION}-$(date +%Y%m%d-%H%M%S)"
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Push release tag
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${process.env.RELEASE_TAG}`,
+              sha: context.sha,
+            });
+
+      - name: Create GitHub Release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const zipPath = `nut04-extension-${context.sha}.zip`;
+            
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: process.env.RELEASE_TAG,
+              name: `NutriScore v${process.env.RELEASE_VERSION}`,
+              body: [
+                `## NutriScore Checkout Tool v${process.env.RELEASE_VERSION}`,
+                '',
+                `**Commit:** \`${context.sha.substring(0, 8)}\``,
+                `**Deployed to Chrome Web Store** ✅`,
+                '',
+                '### Rollback',
+                'To rollback, download a previous release zip and manually upload via',
+                'the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).',
+              ].join('\n'),
+              draft: false,
+              prerelease: false,
+            });
+
+            const data = fs.readFileSync(zipPath);
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.data.id,
+              name: zipPath,
+              data,
+            });
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Notification: Email on Deploy Failure (SendGrid)
+  # ─────────────────────────────────────────────────────────────────────────
+  notify-failure:
+    name: "📧 Notify on Failure"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [deploy]
+    if: failure()
+
+    steps:
+      - name: Send failure email via SendGrid
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.sendgrid.net
+          server_port: 587
+          username: apikey
+          password: ${{ secrets.SENDGRID_API_KEY }}
+          subject: "🔴 NUT-04 Deployment Failed — ${{ github.repository }}"
+          to: ${{ secrets.ALERT_EMAIL_TO }}
+          from: ${{ secrets.ALERT_EMAIL_FROM }}
+          content_type: text/html
+          body: |
+            <h2 style="color: #dc3545;">⚠️ Deployment Failed</h2>
+            <table style="border-collapse: collapse; font-family: sans-serif;">
+              <tr><td style="padding: 4px 12px; font-weight: bold;">Repository</td><td>${{ github.repository }}</td></tr>
+              <tr><td style="padding: 4px 12px; font-weight: bold;">Branch</td><td>${{ github.ref_name }}</td></tr>
+              <tr><td style="padding: 4px 12px; font-weight: bold;">Commit</td><td><code>${{ github.sha }}</code></td></tr>
+              <tr><td style="padding: 4px 12px; font-weight: bold;">Author</td><td>${{ github.actor }}</td></tr>
+              <tr><td style="padding: 4px 12px; font-weight: bold;">Workflow</td><td><a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Run #${{ github.run_number }}</a></td></tr>
+              <tr><td style="padding: 4px 12px; font-weight: bold;">Timestamp</td><td>${{ github.event.head_commit.timestamp }}</td></tr>
+            </table>
+            <br/>
+            <p>The deployment to Chrome Web Store failed. Click the workflow link above to investigate.</p>
+            <p style="color: #6c757d; font-size: 12px;">— NUT-04 CI/CD Pipeline</p>

@@ -106,7 +106,7 @@ async function ingestFile(filePath: string) {
 
 async function run() {
   const dataDir = path.join(__dirname, '..', 'src', 'extension', 'data');
-  const files = ['naivas_products.json', 'carrefour_products.json'];
+  const files = ['naivas_products.json', 'carrefour_products.json', 'quickmart_products.json'];
 
   for (const file of files) {
     await ingestFile(path.join(dataDir, file));

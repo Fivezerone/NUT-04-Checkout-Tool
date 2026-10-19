@@ -14,7 +14,9 @@
     "test:watch": "vitest src/ui/src/app/__tests__",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && node --check src/extension/content.js && npm run lint && npm run typecheck && npm run test && npm run build && npm audit --audit-level=high",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm audit --audit-level=high",
     "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {
@@ -44,10 +46,12 @@
     "@types/chrome": "^0.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "4.7.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "eslint": "^10.11.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-security": "^4.1.0",
     "globals": "^17.12.0",
+    "prettier": "^3.9.10",
     "tailwindcss": "4.1.12",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.70.1",

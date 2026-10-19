@@ -418,6 +418,11 @@ var NutriScoreDB = (() => {
               db.createObjectStore("premium_staging", { keyPath: "key" });
             }
           }
+          if (!db.objectStoreNames.contains("quickmartProducts")) {
+            const qStore = db.createObjectStore("quickmartProducts", { keyPath: "Identity.ProductID" });
+            qStore.createIndex("by-url", "Identity.RetailerProductUrl");
+            qStore.createIndex("by-name", "Identity.ProductName");
+          }
         }
       });
     }
@@ -800,9 +805,21 @@ var NutriScoreDB = (() => {
   }
 
   // src/ui/src/app/lib/db/product-resolution.ts
-  var memCache = { carrefour: null, naivas: null };
-  var normalizedIndexCache = { carrefour: null, naivas: null };
-  var lowerIndexCache = { carrefour: null, naivas: null };
+  var memCache = {
+    carrefour: null,
+    naivas: null,
+    quickmart: null
+  };
+  var normalizedIndexCache = {
+    carrefour: null,
+    naivas: null,
+    quickmart: null
+  };
+  var lowerIndexCache = {
+    carrefour: null,
+    naivas: null,
+    quickmart: null
+  };
   function buildNormalizedIndex(cacheArr) {
     const idx = /* @__PURE__ */ new Map();
     for (const p of cacheArr) {
@@ -825,8 +842,11 @@ var NutriScoreDB = (() => {
   }
   async function resolveProductMatch(retailer, retailerProductId, url, productName) {
     const db = await getDB();
-    const isCarrefour = retailer.toUpperCase() === "CARREFOUR";
-    const storeName = isCarrefour ? "carrefourProducts" : "naivasProducts";
+    const upper = retailer.toUpperCase();
+    const isCarrefour = upper === "CARREFOUR";
+    const isQuickmart = upper === "QUICKMART";
+    const storeName = isCarrefour ? "carrefourProducts" : isQuickmart ? "quickmartProducts" : "naivasProducts";
+    const cacheKey = isCarrefour ? "carrefour" : isQuickmart ? "quickmart" : "naivas";
     if (retailerProductId) {
       const hotTx = db.transaction(storeName, "readonly");
       let hit = await hotTx.store.get(retailerProductId);
@@ -842,9 +862,8 @@ var NutriScoreDB = (() => {
     }
     const tx = db.transaction(storeName, "readonly");
     const store = tx.store;
-    if (isCarrefour && !memCache.carrefour) memCache.carrefour = await store.getAll();
-    if (!isCarrefour && !memCache.naivas) memCache.naivas = await store.getAll();
-    const cacheArr = isCarrefour ? memCache.carrefour : memCache.naivas;
+    if (!memCache[cacheKey]) memCache[cacheKey] = await store.getAll();
+    const cacheArr = memCache[cacheKey];
     if (retailerProductId && isCarrefour) {
       const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const regex = new RegExp(`/p/${escapeRegExp(String(retailerProductId))}(?:\\?|/|$)`);
@@ -858,18 +877,16 @@ var NutriScoreDB = (() => {
       const nameHit = await nameTx.store.index("by-name").get(productName);
       if (nameHit) return { matched: true, matchMethod: "exact_name", confidence: "medium", product: nameHit };
       const lower = productName.toLowerCase().trim();
-      if (isCarrefour && !lowerIndexCache.carrefour) lowerIndexCache.carrefour = buildLowerIndex(memCache.carrefour);
-      if (!isCarrefour && !lowerIndexCache.naivas) lowerIndexCache.naivas = buildLowerIndex(memCache.naivas);
-      const lowerIdx = isCarrefour ? lowerIndexCache.carrefour : lowerIndexCache.naivas;
+      if (!lowerIndexCache[cacheKey]) lowerIndexCache[cacheKey] = buildLowerIndex(cacheArr);
+      const lowerIdx = lowerIndexCache[cacheKey];
       const foundLower = lowerIdx.get(lower);
       if (foundLower) {
         return { matched: true, matchMethod: "case_insensitive_name", confidence: "medium", product: foundLower };
       }
       const normSearch = normalizeProductName(productName);
       if (normSearch) {
-        if (isCarrefour && !normalizedIndexCache.carrefour) normalizedIndexCache.carrefour = buildNormalizedIndex(memCache.carrefour);
-        if (!isCarrefour && !normalizedIndexCache.naivas) normalizedIndexCache.naivas = buildNormalizedIndex(memCache.naivas);
-        const normIdx = isCarrefour ? normalizedIndexCache.carrefour : normalizedIndexCache.naivas;
+        if (!normalizedIndexCache[cacheKey]) normalizedIndexCache[cacheKey] = buildNormalizedIndex(cacheArr);
+        const normIdx = normalizedIndexCache[cacheKey];
         const foundNorm = normIdx.get(normSearch);
         if (foundNorm) {
           return { matched: true, matchMethod: "normalized_name", confidence: "low", product: foundNorm };
@@ -880,13 +897,15 @@ var NutriScoreDB = (() => {
   }
   async function getAllProducts(retailer) {
     const db = await getDB();
-    const isCarrefour = retailer.toUpperCase() === "CARREFOUR";
-    const storeName = isCarrefour ? "carrefourProducts" : "naivasProducts";
+    const upper = retailer.toUpperCase();
+    const isCarrefour = upper === "CARREFOUR";
+    const isQuickmart = upper === "QUICKMART";
+    const storeName = isCarrefour ? "carrefourProducts" : isQuickmart ? "quickmartProducts" : "naivasProducts";
+    const cacheKey = isCarrefour ? "carrefour" : isQuickmart ? "quickmart" : "naivas";
     const tx = db.transaction(storeName, "readonly");
     const store = tx.store;
-    if (isCarrefour && !memCache.carrefour) memCache.carrefour = await store.getAll();
-    if (!isCarrefour && !memCache.naivas) memCache.naivas = await store.getAll();
-    const products = isCarrefour ? memCache.carrefour : memCache.naivas;
+    if (!memCache[cacheKey]) memCache[cacheKey] = await store.getAll();
+    const products = memCache[cacheKey];
     const priceEntries = await db.getAll("price_cache");
     const priceKeys = await db.getAllKeys("price_cache");
     const priceMap = /* @__PURE__ */ new Map();

@@ -120,8 +120,21 @@ class NutriScoreContentEngine {
       this._scanner.start();
 
       // Cart debounce needs its own observer since NutriScanner's MO only enqueues scan work.
-      // A separate, lightweight MO watches only for mutations so syncCart() fires independently.
-      this._cartObserver = new MutationObserver(() => {
+      // P1-fix: only schedule syncCart when a mutation touches a cart-related container,
+      // not on every DOM mutation (image loads, product card lazy-load, Livewire pings).
+      const CART_SELECTORS = '#sideCartJs, .cart-summary, .cart-listing, .cart-item, .cart-product, [class*="cart"], [class*="basket"], [data-cart], .mini-cart, .offcanvas-cart, .dropdown-cart';
+      this._cartObserver = new MutationObserver((mutations) => {
+        const cartMutated = mutations.some(m => {
+          const target = m.target;
+          if (target.nodeType !== 1) return false;
+          // Check if the mutated target is inside or is a cart container
+          return target.closest?.(CART_SELECTORS) ||
+                 target.matches?.(CART_SELECTORS) ||
+                 [...m.addedNodes, ...m.removedNodes].some(n =>
+                   n.nodeType === 1 && (n.matches?.(CART_SELECTORS) || n.querySelector?.(CART_SELECTORS))
+                 );
+        });
+        if (!cartMutated) return;
         if (this.cartDebounceTimer) clearTimeout(this.cartDebounceTimer);
         this.cartDebounceTimer = setTimeout(() => this.syncCart(), 1000);
       });
@@ -371,8 +384,31 @@ class NutriScoreContentEngine {
       this._safeSend({ action: "POPUP_STATS_UPDATE" });
     });
   }
+
+  // Fix #8: full lifecycle teardown — disconnect all observers and timers.
+  destroy() {
+    if (this._scanner) {
+      this._scanner.destroy();
+      this._scanner = null;
+    }
+    if (this._cartObserver) {
+      this._cartObserver.disconnect();
+      this._cartObserver = null;
+    }
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+    clearTimeout(this.debounceTimer);
+    clearTimeout(this.cartDebounceTimer);
+    this.debounceTimer = null;
+    this.cartDebounceTimer = null;
+  }
 }
 
 // Boot (manifest run_at: document_end handles timing)
 const engine = new NutriScoreContentEngine();
 engine.init();
+
+// Fix #8: release observers + detached DOM refs on page teardown
+window.addEventListener("pagehide", () => engine.destroy(), { once: true });

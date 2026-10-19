@@ -21,6 +21,7 @@ self.NutriCatalogSync = (() => {
   const RETAILER_REGISTRY = new Map([
     ["NAIVAS",    { store: "naivasProducts",    cacheKey: "naivas"    }],
     ["CARREFOUR", { store: "carrefourProducts", cacheKey: "carrefour" }],
+    ["QUICKMART", { store: "quickmartProducts", cacheKey: "quickmart" }],
   ]);
 
   let syncPromise = null;
@@ -360,8 +361,9 @@ self.NutriCatalogSync = (() => {
           const db = await NutriScoreDB.getDB();
           const naivasCount = await db.count("naivasProducts").catch(() => 0);
           const carrefourCount = await db.count("carrefourProducts").catch(() => 0);
-          if (naivasCount > 0 || carrefourCount > 0) {
-            console.warn(`[NutriCatalogSync] Continuing with local catalog (${naivasCount + carrefourCount} products).`);
+          const quickmartCount = await db.count("quickmartProducts").catch(() => 0);
+          if (naivasCount > 0 || carrefourCount > 0 || quickmartCount > 0) {
+            console.warn(`[NutriCatalogSync] Continuing with local catalog (${naivasCount + carrefourCount + quickmartCount} products).`);
             return;
           }
         } catch(err) {

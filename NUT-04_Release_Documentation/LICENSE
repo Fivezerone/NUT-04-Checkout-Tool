@@ -1,0 +1,34 @@
+Copyright (c) 2026 NUT-04 Project Contributors
+
+All rights reserved.
+
+This software and its associated documentation files (the "Software") are
+proprietary. No license or other right to use, copy, modify, merge, publish,
+distribute, sublicense, sell, host, or create derivative works of the Software
+is granted, whether express or implied, except as the copyright holder has
+expressly authorized in a separate written agreement.
+
+Without such a written agreement, you may not:
+
+  1. use the Software for any purpose other than reviewing it as authorized
+     by the copyright holder;
+  2. copy or redistribute the Software, in whole or in part, in source or
+     binary form;
+  3. modify the Software or build derivative works from it;
+  4. submit the Software, or any build of it, to any extension store or
+     distribution channel.
+
+Third-party components included in or required by the Software are the
+property of their respective owners and remain subject to their own license
+terms. Attributions for bundled UI components are listed in
+src/ui/ATTRIBUTIONS.md.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+NutriScore outputs are dietary information derived from published nutrient
+profiling methods. They are not medical advice and do not predict disease.

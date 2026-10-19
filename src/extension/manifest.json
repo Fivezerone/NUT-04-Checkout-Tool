@@ -9,7 +9,8 @@
     "https://*.naivas.online/*",
     "https://*.naivas.co.ke/*",
     "https://*.carrefour.ke/*",
-    "https://*.carrefourkenya.com/*"
+    "https://*.carrefourkenya.com/*",
+    "https://*.quickmart.co.ke/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -42,6 +43,19 @@
         "adapters/grade-colors.js",
         "adapters/shared-ui.js",
         "adapters/carrefour.js",
+        "content.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://*.quickmart.co.ke/*"
+      ],
+      "js": [
+        "health-modes.js",
+        "adapters/grade-colors.js",
+        "adapters/shared-ui.js",
+        "adapters/quickmart.js",
         "content.js"
       ],
       "run_at": "document_end"

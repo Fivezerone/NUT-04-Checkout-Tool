@@ -10,3 +10,16 @@ supabase/.cache/
 .DS_Store
 .vscode/
 .idea/
+
+# Build artifacts & generated files
+eslint-report.json
+eslint-report.txt
+publish-report.json
+*.zip
+
+# Assessment / log exports (may contain user data)
+Assessment reports/
+assessment-reports/
+
+# Scraped product data (large, regenerable)
+data/

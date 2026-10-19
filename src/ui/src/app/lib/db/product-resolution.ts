@@ -9,13 +9,29 @@ import { getDB } from "./shared";
 // In-memory cache for fast scanning to avoid slow IndexedDB cursors.
 // Entries are invalidated by importDatasets() whenever BUNDLED_DATASET_VERSION changes,
 // ensuring that a dataset update within a running SW session is immediately visible.
-export let memCache: { carrefour: any[] | null; naivas: any[] | null } = { carrefour: null, naivas: null };
+export let memCache: { carrefour: any[] | null; naivas: any[] | null; quickmart: any[] | null } = {
+  carrefour: null,
+  naivas: null,
+  quickmart: null,
+};
 
 /** Tracks the dataset version that each memCache partition was populated from. */
-export const memCacheVersion: { carrefour: string | null; naivas: string | null } = { carrefour: null, naivas: null };
+export const memCacheVersion: { carrefour: string | null; naivas: string | null; quickmart: string | null } = {
+  carrefour: null,
+  naivas: null,
+  quickmart: null,
+};
 
-export const normalizedIndexCache: { carrefour: Map<string, any> | null; naivas: Map<string, any> | null } = { carrefour: null, naivas: null };
-export const lowerIndexCache: { carrefour: Map<string, any> | null; naivas: Map<string, any> | null } = { carrefour: null, naivas: null };
+export const normalizedIndexCache: { carrefour: Map<string, any> | null; naivas: Map<string, any> | null; quickmart: Map<string, any> | null } = {
+  carrefour: null,
+  naivas: null,
+  quickmart: null,
+};
+export const lowerIndexCache: { carrefour: Map<string, any> | null; naivas: Map<string, any> | null; quickmart: Map<string, any> | null } = {
+  carrefour: null,
+  naivas: null,
+  quickmart: null,
+};
 
 function buildNormalizedIndex(cacheArr: any[]) {
   const idx = new Map<string, any>();
@@ -51,8 +67,11 @@ export async function resolveProductMatch(
   productName: string | null
 ): Promise<{ matched: boolean, matchMethod: string, confidence: string, reason?: string, product?: any }> {
   const db = await getDB();
-  const isCarrefour = retailer.toUpperCase() === "CARREFOUR";
-  const storeName = isCarrefour ? "carrefourProducts" : "naivasProducts";
+  const upper = retailer.toUpperCase();
+  const isCarrefour = upper === "CARREFOUR";
+  const isQuickmart = upper === "QUICKMART";
+  const storeName = isCarrefour ? "carrefourProducts" : isQuickmart ? "quickmartProducts" : "naivasProducts";
+  const cacheKey: "carrefour" | "naivas" | "quickmart" = isCarrefour ? "carrefour" : isQuickmart ? "quickmart" : "naivas";
 
   // ── HOT PATH: direct key lookup — no getAll() needed ────────────────────
   // Covers ~95%+ of real requests. Runs in its own short transaction so it
@@ -79,9 +98,8 @@ export async function resolveProductMatch(
   const tx = db.transaction(storeName as any, "readonly");
   const store = tx.store;
 
-  if (isCarrefour && !memCache.carrefour) memCache.carrefour = await store.getAll();
-  if (!isCarrefour && !memCache.naivas)   memCache.naivas   = await store.getAll();
-  const cacheArr = isCarrefour ? memCache.carrefour! : memCache.naivas!;
+  if (!memCache[cacheKey]) memCache[cacheKey] = await store.getAll();
+  const cacheArr = memCache[cacheKey]!;
 
   // Carrefour URL-path-fragment scan (requires full catalog — unavoidable)
   if (retailerProductId && isCarrefour) {
@@ -99,9 +117,8 @@ export async function resolveProductMatch(
     if (nameHit) return { matched: true, matchMethod: "exact_name", confidence: "medium", product: nameHit };
 
     const lower = productName.toLowerCase().trim();
-    if (isCarrefour && !lowerIndexCache.carrefour) lowerIndexCache.carrefour = buildLowerIndex(memCache.carrefour!);
-    if (!isCarrefour && !lowerIndexCache.naivas)   lowerIndexCache.naivas   = buildLowerIndex(memCache.naivas!);
-    const lowerIdx = isCarrefour ? lowerIndexCache.carrefour! : lowerIndexCache.naivas!;
+    if (!lowerIndexCache[cacheKey]) lowerIndexCache[cacheKey] = buildLowerIndex(cacheArr);
+    const lowerIdx = lowerIndexCache[cacheKey]!;
     const foundLower = lowerIdx.get(lower);
     if (foundLower) {
       return { matched: true, matchMethod: "case_insensitive_name", confidence: "medium", product: foundLower };
@@ -109,9 +126,8 @@ export async function resolveProductMatch(
 
     const normSearch = normalizeProductName(productName);
     if (normSearch) {
-      if (isCarrefour && !normalizedIndexCache.carrefour) normalizedIndexCache.carrefour = buildNormalizedIndex(memCache.carrefour!);
-      if (!isCarrefour && !normalizedIndexCache.naivas)   normalizedIndexCache.naivas   = buildNormalizedIndex(memCache.naivas!);
-      const normIdx = isCarrefour ? normalizedIndexCache.carrefour! : normalizedIndexCache.naivas!;
+      if (!normalizedIndexCache[cacheKey]) normalizedIndexCache[cacheKey] = buildNormalizedIndex(cacheArr);
+      const normIdx = normalizedIndexCache[cacheKey]!;
       const foundNorm = normIdx.get(normSearch);
       if (foundNorm) {
         return { matched: true, matchMethod: "normalized_name", confidence: "low", product: foundNorm };
@@ -124,13 +140,15 @@ export async function resolveProductMatch(
 
 export async function getAllProducts(retailer: string): Promise<any[]> {
   const db = await getDB();
-  const isCarrefour = retailer.toUpperCase() === "CARREFOUR";
-  const storeName = isCarrefour ? "carrefourProducts" : "naivasProducts";
+  const upper = retailer.toUpperCase();
+  const isCarrefour = upper === "CARREFOUR";
+  const isQuickmart = upper === "QUICKMART";
+  const storeName = isCarrefour ? "carrefourProducts" : isQuickmart ? "quickmartProducts" : "naivasProducts";
+  const cacheKey: "carrefour" | "naivas" | "quickmart" = isCarrefour ? "carrefour" : isQuickmart ? "quickmart" : "naivas";
   const tx = db.transaction(storeName as any, "readonly");
   const store = tx.store;
-  if (isCarrefour && !memCache.carrefour) memCache.carrefour = await store.getAll();
-  if (!isCarrefour && !memCache.naivas) memCache.naivas = await store.getAll();
-  const products = isCarrefour ? memCache.carrefour! : memCache.naivas!;
+  if (!memCache[cacheKey]) memCache[cacheKey] = await store.getAll();
+  const products = memCache[cacheKey]!;
 
   // P8 perf fix: batch-read entire price_cache once, merge in-memory.
   const priceEntries = await db.getAll("price_cache");

@@ -64,8 +64,19 @@ class NutriScanner {
 
   stop() {
     this._mo.disconnect();
-    this._io && this._io.disconnect();
+    if (this._io) this._io.disconnect();
     clearTimeout(this._flushTimer);
+  }
+
+  /** Full teardown — release all DOM references so detached nodes can be GC'd. */
+  destroy() {
+    this.stop();
+    this._io = null;
+    this._seen     = new WeakSet();
+    this._attempts = new WeakMap();
+    this._byEl     = new WeakMap();
+    this._pending.clear();
+    this._queue.length = 0;
   }
 
   /** Full rescan — resets seen/attempt state, re-discovers everything in the root. */

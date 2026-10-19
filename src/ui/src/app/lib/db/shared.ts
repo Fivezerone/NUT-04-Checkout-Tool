@@ -48,6 +48,11 @@ interface NutriDB extends DBSchema {
     value: any;
     indexes: { "by-url": string, "by-name": string };
   };
+  quickmartProducts: {
+    key: string;
+    value: any;
+    indexes: { "by-url": string, "by-name": string };
+  };
   pending_cart_syncs: {
     key: string;
     value: { id: string; retailer: string; items: any[]; savedAt: number };
@@ -238,6 +243,11 @@ export function getDB() {
           if (!db.objectStoreNames.contains("premium_staging")) {
             db.createObjectStore("premium_staging", { keyPath: "key" });
           }
+        }
+        if (!db.objectStoreNames.contains("quickmartProducts")) {
+          const qStore = db.createObjectStore("quickmartProducts", { keyPath: "Identity.ProductID" });
+          qStore.createIndex("by-url", "Identity.RetailerProductUrl");
+          qStore.createIndex("by-name", "Identity.ProductName");
         }
       },
     });

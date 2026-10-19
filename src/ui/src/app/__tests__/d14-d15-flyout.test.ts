@@ -87,4 +87,18 @@ describe('D-15 — Flyout toggle, listener leak, portal stale, rescan', () => {
   test('D-15b: outside-click uses composedPath (shadow DOM safe)', () => {
     expect(sharedUi).toContain('composedPath()');
   });
+
+  test('Flyout render: does not reference undeclared productInfo', () => {
+    // Critical fix: productInfo was undeclared and threw ReferenceError on badge click
+    expect(sharedUi).not.toContain('productInfo');
+    expect(sharedUi).toContain('productResult?.product_name');
+  });
+
+  test('Flyout render: focuses with preventScroll to avoid premature scroll-close', () => {
+    expect(sharedUi).toContain('preventScroll: true');
+  });
+
+  test('Flyout render: scroll listener is bound idempotently', () => {
+    expect(sharedUi).toContain('_nutriscoreScrollBound');
+  });
 });

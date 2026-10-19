@@ -25,7 +25,21 @@ const MAX_BATCH_ITEMS = 64;
 
 // D-05: module-level Supabase singleton — never create more than one client per SW lifetime.
 let _sb;
-const sb = () => (_sb ??= NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY));
+let _sbReady; // Fix #5: promise that resolves after auth session rehydration.
+const sb = () => {
+  if (!_sb) {
+    _sb = NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+    // Eagerly rehydrate session so callers never hit a null-session race.
+    _sbReady = _sb.auth.getSession().catch(() => {});
+  }
+  return _sb;
+};
+/** Awaitable initializer — call before any auth-dependent code path. */
+async function ensureSupabaseReady() {
+  sb();
+  await _sbReady;
+  return _sb;
+}
 
 // F-06: per-retailer high-water mark for cart snapshot capturedAt timestamps.
 // SW discards any SYNC_CART_STATE message whose capturedAt <= the last accepted one.

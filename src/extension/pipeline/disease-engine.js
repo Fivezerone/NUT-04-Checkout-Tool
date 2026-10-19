@@ -255,15 +255,8 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = { DiseaseEngine, DISEASE_RULES, INTERACTIONS, NUTRIENT_LABELS, CONDITION_DISPLAY_NAMES };
 }
 
-if (typeof globalThis !== "undefined") {
-  globalThis.DiseaseEngine = DiseaseEngine;
-  globalThis.DISEASE_RULES = DISEASE_RULES;
-}
-
+// Fix #2: single registration — self covers SW (self===globalThis) and content/window contexts.
 if (typeof self !== "undefined") {
   self.DiseaseEngine = DiseaseEngine;
   self.DISEASE_RULES = DISEASE_RULES;
-} else if (typeof window !== "undefined") {
-  window.DiseaseEngine = DiseaseEngine;
-  window.DISEASE_RULES = DISEASE_RULES;
 }

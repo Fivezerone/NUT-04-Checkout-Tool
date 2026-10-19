@@ -22,6 +22,37 @@ interface DashboardProps {
 }
 
 const PAGE_SIZE = 8;
+const LEDGER_PAGE_SIZE = 50;
+
+// Fix #23: extracted pure component — avoids creating a new IIFE closure per ledger row per render.
+const RetailerBadge = React.memo(({ retailer }: { retailer: string }) => {
+  const r = (retailer || "").toUpperCase();
+  if (r === "QUICKMART") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-xs border bg-red-50 text-red-700 border-red-200">
+        <span className="size-1.5 rounded-full bg-red-600 inline-block" />
+        Quickmart
+      </span>
+    );
+  }
+  if (r === "CARREFOUR") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-xs border bg-blue-50 text-blue-700 border-blue-200">
+        <span className="size-1.5 rounded-full bg-blue-600 inline-block" />
+        Carrefour
+      </span>
+    );
+  }
+  if (r === "NAIVAS") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-xs border bg-emerald-50 text-emerald-700 border-emerald-200">
+        <span className="size-1.5 rounded-full bg-emerald-600 inline-block" />
+        Naivas
+      </span>
+    );
+  }
+  return <span style={{ color: "var(--muted-foreground)" }}>{retailer}</span>;
+});
 
 type Range = "today" | "week" | "month" | "year" | "all";
 
@@ -31,6 +62,15 @@ const RANGE_OPTIONS: { value: Range; label: string }[] = [
   { value: "month", label: "This Month" },
   { value: "year", label: "This Year" },
   { value: "all", label: "All Time" },
+];
+
+type RetailerFilter = "all" | "NAIVAS" | "CARREFOUR" | "QUICKMART";
+
+const RETAILER_OPTIONS: { value: RetailerFilter; label: string; color?: string }[] = [
+  { value: "all", label: "All Retailers" },
+  { value: "NAIVAS", label: "Naivas", color: "#00843D" },
+  { value: "CARREFOUR", label: "Carrefour", color: "#004e9a" },
+  { value: "QUICKMART", label: "Quickmart", color: "#ee3434" },
 ];
 
 // Start-of-period cutoff (ms) for a given range. "all" returns 0.
@@ -66,6 +106,7 @@ export function Dashboard({ onBack }: DashboardProps) {
   const [entries, setEntries] = useState<ShoppingLedgerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<Range>("month");
+  const [retailerFilter, setRetailerFilter] = useState<RetailerFilter>("all");
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -77,6 +118,8 @@ export function Dashboard({ onBack }: DashboardProps) {
 
   const [sortField, setSortField] = useState<keyof ShoppingLedgerRow>("addedAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  // Fix #24: paginated ledger — cap rendered rows to avoid 4,500+ DOM nodes.
+  const [ledgerVisible, setLedgerVisible] = useState(LEDGER_PAGE_SIZE);
 
   const handleSort = (field: keyof ShoppingLedgerRow) => {
     if (sortField === field) {
@@ -153,10 +196,14 @@ export function Dashboard({ onBack }: DashboardProps) {
     setTheme(condition);
   }
 
+  // Fix #16: debounce IDB persistence — coalesce rapid toggles into a single write.
+  const settingsFlushRef = useRef<ReturnType<typeof setTimeout>>();
+
   function updateSetting(key: keyof Settings, value: boolean) {
     setSettings((prev) => {
       const next = { ...prev, [key]: value };
-      saveSettings(next);
+      clearTimeout(settingsFlushRef.current);
+      settingsFlushRef.current = setTimeout(() => saveSettings(next), 300);
       return next;
     });
   }
@@ -193,22 +240,27 @@ export function Dashboard({ onBack }: DashboardProps) {
       // @ts-ignore
       window.applyPersonalization();
     }
-  });
+  }, [activeTheme]);
 
-  // Entries scoped to the selected duration filter.
+  // Entries scoped to the selected duration and retailer filters.
   const filtered = useMemo(() => {
     const tf = resolveTimeframe(range);
     const start = tf.windowStart;
-    return entries.filter((e) => e.addedAt >= start);
-  }, [entries, range]);
+    return entries.filter((e) => {
+      const inTime = e.addedAt >= start;
+      const inRetailer = retailerFilter === "all" || (e.retailer && e.retailer.toUpperCase() === retailerFilter);
+      return inTime && inRetailer;
+    });
+  }, [entries, range, retailerFilter]);
 
   const analytics = useMemo<DashboardViewModel | null>(() => {
     if (!entries.length) return null;
     const tf = resolveTimeframe(range);
     let effectiveTf = tf;
     if (range === "all") {
+      // Fix #21: reduce instead of Math.min(...spread) — avoids RangeError on large arrays.
       const oldest = entries.length > 0
-        ? Math.min(...entries.map((e) => e.addedAt))
+        ? entries.reduce((min, e) => (e.addedAt < min ? e.addedAt : min), entries[0].addedAt)
         : Date.now() - 30 * 86400000;
       const spanDays = (Date.now() - oldest) / 86400000;
       // Build a new object — never mutate the value returned by resolveTimeframe().
@@ -233,11 +285,16 @@ export function Dashboard({ onBack }: DashboardProps) {
     );
     const sliced = firstNonZero <= 0 ? raw : raw.slice(firstNonZero);
     
+    // Fix #22: pre-build a lookup map — O(n) construction, O(1) per lookup instead of O(n²).
+    const tickMap = new Map(
+      (analytics?.nutrientTrends.ticks || []).map(t => [t.ts, t.label])
+    );
+
     // Map data to the TrendPoint interface expected by Charts.tsx
     return sliced.map((d, i) => {
-      const tick = analytics?.nutrientTrends.ticks.find(t => t.ts === d.ts);
       const dDate = new Date(d.ts);
-      const label = tick?.label || `${dDate.getDate()} ${dDate.toLocaleString('default', { month: 'short' })}`;
+      const label = tickMap.get(d.ts)
+        || `${dDate.getDate()} ${dDate.toLocaleString('default', { month: 'short' })}`;
       return {
         id: `bucket-${d.ts || i}`,
         ts: d.ts,
@@ -414,31 +471,68 @@ export function Dashboard({ onBack }: DashboardProps) {
             }
           }}
         >
-          {/* Duration filter */}
-          <div
-            className="inline-flex flex-wrap gap-1 rounded-lg bg-white p-1 shadow-sm ring-1 ring-black/5"
-            role="group"
-            aria-label="Filter analytics by time range"
-          >
-            {RANGE_OPTIONS.map((opt) => {
-              const active = range === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setRange(opt.value)}
-                  className="rounded-md px-3 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
-                  style={{
-                    fontSize: "0.82rem",
-                    backgroundColor: active ? "var(--shell-primary)" : "transparent",
-                    color: active ? "#fff" : "var(--muted-foreground)",
-                  }}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
+          {/* Duration & Retailer filters */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Duration filter */}
+            <div
+              className="inline-flex flex-wrap gap-1 rounded-lg bg-white p-1 shadow-sm ring-1 ring-black/5"
+              role="group"
+              aria-label="Filter analytics by time range"
+            >
+              {RANGE_OPTIONS.map((opt) => {
+                const active = range === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setRange(opt.value)}
+                    className="rounded-md px-3 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+                    style={{
+                      fontSize: "0.82rem",
+                      backgroundColor: active ? "var(--shell-primary)" : "transparent",
+                      color: active ? "#fff" : "var(--muted-foreground)",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Retailer filter */}
+            <div
+              className="inline-flex flex-wrap gap-1 rounded-lg bg-white p-1 shadow-sm ring-1 ring-black/5"
+              role="group"
+              aria-label="Filter analytics by retailer"
+            >
+              {RETAILER_OPTIONS.map((opt) => {
+                const active = retailerFilter === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setRetailerFilter(opt.value)}
+                    className="flex items-center gap-1.5 rounded-md px-3 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+                    style={{
+                      fontSize: "0.82rem",
+                      backgroundColor: active ? "var(--shell-primary)" : "transparent",
+                      color: active ? "#fff" : "var(--muted-foreground)",
+                    }}
+                  >
+                    {opt.color && (
+                      <span
+                        className="inline-block size-2 rounded-full"
+                        style={{ backgroundColor: opt.color }}
+                        aria-hidden
+                      />
+                    )}
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* User data panels removed */}
@@ -720,7 +814,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                       </td>
                     </tr>
                   ) : (
-                    sortedFiltered.reduce((acc, e, idx, arr) => {
+                    sortedFiltered.slice(0, ledgerVisible).reduce((acc, e, idx, arr) => {
                       const dateStr = new Date(e.addedAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
                       const prevDateStr = idx > 0 ? new Date(arr[idx-1].addedAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }) : null;
                       
@@ -740,8 +834,8 @@ export function Dashboard({ onBack }: DashboardProps) {
                             {sortField === "addedAt" ? new Date(e.addedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date(e.addedAt).toLocaleDateString()}
                           </td>
                           <td className="p-2 align-middle whitespace-nowrap font-medium text-slate-700" style={{ fontSize: "0.8rem" }}>{e.name}</td>
-                          <td className="p-2 align-middle whitespace-nowrap" style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>
-                            {e.retailer}
+                          <td className="p-2 align-middle whitespace-nowrap" style={{ fontSize: "0.8rem" }}>
+                            <RetailerBadge retailer={e.retailer} />
                           </td>
                           <td className="p-2 align-middle whitespace-nowrap" style={{ fontSize: "0.8rem", color: "var(--muted-foreground)" }}>
                             {e.category}
@@ -782,6 +876,17 @@ export function Dashboard({ onBack }: DashboardProps) {
                   )}
                 </tbody>
               </table>
+              {/* Fix #24: Show More button for ledger pagination */}
+              {ledgerVisible < sortedFiltered.length && (
+                <div className="flex justify-center py-3 border-t border-slate-100">
+                  <button
+                    onClick={() => setLedgerVisible(v => v + LEDGER_PAGE_SIZE)}
+                    className="text-sm font-medium px-4 py-1.5 rounded-md text-slate-600 hover:bg-slate-100 transition-colors"
+                  >
+                    Show more ({sortedFiltered.length - ledgerVisible} remaining)
+                  </button>
+                </div>
+              )}
             </div>
           </section>
         </div>

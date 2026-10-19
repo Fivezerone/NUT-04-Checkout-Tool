@@ -33,6 +33,10 @@ interface UseSubscriptionGuardResult {
   daysRemaining: number | null;
 }
 
+// Fix #25: module-level cache — avoids redundant RPC calls on every popup mount.
+const GUARD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+let _guardCache: { status: SubscriptionStatus; daysRemaining: number | null; ts: number } | null = null;
+
 export function useSubscriptionGuard(): UseSubscriptionGuardResult {
   const [status, setStatus] = useState<SubscriptionStatus | 'loading'>('loading');
   const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
@@ -41,6 +45,19 @@ export function useSubscriptionGuard(): UseSubscriptionGuardResult {
     let cancelled = false;
 
     async function check() {
+      // Fix #25: return cached result if still fresh (5-min TTL).
+      // The entitlement token has a TTL of days — no need to verify on every popup open.
+      if (
+        _guardCache &&
+        Date.now() - _guardCache.ts < GUARD_CACHE_TTL_MS
+      ) {
+        if (!cancelled) {
+          setStatus(_guardCache.status);
+          setDaysRemaining(_guardCache.daysRemaining);
+        }
+        return;
+      }
+
       try {
         // Step 1: Verify active session
         const { data: { user } } = await supabase.auth.getUser();
@@ -68,6 +85,9 @@ export function useSubscriptionGuard(): UseSubscriptionGuardResult {
             ? 'expired'   // formerly premium, now lapsed
             : 'basic';    // never had premium
         const remaining = getDaysRemainingFromExpiry(ent.premium_expires_at, ent.server_now);
+
+        // Fix #25: cache result
+        _guardCache = { status: resolved, daysRemaining: remaining, ts: Date.now() };
 
         if (!cancelled) {
           setDaysRemaining(remaining);

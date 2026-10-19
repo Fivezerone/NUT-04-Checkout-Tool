@@ -51,6 +51,24 @@ const NutriSharedUI = {
   },
 
 
+  // Close whatever flyout is currently open (single-flyout constraint, Part C3).
+  _closeActiveFlyout() {
+    if (window._nutriscoreActiveFlyout) {
+      // D-27: remove Escape handler before removing element
+      if (window._nutriscoreActiveFlyout._nsEscHandler) {
+        document.removeEventListener('keydown', window._nutriscoreActiveFlyout._nsEscHandler);
+      }
+      window._nutriscoreActiveFlyout.remove();
+      window._nutriscoreActiveFlyout = null;
+    }
+    // D-15b: always remove the outside-click listener to prevent leaks
+    if (window._nutriscoreOutside) {
+      document.removeEventListener('click', window._nutriscoreOutside, true);
+      window._nutriscoreOutside = null;
+    }
+    window._nutriscoreActiveTrigger = null;
+  },
+
   // --------------------------------------------------------------------------- Feature C — Global Shadow Portal (Part C2) Creates window._nutriscoreGlobalPortal once, appended to document.body. All flyouts are portaled here; badges stay at z-index 10 in their cards. ---------------------------------------------------------------------------
   _ensureGlobalPortal() {
     // D-15c: check isConnected to handle SPA body swaps that detach the portal
@@ -74,7 +92,7 @@ const NutriSharedUI = {
       host.setAttribute('data-theme', 'dark');
     }
     
-    document.body.appendChild(host);
+    (document.body || document.documentElement).appendChild(host);
     const shadow = host.attachShadow({ mode: 'open' });
     
     const style = document.createElement('style');
@@ -92,30 +110,17 @@ const NutriSharedUI = {
     window._nutriscoreGlobalPortalHost = host;
     window._nutriscoreGlobalPortal = portal;
 
-    // Passive scroll listener — close any open flyout on page scroll (Part C3).
-    window.addEventListener("scroll", () => {
-      NutriSharedUI._closeActiveFlyout();
-    }, { passive: true, capture: true });
+    // Fix #9: store handler reference so it can be removed on teardown.
+    if (!window._nutriscoreScrollBound) {
+      window._nutriscoreScrollBound = true;
+      window._nutriscoreScrollHandler = () => {
+        NutriSharedUI._closeActiveFlyout();
+      };
+      window.addEventListener("scroll", window._nutriscoreScrollHandler,
+        { passive: true, capture: true });
+    }
 
     return portal;
-  },
-
-  // Close whatever flyout is currently open (single-flyout constraint, Part C3).
-  _closeActiveFlyout() {
-    if (window._nutriscoreActiveFlyout) {
-      // D-27: remove Escape handler before removing element
-      if (window._nutriscoreActiveFlyout._nsEscHandler) {
-        document.removeEventListener('keydown', window._nutriscoreActiveFlyout._nsEscHandler);
-      }
-      window._nutriscoreActiveFlyout.remove();
-      window._nutriscoreActiveFlyout = null;
-    }
-    // D-15b: always remove the outside-click listener to prevent leaks
-    if (window._nutriscoreOutside) {
-      document.removeEventListener('click', window._nutriscoreOutside, true);
-      window._nutriscoreOutside = null;
-    }
-    window._nutriscoreActiveTrigger = null;
   },
 
   // --------------------------------------------------------------------------- Main badge injection ---------------------------------------------------------------------------
@@ -166,12 +171,6 @@ const NutriSharedUI = {
       .filter(r => r.val !== null && r.val !== undefined && r.val !== '')
       .map(r => ({ label: r.label, value: `${this.escapeHTML(String(r.val))} ${r.unit}` }));
 
-    const nutriRowsHTML = rows.map(r => `
-      <div class="ns-row">
-        <span class="ns-label">${r.label}</span>
-        <span class="ns-value">${r.value}</span>
-      </div>`).join("");
-
     let diseaseHTML = ""; // Reassigned inside flyout
 
     const conf = productResult.evidenceTier || productResult.confidence || "";
@@ -210,20 +209,31 @@ const NutriSharedUI = {
       .badge-grade{font-size:15px;font-weight:900}
     `;
 
-    if (!this.sharedStyleSheet) {
-      this.sharedStyleSheet = new CSSStyleSheet();
-      this.sharedStyleSheet.replaceSync(styles);
+    // Fix #10: module-scope CSSStyleSheet — parsed once for the page lifetime.
+    if (!NutriSharedUI._badgeStyleSheet) {
+      NutriSharedUI._badgeStyleSheet = new CSSStyleSheet();
+      NutriSharedUI._badgeStyleSheet.replaceSync(styles);
     }
-    shadow.adoptedStyleSheets = [this.sharedStyleSheet];
+    shadow.adoptedStyleSheets = [NutriSharedUI._badgeStyleSheet];
 
-    shadow.innerHTML = `
-      <div class="badge-trigger" style="--ns-bg: ${info.bg}; --ns-txt: ${info.txt};">
-        ${isNoData ? `<span>No data</span>` : `<span class="badge-grade">${grade}</span>`}
-      </div>
-    `;
+    // Fix #11: createElement instead of innerHTML — avoids HTML parse overhead
+    // on every badge injection (20-60 cards per scroll burst on Quickmart PLP).
+    const trigger = document.createElement("div");
+    trigger.className = "badge-trigger";
+    trigger.style.setProperty("--ns-bg", info.bg);
+    trigger.style.setProperty("--ns-txt", info.txt);
+
+    const label = document.createElement("span");
+    if (isNoData) {
+      label.textContent = "No data";
+    } else {
+      label.className = "badge-grade";
+      label.textContent = grade;
+    }
+    trigger.appendChild(label);
+    shadow.appendChild(trigger);
 
     // --------------------------------------------------------------------------- Feature C — badge click: portal flyout into global overlay (Part C3) ---------------------------------------------------------------------------
-    const trigger = shadow.querySelector(".badge-trigger");
 
     // D-27: make badge keyboard-accessible
     trigger.setAttribute('role', 'button');
@@ -282,7 +292,6 @@ const NutriSharedUI = {
       }
 
       const activeTheme = productResult.activeTheme || "general";
-      const prof2 = productResult.nutritional_profile_display || {};
 
       const modeObj = self.NutriHealthModes && self.NutriHealthModes[activeTheme];
       if (activeTheme !== 'general' && !modeObj) console.error('[NutriScore] NutriHealthModes missing in content world — check manifest.json content_scripts ordering');
@@ -366,11 +375,9 @@ const NutriSharedUI = {
 
       // D-27: flyout accessibility — role=dialog so screen readers announce it correctly
       flyoutEl.setAttribute('role', 'dialog');
-      flyoutEl.setAttribute('aria-label', productInfo?.name || 'Product details');
+      flyoutEl.setAttribute('aria-label', productResult?.product_name || 'Product details');
       flyoutEl.setAttribute('aria-modal', 'true');
-      // Move focus into flyout so SR announces it; first focusable element or the flyout itself
-      const firstFocusable = flyoutEl.querySelector('button,[tabindex="0"]');
-      (firstFocusable || flyoutEl).focus?.();
+      flyoutEl.setAttribute('tabindex', '-1');
 
       // D-27: Escape key closes flyout (auto-removed when flyout closes via _closeActiveFlyout)
       const escHandler = (e) => {
@@ -431,15 +438,24 @@ const NutriSharedUI = {
         }
         flyoutEl.style.left = leftPos + "px";
         flyoutEl.style.visibility = "visible";
+
+        // Move focus into flyout so SR announces it without triggering scroll disruption
+        const firstFocusable = flyoutEl.querySelector('button,[tabindex="0"]');
+        (firstFocusable || flyoutEl).focus?.({ preventScroll: true });
       });
 
       // D-15b: store outside-click listener on window so _closeActiveFlyout can always remove it
       window._nutriscoreOutside = (ev) => {
-        if (!ev.composedPath().includes(flyoutEl) && !ev.composedPath().includes(trigger)) {
+        const path = typeof ev.composedPath === 'function' ? ev.composedPath() : [];
+        if (!path.includes(flyoutEl) && !path.includes(trigger)) {
           NutriSharedUI._closeActiveFlyout();
         }
       };
-      setTimeout(() => document.addEventListener('click', window._nutriscoreOutside, true), 0);
+      setTimeout(() => {
+        if (window._nutriscoreActiveFlyout === flyoutEl && window._nutriscoreOutside) {
+          document.addEventListener('click', window._nutriscoreOutside, true);
+        }
+      }, 0);
     });
 
     // Feature C Part C1: badge z-index is 10 (passive, inherits card stacking).
@@ -448,6 +464,19 @@ const NutriSharedUI = {
     card.style.overflow = "visible";
     card.appendChild(badgeContainer);
     return shadow;
+  },
+
+  // Fix #9: teardown portal and scroll listener to prevent memory leaks.
+  _teardownPortal() {
+    if (window._nutriscoreScrollHandler) {
+      window.removeEventListener("scroll", window._nutriscoreScrollHandler,
+        { capture: true });
+      window._nutriscoreScrollBound = false;
+      window._nutriscoreScrollHandler = null;
+    }
+    window._nutriscoreGlobalPortalHost?.remove();
+    window._nutriscoreGlobalPortal = null;
+    window._nutriscoreGlobalPortalHost = null;
   },
 
 };

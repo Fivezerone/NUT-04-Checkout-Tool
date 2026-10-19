@@ -29,8 +29,13 @@ self.NutriEntitlement = (() => {
   let _getSupabase = null;
   function getSupabase() {
     if (_getSupabase) return _getSupabase();
-    // Fallback for environments that don't call init() (e.g. unit tests).
-    return NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+    // Fix #6: fail-fast — never silently create orphan Supabase clients in the SW.
+    // An orphan GoTrueClient spawns a hidden setInterval for token refresh that
+    // keeps the SW alive and never gets cleaned up.
+    throw new Error(
+      '[NutriEntitlement] getSupabase() called before init(). ' +
+      'Ensure background.js calls NutriEntitlement.init() at boot.'
+    );
   }
 
   // ── WebCrypto helpers ──────────────────────────────────────────────────────
@@ -153,9 +158,18 @@ self.NutriEntitlement = (() => {
    * Updates the time guard with the server's clock.
    * If the server returns "basic", deletes any stored token and premium data.
    *
+   * Concurrent calls coalesce onto the same in-flight promise (Fix #19).
+   *
    * @returns {Promise<"premium"|"basic">}
    */
+  let _refreshPromise = null;
   async function refresh() {
+    if (_refreshPromise) return _refreshPromise;
+    _refreshPromise = _doRefresh().finally(() => { _refreshPromise = null; });
+    return _refreshPromise;
+  }
+
+  async function _doRefresh() {
     try {
       // F-11: use the SW singleton via getSupabase() — never create a new client here.
       const supabase = getSupabase();

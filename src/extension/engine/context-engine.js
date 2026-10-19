@@ -1,9 +1,21 @@
-let _HealthFlags = typeof HealthFlags !== "undefined" ? HealthFlags : (typeof globalThis !== "undefined" && globalThis.HealthFlags ? globalThis.HealthFlags : null);
-let _ScorerEnergyDense = typeof ScorerEnergyDense !== "undefined" ? ScorerEnergyDense : (typeof globalThis !== "undefined" && globalThis.ScorerEnergyDense ? globalThis.ScorerEnergyDense : null);
-let _ScorerFibreForward = typeof ScorerFibreForward !== "undefined" ? ScorerFibreForward : (typeof globalThis !== "undefined" && globalThis.ScorerFibreForward ? globalThis.ScorerFibreForward : null);
-let _ScorerProteinTradeoff = typeof ScorerProteinTradeoff !== "undefined" ? ScorerProteinTradeoff : (typeof globalThis !== "undefined" && globalThis.ScorerProteinTradeoff ? globalThis.ScorerProteinTradeoff : null);
-let _ScorerStrictDensity = typeof ScorerStrictDensity !== "undefined" ? ScorerStrictDensity : (typeof globalThis !== "undefined" && globalThis.ScorerStrictDensity ? globalThis.ScorerStrictDensity : null);
-let _ScorerGeneral = typeof ScorerGeneral !== "undefined" ? ScorerGeneral : (typeof globalThis !== "undefined" && globalThis.ScorerGeneral ? globalThis.ScorerGeneral : null);
+// Fix #3: fail-fast dependency resolution. If a dependency is missing the
+// error clearly names the missing module and the script ordering fix needed,
+// instead of silently resolving to null and crashing later inside
+// buildHealthFlags() with an opaque "Cannot read properties of null" error.
+function _require(name) {
+  const ref = (typeof self !== "undefined" && self[name]) || null;
+  if (!ref) throw new Error(
+    `[context-engine] Required global "${name}" not found. ` +
+    `Check manifest.json content_scripts / importScripts ordering.`
+  );
+  return ref;
+}
+const _HealthFlags = _require("HealthFlags");
+const _ScorerEnergyDense = _require("ScorerEnergyDense");
+const _ScorerFibreForward = _require("ScorerFibreForward");
+const _ScorerProteinTradeoff = _require("ScorerProteinTradeoff");
+const _ScorerStrictDensity = _require("ScorerStrictDensity");
+const _ScorerGeneral = _require("ScorerGeneral");
 
 const TRACKED_NUTRIENTS = [
   "EnergyKcal", "FatG", "PhosphorusMG",
@@ -202,20 +214,9 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = { NutritionContextEngine, Kernel, evaluateProductForUser, GROUP, CATEGORY_GROUP_MAP, MEDICAL_THRESHOLDS };
 }
 
-if (typeof globalThis !== "undefined") {
-  globalThis.NutritionContextEngine = NutritionContextEngine;
-  globalThis.Kernel = Kernel;
-  globalThis.evaluateProductForUser = evaluateProductForUser;
-}
-
+// Fix #1: single registration — self covers SW (self===globalThis) and content/window contexts.
 if (typeof self !== "undefined") {
   self.NutritionContextEngine = NutritionContextEngine;
   self.Kernel = Kernel;
   self.evaluateProductForUser = evaluateProductForUser;
-}
-
-if (typeof window !== "undefined") {
-  window.NutritionContextEngine = NutritionContextEngine;
-  window.Kernel = Kernel;
-  window.evaluateProductForUser = evaluateProductForUser;
 }
