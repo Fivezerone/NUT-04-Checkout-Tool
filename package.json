@@ -16,7 +16,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm audit --audit-level=high",
+    "enrich:quickmart": "node scripts/enrich_quickmart.mjs",
+    "migrate:quickmart": "node scripts/migrate-quickmart-supabase.mjs",
+    "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
     "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {

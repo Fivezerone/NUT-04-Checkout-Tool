@@ -33,7 +33,7 @@ export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> 
     const isRenewal = initialMode === 'renew';
     if (!isRenewal) {
       let rpcSucceeded = false;
-      let rpcError: any = null;
+      let rpcError: any;
       let data: any = null;
 
       try {

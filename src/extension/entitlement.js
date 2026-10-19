@@ -29,12 +29,11 @@ self.NutriEntitlement = (() => {
   let _getSupabase = null;
   function getSupabase() {
     if (_getSupabase) return _getSupabase();
-    // Fix #6: fail-fast — never silently create orphan Supabase clients in the SW.
-    // An orphan GoTrueClient spawns a hidden setInterval for token refresh that
-    // keeps the SW alive and never gets cleaned up.
+    if (typeof NutriSupabase !== "undefined" && typeof NUTRI_CONFIG !== "undefined") {
+      return NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+    }
     throw new Error(
-      '[NutriEntitlement] getSupabase() called before init(). ' +
-      'Ensure background.js calls NutriEntitlement.init() at boot.'
+      '[NutriEntitlement] getSupabase() called before init() and NutriSupabase unavailable.'
     );
   }
 

@@ -9,7 +9,7 @@ import { getDB } from "./shared";
 // In-memory cache for fast scanning to avoid slow IndexedDB cursors.
 // Entries are invalidated by importDatasets() whenever BUNDLED_DATASET_VERSION changes,
 // ensuring that a dataset update within a running SW session is immediately visible.
-export let memCache: { carrefour: any[] | null; naivas: any[] | null; quickmart: any[] | null } = {
+export const memCache: { carrefour: any[] | null; naivas: any[] | null; quickmart: any[] | null } = {
   carrefour: null,
   naivas: null,
   quickmart: null,
@@ -104,7 +104,7 @@ export async function resolveProductMatch(
   // Carrefour URL-path-fragment scan (requires full catalog — unavoidable)
   if (retailerProductId && isCarrefour) {
     const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`\/p\/${escapeRegExp(String(retailerProductId))}(?:\\?|\/|$)`);
+    const regex = new RegExp(`/p/${escapeRegExp(String(retailerProductId))}(?:\\?|/|$)`);
     const found = cacheArr.find(p => regex.test(p.Identity?.RetailerProductUrl || ""));
     if (found) {
       return { matched: true, matchMethod: "url_path_fragment", confidence: "high", product: found };

@@ -11,7 +11,8 @@ import type { Grade } from "../nutriscore";
 
 export function resolveTimeframe(timeframeKey: string, now = Date.now()) {
   const start = new Date(now);
-  let bucketUnit = "day", bucketCount = 1, tickLabelFormat = "short";
+  let bucketUnit = "day", bucketCount = 1;
+  const tickLabelFormat = "short";
 
   if (timeframeKey === "today") {
     start.setHours(0, 0, 0, 0);

@@ -21,18 +21,14 @@ export default defineConfig({
   // envDir must be set explicitly: when root='src/ui', Vite defaults envDir
   // to src/ui/ and won't find the .env at the project root.
   envDir: __dirname,
-  plugins: [
-    figmaAssetResolver(),
-    react({ jsxRuntime: 'classic' }),
-    tailwindcss(),
-  ],
+  plugins: [figmaAssetResolver(), react({ jsxRuntime: 'classic' }), tailwindcss()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/ui/src'),
-      "react": "preact/compat",
-      "react-dom": "preact/compat",
-      "react/jsx-runtime": "preact/jsx-runtime",
-      "react/jsx-dev-runtime": "preact/jsx-runtime",
+      react: 'preact/compat',
+      'react-dom': 'preact/compat',
+      'react/jsx-runtime': 'preact/jsx-runtime',
+      'react/jsx-dev-runtime': 'preact/jsx-runtime',
     },
   },
   build: {
@@ -43,10 +39,9 @@ export default defineConfig({
         popup: path.resolve(__dirname, 'src/ui/popup.html'),
         dashboard: path.resolve(__dirname, 'src/ui/dashboard.html'),
         options: path.resolve(__dirname, 'src/ui/options.html'),
-        onboarding: path.resolve(__dirname, 'src/ui/onboarding.html')
-      }
-    }
+        onboarding: path.resolve(__dirname, 'src/ui/onboarding.html'),
+      },
+    },
   },
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
-

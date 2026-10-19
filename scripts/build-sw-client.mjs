@@ -1,6 +1,6 @@
-import * as esbuild from 'esbuild';
-import fs from 'fs';
-import { SESSION_STORAGE_KEY } from '../src/shared/session-key.mjs';
+import * as esbuild from 'esbuild'
+import fs from 'fs'
+import { SESSION_STORAGE_KEY } from '../src/shared/session-key.mjs'
 
 const code = `
 import { AuthClient } from '@supabase/auth-js';
@@ -80,9 +80,9 @@ function createSlimClient(supabaseUrl, supabaseKey, options = {}) {
 self.NutriSupabase = {
   create: (url, key, options) => createSlimClient(url, key, options)
 };
-`;
+`
 
-fs.writeFileSync('src/extension/supabase-entry.js', code);
+fs.writeFileSync('src/extension/supabase-entry.js', code)
 
 await esbuild.build({
   entryPoints: ['src/extension/supabase-entry.js'],
@@ -93,8 +93,7 @@ await esbuild.build({
   // F-12: tree-shake realtime/storage/functions sub-modules that the SW never uses.
   // @supabase/auth-js + @supabase/postgrest-js = ~122 KB vs 223 KB (-45%).
   treeShaking: true,
-});
+})
 
-fs.unlinkSync('src/extension/supabase-entry.js');
-console.log('[build-sw-client] Built src/extension/supabase.js');
-
+fs.unlinkSync('src/extension/supabase-entry.js')
+console.log('[build-sw-client] Built src/extension/supabase.js')

@@ -1,9 +1,7 @@
 {
   "keys": [
     {
-      "key_ops": [
-        "verify"
-      ],
+      "key_ops": ["verify"],
       "ext": true,
       "kty": "EC",
       "x": "Yhm24FaU-4eauG5Ve5Ko22a5eWtTFVwsN0TBpadvFvA",

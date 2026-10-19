@@ -197,7 +197,7 @@ export function Dashboard({ onBack }: DashboardProps) {
   }
 
   // Fix #16: debounce IDB persistence — coalesce rapid toggles into a single write.
-  const settingsFlushRef = useRef<ReturnType<typeof setTimeout>>();
+  const settingsFlushRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   function updateSetting(key: keyof Settings, value: boolean) {
     setSettings((prev) => {

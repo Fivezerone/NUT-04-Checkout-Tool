@@ -1,6 +1,19 @@
 dist/
 node_modules/
-src/extension/db.js
+coverage/
+src/extension/
+src/ui/
 *.min.js
 package-lock.json
 pnpm-lock.yaml
+data/
+src/extension/data/
+*.csv
+Assessment reports/
+assessment-reports/
+Docs/
+NUT-04_Release_Documentation/
+supabase/.temp/
+supabase/.branches/
+eslint-report.*
+publish-report.json

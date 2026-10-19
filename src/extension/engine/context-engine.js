@@ -3,7 +3,11 @@
 // instead of silently resolving to null and crashing later inside
 // buildHealthFlags() with an opaque "Cannot read properties of null" error.
 function _require(name) {
-  const ref = (typeof self !== "undefined" && self[name]) || null;
+  const ref =
+    (typeof globalThis !== "undefined" && globalThis[name]) ||
+    (typeof self !== "undefined" && self[name]) ||
+    (typeof window !== "undefined" && window[name]) ||
+    null;
   if (!ref) throw new Error(
     `[context-engine] Required global "${name}" not found. ` +
     `Check manifest.json content_scripts / importScripts ordering.`
@@ -215,6 +219,11 @@ if (typeof module !== "undefined" && module.exports) {
 }
 
 // Fix #1: single registration — self covers SW (self===globalThis) and content/window contexts.
+if (typeof globalThis !== "undefined") {
+  globalThis.NutritionContextEngine = NutritionContextEngine;
+  globalThis.Kernel = Kernel;
+  globalThis.evaluateProductForUser = evaluateProductForUser;
+}
 if (typeof self !== "undefined") {
   self.NutritionContextEngine = NutritionContextEngine;
   self.Kernel = Kernel;

@@ -28,7 +28,7 @@ let _sb;
 let _sbReady; // Fix #5: promise that resolves after auth session rehydration.
 const sb = () => {
   if (!_sb) {
-    _sb = NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+    _sb ??= NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
     // Eagerly rehydrate session so callers never hit a null-session race.
     _sbReady = _sb.auth.getSession().catch(() => {});
   }
