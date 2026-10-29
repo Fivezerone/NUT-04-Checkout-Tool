@@ -38,39 +38,25 @@ describe("1. Popup Health Mode Toggle Deprecation", () => {
   });
 });
 
-describe("2. Options Tab Health Focus Selection & Persistence", () => {
-  it("Options.tsx updates component state immediately on focus card click", () => {
-    const cardClickIdx = optionsSrc.indexOf("setData(newData as any);");
-    expect(cardClickIdx).toBeGreaterThan(-1);
-    const cardClickBlock = optionsSrc.slice(cardClickIdx - 300, cardClickIdx + 300);
-
-    // setData(newData as any) ensures React re-renders and highlights the card instantly
-    expect(cardClickBlock).toContain("setData(newData as any);");
-    expect(cardClickBlock).toContain("MultiLayerStorage.updateDraft");
+describe("2. Options Tab 'My Care Profile' & Preference Persistence", () => {
+  it("Options.tsx renders read-only clinician-assigned mode and targets without condition picker or billingAddress", () => {
+    expect(optionsSrc).toContain("My Care Profile");
+    expect(optionsSrc).toContain("Prescribed by Clinician");
+    expect(optionsSrc).toContain("Active Prescribed Nutrient Thresholds");
+    expect(optionsSrc).not.toContain("billingAddress");
   });
 
-  it("Options.tsx handleSave persists condition to MultiLayerStorage, chrome.storage, and IndexedDB", () => {
-    const saveIdx = optionsSrc.indexOf("const handleSave = async () => {");
-    expect(saveIdx).toBeGreaterThan(-1);
-    const saveBlock = optionsSrc.slice(saveIdx, saveIdx + 3000);
-
-    expect(saveBlock).toContain("MultiLayerStorage.commitDraftToLive()");
-    expect(saveBlock).toContain("chrome.storage.local.set");
-    expect(saveBlock).toContain("uiTheme: theme");
-    expect(saveBlock).toContain("saveSettings");
-    expect(saveBlock).toContain("activeTheme: theme");
-    expect(saveBlock).toContain("diabetes: condition === \"diabetes\"");
-    expect(saveBlock).toContain("hypertension: condition === \"hypertension\"");
+  it("Options.tsx persists notification preferences to MultiLayerStorage and chrome.storage", () => {
+    expect(optionsSrc).toContain("handleSavePreferences");
+    expect(optionsSrc).toContain("MultiLayerStorage.commitDraftToLive()");
+    expect(optionsSrc).toContain("chrome.storage.local.set");
+    expect(optionsSrc).toContain("notificationFrequency: profile.notificationFrequency");
   });
 
-  it("Options.tsx loadData reconciles effective condition across storage layers", () => {
-    const loadIdx = optionsSrc.indexOf("const effectiveCondition =");
-    expect(loadIdx).toBeGreaterThan(-1);
-    const loadBlock = optionsSrc.slice(loadIdx, loadIdx + 500);
-
-    expect(loadBlock).toContain("local?.user_account");
-    expect(loadBlock).toContain("storageData?.user_account");
-    expect(loadBlock).toContain("idbSettings?.activeTheme");
+  it("Options.tsx loadCareProfile reconciles clinician and patient care profile", () => {
+    expect(optionsSrc).toContain("loadCareProfile");
+    expect(optionsSrc).toContain("ExtensionStorage.getOnboardingData");
+    expect(optionsSrc).toContain("tenant_members");
   });
 });
 

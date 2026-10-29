@@ -195,3 +195,4 @@ In acute patient safety situations (e.g., sudden anaphylaxis or ICU admission wh
 - Hashes are chained using SHA-256 (`prev_hash` $\to$ `row_hash`).
 - Table trigger `trg_audit_log_tamper` strictly forbids `UPDATE` and `DELETE` operations on the audit ledger.
 - The scheduled script `scripts/verify-audit-chain.mjs` runs in continuous verification to guarantee zero sequence gaps and cryptographic continuity across all clinic tenants.
+
