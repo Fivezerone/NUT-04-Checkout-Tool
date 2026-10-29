@@ -8,6 +8,7 @@ import { Navigation } from './components/Navigation'
 import { MfaChallenge } from './components/MfaChallenge'
 import { ClinicalOverview } from './views/ClinicalOverview'
 import { PatientTargetsView } from './views/PatientTargetsView'
+import { HealthModesView } from './views/HealthModesView'
 import { UserManagementView } from './views/UserManagementView'
 import { AuditLogView } from './views/AuditLogView'
 import { TenantSettingsView } from './views/TenantSettingsView'
@@ -137,6 +138,7 @@ const CadMainContent: React.FC = () => {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {currentTab === 'overview' && <ClinicalOverview />}
         {currentTab === 'targets' && <PatientTargetsView />}
+        {currentTab === 'modes' && <HealthModesView />}
         {currentTab === 'consent' && <PatientLinkingConsentView />}
         {currentTab === 'users' && <UserManagementView />}
         {currentTab === 'billing' && <BillingSubscriptionView />}

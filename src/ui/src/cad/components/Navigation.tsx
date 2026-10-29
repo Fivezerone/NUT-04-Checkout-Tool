@@ -14,7 +14,8 @@ import {
   LogOut, 
   Lock,
   CreditCard,
-  Link2
+  Link2,
+  HeartPulse
 } from 'lucide-react'
 
 interface NavigationProps {
@@ -132,6 +133,23 @@ export const Navigation: React.FC<NavigationProps> = ({ currentTab, setCurrentTa
             >
               <ShieldCheck className="w-4 h-4" />
               <span>Patient Targets</span>
+            </button>
+          )}
+
+          {(claims.role === 'writing_clinician' ||
+            claims.role === 'viewing_dietician' ||
+            claims.role === 'tenant_admin' ||
+            claims.role === 'super_admin') && (
+            <button
+              onClick={() => setCurrentTab('modes')}
+              className={`flex items-center space-x-2 py-3 px-1 border-b-2 text-sm font-medium ${
+                currentTab === 'modes'
+                  ? 'border-emerald-600 text-emerald-700'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <HeartPulse className="w-4 h-4" />
+              <span>Health Modes</span>
             </button>
           )}
 

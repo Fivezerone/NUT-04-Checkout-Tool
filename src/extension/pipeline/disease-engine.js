@@ -197,6 +197,71 @@ const DiseaseEngine = {
     });
   },
 
+  evaluateDynamicRules(resolvedProduct, rules) {
+    const alerts = [];
+    if (!Array.isArray(rules)) return alerts;
+
+    for (const rule of rules) {
+      const nutrientKey = rule.nutrient || rule.nutrientCode;
+      if (!nutrientKey) continue;
+
+      let actual = null;
+      if (nutrientKey === "SodiumMG" || nutrientKey === "sodium_mg") {
+        actual = resolvedProduct.sodiumMg?.value ?? resolvedProduct.Nutrition?.SodiumMG?.ValueMG ?? resolvedProduct.Nutrition?.SodiumMG;
+      } else if (resolvedProduct.values && resolvedProduct.values[nutrientKey]) {
+        actual = resolvedProduct.values[nutrientKey].value;
+      } else if (resolvedProduct.Nutrition && resolvedProduct.Nutrition[nutrientKey] !== undefined) {
+        const val = resolvedProduct.Nutrition[nutrientKey];
+        actual = typeof val === "object" && val !== null ? (val.ValueG ?? val.ValueMG ?? val.ValueKcal ?? val.value) : val;
+      }
+
+      if (actual === null || actual === undefined || isNaN(Number(actual))) continue;
+      const numActual = Number(actual);
+      const threshold = Number(rule.threshold ?? rule.value);
+      if (isNaN(threshold)) continue;
+
+      const comparator = (rule.comparator || "lte").toLowerCase();
+      let violated = false;
+
+      switch (comparator) {
+        case "lte":
+          violated = numActual > threshold;
+          break;
+        case "lt":
+          violated = numActual >= threshold;
+          break;
+        case "gte":
+          violated = numActual < threshold;
+          break;
+        case "gt":
+          violated = numActual <= threshold;
+          break;
+        case "eq":
+          violated = numActual !== threshold;
+          break;
+        default:
+          violated = numActual > threshold;
+      }
+
+      if (violated) {
+        const meta = NUTRIENT_LABELS[nutrientKey] || { label: nutrientKey, unit: rule.unit || "" };
+        alerts.push({
+          targetId: rule.targetId,
+          disease: rule.condition || rule.name || "Clinical Prescribed Target",
+          condition: rule.message || `Exceeds ${meta.label} limit (>${threshold}${rule.unit || meta.unit})`,
+          triggerQuantity: `${numActual}${rule.unit || meta.unit}`,
+          severity: rule.severity || "warning",
+          clinicalRationale: rule.clinicalRationale || rule.reason || "",
+          nutrient: nutrientKey,
+          threshold,
+          actual: numActual,
+          comparator,
+        });
+      }
+    }
+    return alerts;
+  },
+
   evaluate(product, patientProfile, normalized) {
     if (!product || !product.Nutrition) {
       throw new Error("Invalid schema: missing Nutrition object.");
@@ -204,10 +269,20 @@ const DiseaseEngine = {
 
     const resolved = normalized || _Kernel.normalizeProduct(product);
     const productId = product.Identity?.ProductID || null;
-    const conditionsProfile = patientProfile?.conditions || {};
-    const activeConditions = Object.keys(conditionsProfile).filter(c => conditionsProfile[c]?.active);
 
-    if (activeConditions.length === 0) {
+    // Backwards-compatibility: map flat boolean flags to conditions profile
+    let conditionsProfile = { ...(patientProfile?.conditions || {}) };
+    if (patientProfile && !patientProfile.conditions) {
+      if (patientProfile.diabetes) conditionsProfile.diabetes = { active: true };
+      if (patientProfile.hypertension) conditionsProfile.hypertension = { active: true };
+      if (patientProfile.kidney || patientProfile.renal) conditionsProfile.renal = { active: true };
+      if (patientProfile.obesity) conditionsProfile.obesity = { active: true };
+    }
+
+    const activeConditions = Object.keys(conditionsProfile).filter(c => conditionsProfile[c]?.active);
+    const dynamicRules = Array.isArray(patientProfile?.rules) ? patientProfile.rules : [];
+
+    if (activeConditions.length === 0 && dynamicRules.length === 0) {
       return {
         status: "no_active_conditions",
         productId,
@@ -227,6 +302,7 @@ const DiseaseEngine = {
     const diseaseAssessment = {};
     const warnings = [];
 
+    // 1. Evaluate hardcoded/preset disease conditions
     for (const condition of activeConditions) {
       if (!DISEASE_RULES[condition]) continue;
 
@@ -237,6 +313,12 @@ const DiseaseEngine = {
       diseaseAssessment[condition] = clean;
 
       warnings.push(...this.buildWarnings(condition, assessment));
+    }
+
+    // 2. Evaluate dynamic clinician-assigned rules
+    if (dynamicRules.length > 0) {
+      const dynamicAlerts = this.evaluateDynamicRules(resolved, dynamicRules);
+      warnings.push(...dynamicAlerts);
     }
 
     const interactionBurden = this.calculateInteractionBurden(activeConditions, rawAssessments);
@@ -252,15 +334,17 @@ const DiseaseEngine = {
 };
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { DiseaseEngine, DISEASE_RULES, INTERACTIONS, NUTRIENT_LABELS, CONDITION_DISPLAY_NAMES };
+  module.exports = { DiseaseEngine, NutriScoreEngine: DiseaseEngine, DISEASE_RULES, INTERACTIONS, NUTRIENT_LABELS, CONDITION_DISPLAY_NAMES };
 }
 
 // Fix #2: single registration — self covers SW (self===globalThis) and content/window contexts.
 if (typeof globalThis !== "undefined") {
   globalThis.DiseaseEngine = DiseaseEngine;
+  globalThis.NutriScoreEngine = DiseaseEngine;
   globalThis.DISEASE_RULES = DISEASE_RULES;
 }
 if (typeof self !== "undefined") {
   self.DiseaseEngine = DiseaseEngine;
+  self.NutriScoreEngine = DiseaseEngine;
   self.DISEASE_RULES = DISEASE_RULES;
 }

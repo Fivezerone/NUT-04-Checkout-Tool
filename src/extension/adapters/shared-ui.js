@@ -306,43 +306,8 @@ const NutriSharedUI = {
       const alertColor = activeTheme === "hypertension" ? "#C2410C" : (tc ? tc.label : "#C2410C");
 
       // Render disease warnings using plain colored text whenever any health condition except general wellness is selected.
-      let warningsList = Array.isArray(diseaseWarnings) ? [...diseaseWarnings] : [];
-
-      // Dynamic calculation fallback if diseaseWarnings is empty but nutritional values exceed benchmark
-      if (activeTheme !== "general" && warningsList.length === 0) {
-        if (activeTheme === "diabetes") {
-          if (prof.sugars_g !== null && prof.sugars_g !== undefined && prof.sugars_g > 22.5) {
-            warningsList.push({ disease: "Diabetes Risk", condition: "High sugar (>22.5g per 100g)", triggerQuantity: `${prof.sugars_g}g` });
-          }
-          if (prof.carbs_g !== null && prof.carbs_g !== undefined && prof.carbs_g > 60.0) {
-            warningsList.push({ disease: "Diabetes Risk", condition: "High carbohydrates (>60g per 100g)", triggerQuantity: `${prof.carbs_g}g` });
-          }
-        } else if (activeTheme === "hypertension") {
-          if (prof.sodium_mg !== null && prof.sodium_mg !== undefined && prof.sodium_mg > 600.0) {
-            warningsList.push({ disease: "Hypertension Risk", condition: "High sodium (>600mg per 100g)", triggerQuantity: `${prof.sodium_mg}mg` });
-          }
-          if (prof.sat_fat_g !== null && prof.sat_fat_g !== undefined && prof.sat_fat_g > 5.0) {
-            warningsList.push({ disease: "Hypertension Risk", condition: "High saturated fat (>5g per 100g)", triggerQuantity: `${prof.sat_fat_g}g` });
-          }
-        } else if (activeTheme === "kidney") {
-          if (prof.sodium_mg !== null && prof.sodium_mg !== undefined && prof.sodium_mg > 600.0) {
-            warningsList.push({ disease: "Kidney Risk", condition: "High sodium (>600mg per 100g)", triggerQuantity: `${prof.sodium_mg}mg` });
-          }
-          if (prof.potassium_mg !== null && prof.potassium_mg !== undefined && prof.potassium_mg > 200.0) {
-            warningsList.push({ disease: "Kidney Risk", condition: "High potassium (>200mg per 100g)", triggerQuantity: `${prof.potassium_mg}mg` });
-          }
-          if (prof.protein_g !== null && prof.protein_g !== undefined && prof.protein_g > 15.0) {
-            warningsList.push({ disease: "Kidney Risk", condition: "High protein (>15g per 100g)", triggerQuantity: `${prof.protein_g}g` });
-          }
-        } else if (activeTheme === "obesity") {
-          if (prof.sugars_g !== null && prof.sugars_g !== undefined && prof.sugars_g > 22.5) {
-            warningsList.push({ disease: "Obesity Risk", condition: "High sugar (>22.5g per 100g)", triggerQuantity: `${prof.sugars_g}g` });
-          }
-          if (prof.sat_fat_g !== null && prof.sat_fat_g !== undefined && prof.sat_fat_g > 5.0) {
-            warningsList.push({ disease: "Obesity Risk", condition: "High saturated fat (>5g per 100g)", triggerQuantity: `${prof.sat_fat_g}g` });
-          }
-        }
-      }
+      // Alerts originate solely from the clinical engine (duplicate threshold logic removed per Phase 5)
+      const warningsList = Array.isArray(diseaseWarnings) ? [...diseaseWarnings] : [];
 
       if (activeTheme !== "general" && tc && warningsList.length > 0) {
         diseaseHTML = warningsList.map(w => `

@@ -46,7 +46,7 @@ export interface TenantMember {
   licence_number?: string
   licence_expiry?: string
   licence_verified: boolean
-  status: 'active' | 'suspended' | 'revoked'
+  status: 'invited' | 'active' | 'suspended' | 'deactivated' | 'revoked'
   created_at: string
 }
 

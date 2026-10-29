@@ -67,6 +67,9 @@ function applyPersonalization(profile: UserProfile) {
   }
 }
 
+// D-11: definitive JWT error codes that warrant a sign-out
+const DEFINITIVE_AUTH_ERRORS = new Set(['PGRST301', '401', '403']);
+
 type AuthState =
   | "checking"
   | "unauthenticated"
@@ -75,16 +78,18 @@ type AuthState =
   | "consent_required"
   | "offline";
 
-interface EnrollmentResult {
-  kind: "ok" | "transient";
+interface SubscriptionResult {
+  kind: 'ok' | 'transient';
   subStatus: AuthState;
   profile: UserProfile | null;
   onboardingCompleted: boolean;
 }
 
-async function checkEnrollmentAndProfile(userId: string, fallbackName: string): Promise<EnrollmentResult> {
-  const TRANSIENT: EnrollmentResult = {
-    kind: "transient",
+type EnrollmentResult = SubscriptionResult;
+
+async function checkEnrollmentAndProfile(userId: string, fallbackName: string): Promise<SubscriptionResult> {
+  const TRANSIENT: SubscriptionResult = {
+    kind: 'transient',
     subStatus: "offline",
     profile: null,
     onboardingCompleted: false,
@@ -153,6 +158,9 @@ async function checkEnrollmentAndProfile(userId: string, fallbackName: string): 
   }
 }
 
+// Alias for D-11 backwards-compatibility
+const checkSubscriptionAndProfile = checkEnrollmentAndProfile;
+
 function buildProfile(name: string, condition: string, primaryMetric: string): UserProfile {
   const firstName = name.trim().split(" ")[0] || "Shopper";
   const initials =
@@ -191,12 +199,11 @@ function DashboardRoot() {
         if (typeof chrome !== "undefined" && chrome.storage?.local) {
           try {
             const local = (await chrome.storage.local.get([
-              "onboarding_completed",
               "patient_consent_accepted",
               "user_account",
             ])) as Record<string, any>;
 
-            if (local.onboarding_completed && local.patient_consent_accepted && local.user_account?.fullName) {
+            if (local.patient_consent_accepted && local.user_account?.fullName) {
               setProfile(
                 buildProfile(
                   local.user_account.fullName,
@@ -212,15 +219,15 @@ function DashboardRoot() {
           }
         }
 
-        const result = await checkEnrollmentAndProfile(session.user.id, fallbackName);
+        const result = await checkSubscriptionAndProfile(session.user.id, fallbackName);
 
         if (result.kind === "transient") {
-          setAuthState((prev) => (prev === "active" ? prev : "offline"));
+          setAuthState((prev) => (prev === "active" ? prev : 'offline'));
           setReady(true);
           return;
         }
 
-        if (result.subStatus === "active" && result.profile) {
+        if (result.subStatus === "active" && result.profile && result.onboardingCompleted) {
           setProfile(result.profile);
           setAuthState("active");
           setOnboardingCompleted(session.user.id, true).catch(() => {});
@@ -231,7 +238,7 @@ function DashboardRoot() {
         setReady(true);
       } catch (e) {
         console.error("[DashboardRoot] init() error:", e);
-        setAuthState("offline");
+        setAuthState('offline');
         setReady(true);
       }
     }
@@ -264,7 +271,7 @@ function DashboardRoot() {
     );
   }
 
-  if (authState === "offline") {
+  if (authState === 'offline') {
     return (
       <ThemeProvider>
         <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-6 text-center bg-slate-50">
@@ -324,7 +331,12 @@ function DashboardRoot() {
 
   return (
     <ThemeProvider>
-      <Dashboard profile={profile} />
+      <div
+        className="min-h-screen overflow-auto"
+        style={{ backgroundColor: "var(--background)" }}
+      >
+        <Dashboard onBack={() => window.close()} />
+      </div>
     </ThemeProvider>
   );
 }

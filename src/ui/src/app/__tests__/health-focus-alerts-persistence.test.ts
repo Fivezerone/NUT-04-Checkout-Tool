@@ -81,19 +81,13 @@ describe("3. Onboarding & Dashboard Theme Sync", () => {
 });
 
 describe("4. Flyout Disease Warning Alert Rendering & Evaluation", () => {
-  it("shared-ui.js evaluates diabetes thresholds (sugar > 22.5g, carbs > 60g) dynamically", () => {
-    expect(sharedUiSrc).toContain('activeTheme === "diabetes"');
-    expect(sharedUiSrc).toContain("prof.sugars_g > 22.5");
-    expect(sharedUiSrc).toContain("prof.carbs_g > 60.0");
-    expect(sharedUiSrc).toContain("High sugar (>22.5g per 100g)");
-  });
-
-  it("shared-ui.js evaluates hypertension, kidney, and obesity thresholds dynamically", () => {
-    expect(sharedUiSrc).toContain('activeTheme === "hypertension"');
-    expect(sharedUiSrc).toContain("prof.sodium_mg > 600.0");
-    expect(sharedUiSrc).toContain('activeTheme === "kidney"');
-    expect(sharedUiSrc).toContain("prof.potassium_mg > 200.0");
-    expect(sharedUiSrc).toContain('activeTheme === "obesity"');
+  it("shared-ui.js delegates disease warning evaluation to the clinical engine (duplicate threshold logic removed)", () => {
+    // Single source of truth: duplicate threshold logic in shared-ui.js was removed in Phase 5
+    expect(sharedUiSrc).toContain("Alerts originate solely from the clinical engine");
+    expect(sharedUiSrc).toContain("const warningsList = Array.isArray(diseaseWarnings) ? [...diseaseWarnings] : [];");
+    expect(sharedUiSrc).not.toContain("prof.sugars_g > 22.5");
+    expect(sharedUiSrc).not.toContain("prof.sodium_mg > 600.0");
+    expect(sharedUiSrc).not.toContain("prof.potassium_mg > 200.0");
   });
 
   it("shared-ui.js renders disease warnings whenever activeTheme !== 'general' without isPremium check", () => {
