@@ -321,6 +321,21 @@ async function seed() {
 }
 
 seed().catch((err) => {
-  console.error('Fatal error during mock seeding:', err)
+  if (
+    err?.cause?.code === 'ECONNREFUSED' ||
+    err?.message?.includes('fetch failed') ||
+    err?.message?.includes('connect ECONNREFUSED')
+  ) {
+    console.error('\n❌ CONNECTION REFUSED: Could not reach local Supabase at ' + SUPABASE_URL)
+    console.error('The local Supabase Docker containers are not currently running.')
+    console.error('\nTo start the local environment:')
+    console.error(
+      '  1. Launch Docker Desktop from the Start Menu (or run: Start-Process "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe")',
+    )
+    console.error('  2. Once Docker Desktop is running, start the stack: npx supabase start')
+    console.error('  3. Re-run: npm run seed:mocks\n')
+  } else {
+    console.error('Fatal error during mock seeding:', err)
+  }
   process.exit(1)
 })

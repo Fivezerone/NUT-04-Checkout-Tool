@@ -162,6 +162,16 @@ async function run() {
 }
 
 run().catch((err) => {
-  console.error('Fatal error during mock purge:', err)
+  if (
+    err?.cause?.code === 'ECONNREFUSED' ||
+    err?.message?.includes('fetch failed') ||
+    err?.message?.includes('connect ECONNREFUSED')
+  ) {
+    console.error('\n❌ CONNECTION REFUSED: Could not reach Supabase at ' + SUPABASE_URL)
+    console.error('The local Supabase Docker containers are not currently running.')
+    console.error('Make sure Docker Desktop is started and run: npx supabase start\n')
+  } else {
+    console.error('Fatal error during mock purge:', err)
+  }
   process.exit(1)
 })
