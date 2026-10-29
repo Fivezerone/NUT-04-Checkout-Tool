@@ -232,3 +232,126 @@ describe('T15: Break-Glass Escalation Invariants', () => {
     expect(isValidBreakGlass({ mutation_type: 'break_glass' })).toBe(false)
   })
 })
+
+describe('Phase 2: RBAC Provisioning & Lifecycle Invariants', () => {
+  const ROLE_HIERARCHY: Record<string, number> = {
+    super_admin: 100,
+    tenant_admin: 80,
+    compliance_auditor: 70,
+    writing_clinician: 60,
+    viewing_dietician: 50,
+    commercial_stakeholder: 40,
+    patient: 10,
+  }
+
+  const canProvisionRole = (callerRole: string, targetRole: string): boolean => {
+    if (targetRole === 'super_admin') return false // super_admin can never be provisioned via API
+    if (callerRole === 'writing_clinician' && targetRole !== 'patient') return false
+    const callerRank = ROLE_HIERARCHY[callerRole] ?? 0
+    const targetRank = ROLE_HIERARCHY[targetRole] ?? 0
+    return callerRank > targetRank
+  }
+
+  it('super_admin can provision tenant_admin, clinicians, and patients, but not super_admin', () => {
+    expect(canProvisionRole('super_admin', 'tenant_admin')).toBe(true)
+    expect(canProvisionRole('super_admin', 'writing_clinician')).toBe(true)
+    expect(canProvisionRole('super_admin', 'patient')).toBe(true)
+    expect(canProvisionRole('super_admin', 'super_admin')).toBe(false) // cannot create equal or superior
+  })
+
+  it('tenant_admin can provision writing_clinician, viewing_dietician, and patient, but NOT tenant_admin or super_admin', () => {
+    expect(canProvisionRole('tenant_admin', 'writing_clinician')).toBe(true)
+    expect(canProvisionRole('tenant_admin', 'viewing_dietician')).toBe(true)
+    expect(canProvisionRole('tenant_admin', 'patient')).toBe(true)
+    expect(canProvisionRole('tenant_admin', 'tenant_admin')).toBe(false) // equal rank prohibited
+    expect(canProvisionRole('tenant_admin', 'super_admin')).toBe(false) // privilege escalation prohibited
+  })
+
+  it('writing_clinician can only provision patients within their clinic', () => {
+    expect(canProvisionRole('writing_clinician', 'patient')).toBe(true)
+    expect(canProvisionRole('writing_clinician', 'viewing_dietician')).toBe(false)
+    expect(canProvisionRole('writing_clinician', 'writing_clinician')).toBe(false)
+    expect(canProvisionRole('writing_clinician', 'tenant_admin')).toBe(false)
+  })
+
+  it('patient cannot provision any user role', () => {
+    expect(canProvisionRole('patient', 'patient')).toBe(false)
+    expect(canProvisionRole('patient', 'writing_clinician')).toBe(false)
+  })
+
+  it('patient provisioning requires primary_clinician_id and tenant boundary matching', () => {
+    const validatePatientProvision = (payload: {
+      role: string
+      tenantId: string
+      callerTenantId: string
+      primaryClinicianId?: string
+    }) => {
+      if (payload.tenantId !== payload.callerTenantId) {
+        return { valid: false, error: 'Cross-tenant provisioning is prohibited' }
+      }
+      if (payload.role === 'patient' && !payload.primaryClinicianId) {
+        return { valid: false, error: 'Patient must be linked to exactly one primary clinician' }
+      }
+      return { valid: true }
+    }
+
+    const validPatient = validatePatientProvision({
+      role: 'patient',
+      tenantId: 'clinic-1',
+      callerTenantId: 'clinic-1',
+      primaryClinicianId: 'doc-123',
+    })
+    expect(validPatient.valid).toBe(true)
+
+    const missingClinician = validatePatientProvision({
+      role: 'patient',
+      tenantId: 'clinic-1',
+      callerTenantId: 'clinic-1',
+    })
+    expect(missingClinician.valid).toBe(false)
+    expect(missingClinician.error).toContain('primary clinician')
+
+    const crossTenant = validatePatientProvision({
+      role: 'patient',
+      tenantId: 'clinic-2',
+      callerTenantId: 'clinic-1',
+      primaryClinicianId: 'doc-123',
+    })
+    expect(crossTenant.valid).toBe(false)
+    expect(crossTenant.error).toContain('Cross-tenant')
+  })
+
+  it('account deactivation updates state machine and flags session revocation', () => {
+    type AccountStatus = 'invited' | 'active' | 'suspended' | 'deactivated'
+    const transitionStatus = (current: AccountStatus, next: AccountStatus) => {
+      const validTransitions: Record<AccountStatus, AccountStatus[]> = {
+        invited: ['active', 'deactivated'],
+        active: ['suspended', 'deactivated'],
+        suspended: ['active', 'deactivated'],
+        deactivated: ['active'],
+      }
+      if (!validTransitions[current]?.includes(next)) {
+        throw new Error(`Invalid status transition from ${current} to ${next}`)
+      }
+      return {
+        newStatus: next,
+        revokeSessions: next === 'suspended' || next === 'deactivated',
+      }
+    }
+
+    expect(transitionStatus('active', 'deactivated')).toEqual({
+      newStatus: 'deactivated',
+      revokeSessions: true,
+    })
+    expect(transitionStatus('active', 'suspended')).toEqual({
+      newStatus: 'suspended',
+      revokeSessions: true,
+    })
+    expect(transitionStatus('suspended', 'active')).toEqual({
+      newStatus: 'active',
+      revokeSessions: false,
+    })
+    expect(() => transitionStatus('invited', 'suspended')).toThrow('Invalid status transition')
+  })
+})
+
