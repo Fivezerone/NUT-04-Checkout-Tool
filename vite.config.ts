@@ -40,6 +40,7 @@ export default defineConfig({
         dashboard: path.resolve(__dirname, 'src/ui/dashboard.html'),
         options: path.resolve(__dirname, 'src/ui/options.html'),
         onboarding: path.resolve(__dirname, 'src/ui/onboarding.html'),
+        cad: path.resolve(__dirname, 'src/ui/cad.html'),
       },
     },
   },

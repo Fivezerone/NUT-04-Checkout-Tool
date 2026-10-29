@@ -241,6 +241,11 @@ self.NutriCatalogSync = (() => {
     const { data: { session } } = await supabase.auth.getSession();
     const isAuth = !!session;
 
+    if (!isAuth) {
+      console.warn("[NutriCatalogSync] User is unauthenticated. Skipping remote Supabase catalog sync; using local catalog.");
+      return;
+    }
+
     // 1. Fetch current release
     const { data: releaseData, error: releaseErr } = await supabase
       .from("catalog_releases")
@@ -248,11 +253,22 @@ self.NutriCatalogSync = (() => {
       .eq("is_current", true)
       .single();
       
-    if (releaseErr && releaseErr.code === 'PGRST116') {
-      console.warn("[NutriCatalogSync] No active catalog release found in Supabase. Skipping sync.");
+    if (releaseErr) {
+      if (releaseErr.code === 'PGRST116') {
+        console.warn("[NutriCatalogSync] No active catalog release found in Supabase. Skipping sync.");
+        return;
+      }
+      if (releaseErr.code === '42501') {
+        console.warn("[NutriCatalogSync] Permission denied for catalog_releases in Supabase. Skipping sync; using local catalog.");
+        return;
+      }
+      console.warn("[NutriCatalogSync] Failed to fetch catalog release:", releaseErr?.message || releaseErr);
       return;
     }
-    if (releaseErr || !releaseData) throw new Error("Failed to fetch catalog release: " + (releaseErr?.message || "No data"));
+    if (!releaseData) {
+      console.warn("[NutriCatalogSync] No catalog release data returned.");
+      return;
+    }
     
     const manifest = await verifyManifest(releaseData);
     let meta = (await NutriScoreDB.getCatalogMeta()) || {
@@ -344,9 +360,70 @@ self.NutriCatalogSync = (() => {
     }
   }
 
+  async function seedFallbackIfEmpty(db) {
+    for (const [code, { store, cacheKey }] of RETAILER_REGISTRY.entries()) {
+      try {
+        const count = await db.count(store).catch(() => 0);
+        if (count === 0) {
+          const filename = `${cacheKey}_products.json`;
+          const url = (typeof chrome !== "undefined" && chrome.runtime?.getURL)
+            ? chrome.runtime.getURL(`data/${filename}`)
+            : `/data/${filename}`;
+          const resp = await fetch(url).catch(e => {
+            console.warn(`[NutriCatalogSync] Could not fetch bundled ${filename}:`, e);
+            return null;
+          });
+          if (resp && resp.ok) {
+            const products = await resp.json();
+            if (Array.isArray(products) && products.length > 0) {
+              console.log(`[NutriCatalogSync] Seeding ${products.length} ${code} products into ${store}...`);
+              const tx = db.transaction(store, "readwrite");
+              for (const p of products) {
+                if (p?.Identity?.ProductID) {
+                  tx.store.put(p);
+                }
+              }
+              await tx.done;
+              console.log(`[NutriCatalogSync] ${code} local seed complete.`);
+              if (typeof NutriScoreDB !== "undefined") {
+                if (NutriScoreDB.memCache) NutriScoreDB.memCache[cacheKey] = null;
+                if (NutriScoreDB.normalizedIndexCache) NutriScoreDB.normalizedIndexCache[cacheKey] = null;
+                if (NutriScoreDB.lowerIndexCache) NutriScoreDB.lowerIndexCache[cacheKey] = null;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[NutriCatalogSync] Error seeding ${code} fallback:`, err);
+      }
+    }
+    try {
+      const meta = await NutriScoreDB.getCatalogMeta();
+      if (!meta || !meta.version) {
+        await NutriScoreDB.putCatalogMeta({
+          retailer: "_catalog",
+          version: "local-bundled",
+          maxSeq: 0,
+          cursor: 0,
+          stagingCursor: 0,
+          lastSyncAt: new Date().toISOString(),
+          disclaimer: "NutriScore grades are for informational purposes only. Consult a healthcare professional for dietary advice.",
+          updateRequired: false,
+          premiumVersion: ""
+        });
+      }
+    } catch (err) {
+      // Ignore meta error
+    }
+  }
+
   async function ensureReady() {
     if (!syncPromise) {
-      syncPromise = sync().catch(async e => {
+      syncPromise = (async () => {
+        const db = await NutriScoreDB.getDB();
+        await seedFallbackIfEmpty(db);
+        return await sync();
+      })().catch(async e => {
         const errName = e?.name || (e?.constructor?.name ?? "Error");
         const errMsg = e?.message || String(e);
         console.error(`[NutriCatalogSync] Sync failed (${errName}): ${errMsg}`, e);
@@ -385,5 +462,5 @@ self.NutriCatalogSync = (() => {
     _getSupabase = sbAccessor;
   }
 
-  return { init, ensureReady, sync };
+  return { init, ensureReady, sync, seedFallbackIfEmpty };
 })();

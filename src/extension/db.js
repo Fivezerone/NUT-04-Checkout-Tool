@@ -296,7 +296,7 @@ var NutriScoreDB = (() => {
 
   // src/ui/src/app/lib/db/shared.ts
   var DB_NAME = "nut04-nutriscore";
-  var DB_VERSION = 16;
+  var DB_VERSION = 17;
   var SCORING_VERSION = "v4";
   var dbPromise = null;
   function getDB() {
@@ -418,10 +418,12 @@ var NutriScoreDB = (() => {
               db.createObjectStore("premium_staging", { keyPath: "key" });
             }
           }
-          if (!db.objectStoreNames.contains("quickmartProducts")) {
-            const qStore = db.createObjectStore("quickmartProducts", { keyPath: "Identity.ProductID" });
-            qStore.createIndex("by-url", "Identity.RetailerProductUrl");
-            qStore.createIndex("by-name", "Identity.ProductName");
+          if (oldVersion < 17) {
+            if (!db.objectStoreNames.contains("quickmartProducts")) {
+              const qStore = db.createObjectStore("quickmartProducts", { keyPath: "Identity.ProductID" });
+              qStore.createIndex("by-url", "Identity.RetailerProductUrl");
+              qStore.createIndex("by-name", "Identity.ProductName");
+            }
           }
         }
       });
@@ -870,6 +872,26 @@ var NutriScoreDB = (() => {
       const found = cacheArr.find((p) => regex.test(p.Identity?.RetailerProductUrl || ""));
       if (found) {
         return { matched: true, matchMethod: "url_path_fragment", confidence: "high", product: found };
+      }
+    }
+    if (url && isQuickmart) {
+      const cleanSlug = (u) => {
+        if (!u) return null;
+        try {
+          const parsed = new URL(u, "https://www.quickmart.co.ke");
+          const path = parsed.pathname.replace(/^\/+|\/+$/g, "");
+          if (!path || path.startsWith("products/view/")) return null;
+          return path.replace(/-\d+$/, "").toLowerCase();
+        } catch {
+          return null;
+        }
+      };
+      const targetSlug = cleanSlug(url);
+      if (targetSlug) {
+        const found = cacheArr.find((p) => cleanSlug(p.Identity?.RetailerProductUrl || "") === targetSlug);
+        if (found) {
+          return { matched: true, matchMethod: "url_slug", confidence: "high", product: found };
+        }
       }
     }
     if (productName) {

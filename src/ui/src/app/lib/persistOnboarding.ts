@@ -12,8 +12,8 @@ export type OnboardingDeps = {
   email: string;
   dob: string;
   gender: string;
-  condition: string;
-  metric: string;
+  condition?: string;
+  metric?: string;
   notificationFrequency: "realtime" | "daily" | "weekly" | "off";
   termsAccepted: boolean;
   privacyAccepted: boolean;
@@ -25,7 +25,7 @@ export type OnboardingDeps = {
 export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> => {
   const {
     paymentRef, token, userId, user, fullName, email, dob, gender,
-    condition, metric, notificationFrequency, termsAccepted, privacyAccepted,
+    notificationFrequency, termsAccepted, privacyAccepted,
     initialMode, setFinishError, tier
   } = deps;
 
@@ -58,7 +58,7 @@ export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> 
             const isPremiumUser = tier !== 'basic';
             const { error: directErr } = await supabase.from('users').update({
               onboarding_completed: true,
-              onboarding_step: 4,
+              onboarding_step: 3,
               is_premium: isPremiumUser,
               updated_at: now
             }).eq('id', userId);
@@ -96,46 +96,60 @@ export const persistOnboarding = async (deps: OnboardingDeps): Promise<boolean> 
     }
   }
 
-  const finalTheme = condition && condition !== "general" ? condition : "general";
   const isPremiumUser = tier !== 'basic';
   
-  await ExtensionStorage.setOnboardingComplete(userId!, ({
+  const extStoragePromise = ExtensionStorage.setOnboardingComplete(userId!, ({
     onboarding_completed: true,
     nutriscore_is_premium: isPremiumUser,
     user_account: {
       fullName: fullName || "Guest",
-      email: email || ""
+      email: email || "",
     },
     user_preferences: {
-      healthMode: finalTheme !== "general",
       notificationFrequency: notificationFrequency || "realtime",
-      selectedTags: [condition, metric].filter(Boolean),
       termsAccepted: termsAccepted,
       privacyAccepted: privacyAccepted,
       consentTimestamp: new Date().toISOString()
     }
   } as any));
   
-  const settings = await getSettings();
-  await saveSettings({ ...settings, activeTheme: finalTheme as any });
-  
-  await MultiLayerStorage.updateDraft({ 
-    uiTheme: finalTheme,
-    onboarding_completed: true,
-    nutriscore_is_premium: isPremiumUser
-  });
-  await MultiLayerStorage.commitDraftToLive();
-
-  if (typeof chrome !== "undefined" && chrome.storage?.local) {
-    await chrome.storage.local.set({
-      onboarding_completed: true,
-      nutriscore_is_premium: isPremiumUser
+  // Preserve existing settings from getSettings(); do not write condition or activeTheme from onboarding
+  const settingsPromise = (async () => {
+    const settings = await getSettings();
+    await saveSettings({
+      ...settings,
+      profileName: fullName || settings.profileName || "Guest",
     });
-  }
+  })();
+  
+  const draftPromise = (async () => {
+    await MultiLayerStorage.updateDraft({ 
+      onboarding_completed: true,
+      nutriscore_is_premium: isPremiumUser,
+      user_account: {
+        fullName: fullName || "Guest",
+        email: email || "",
+      } as any,
+      user_preferences: {
+        notificationFrequency: notificationFrequency || "realtime",
+        termsAccepted: termsAccepted,
+        privacyAccepted: privacyAccepted,
+        consentTimestamp: new Date().toISOString()
+      }
+    });
+    await MultiLayerStorage.commitDraftToLive();
+  })();
 
-  if (token) {
-    await savePremiumStatus(token);
-  }
+  const localChromePromise = (typeof chrome !== "undefined" && chrome.storage?.local)
+    ? chrome.storage.local.set({
+        onboarding_completed: true,
+        nutriscore_is_premium: isPremiumUser,
+      })
+    : Promise.resolve();
+
+  const tokenPromise = token ? savePremiumStatus(token) : Promise.resolve();
+
+  await Promise.all([extStoragePromise, settingsPromise, draftPromise, localChromePromise, tokenPromise]);
 
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
     chrome.runtime.sendMessage({ action: "REFRESH_ENTITLEMENT" }).catch(() => {});

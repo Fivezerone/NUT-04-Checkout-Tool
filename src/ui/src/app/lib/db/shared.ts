@@ -82,7 +82,7 @@ interface NutriDB extends DBSchema {
 }
 
 const DB_NAME = "nut04-nutriscore";
-export const DB_VERSION = 16;
+export const DB_VERSION = 17;
 export const SCORING_VERSION = "v4";
 
 /**
@@ -244,10 +244,13 @@ export function getDB() {
             db.createObjectStore("premium_staging", { keyPath: "key" });
           }
         }
-        if (!db.objectStoreNames.contains("quickmartProducts")) {
-          const qStore = db.createObjectStore("quickmartProducts", { keyPath: "Identity.ProductID" });
-          qStore.createIndex("by-url", "Identity.RetailerProductUrl");
-          qStore.createIndex("by-name", "Identity.ProductName");
+        // v17: Add quickmartProducts store for Quickmart Kenya catalog support.
+        if (oldVersion < 17) {
+          if (!db.objectStoreNames.contains("quickmartProducts")) {
+            const qStore = db.createObjectStore("quickmartProducts", { keyPath: "Identity.ProductID" });
+            qStore.createIndex("by-url", "Identity.RetailerProductUrl");
+            qStore.createIndex("by-name", "Identity.ProductName");
+          }
         }
       },
     });

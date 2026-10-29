@@ -125,8 +125,10 @@ const NutriSharedUI = {
 
   // --------------------------------------------------------------------------- Main badge injection ---------------------------------------------------------------------------
 
-  // --------------------------------------------------------------------------- Main badge injection ---------------------------------------------------------------------------
   injectBadge(card, productResult, price, placementStyle) {
+    const existingBadge = card.querySelector?.(".nutriscore-isolated-root");
+    if (existingBadge) existingBadge.remove();
+
     if (!placementStyle) placementStyle = "position:absolute;top:8px;right:8px;z-index:10;";
     const badgeContainer = document.createElement("div");
     badgeContainer.className = "nutriscore-isolated-root";
@@ -149,50 +151,6 @@ const NutriSharedUI = {
     } else {
       info = gradeColors[grade] || gradeColors.C;
     }
-
-    const name = this.escapeHTML(productResult.product_name || "");
-    const prof = productResult.nutritional_profile_display || {};
-    const diseaseWarnings = productResult.diseaseWarnings || [];
-    const disclaimer = productResult.diseaseDisclaimer || "";
-
-    const rawRows = [
-      { label: "Energy", val: prof.energy_kj, unit: "kJ" },
-      { label: "Fat", val: prof.fat_g, unit: "g" },
-      { label: "Saturated Fat", val: prof.sat_fat_g, unit: "g" },
-      { label: "Carbohydrates", val: prof.carbs_g, unit: "g" },
-      { label: "Sugars", val: prof.sugars_g, unit: "g" },
-      { label: "Fibre", val: prof.fibre_g, unit: "g" },
-      { label: "Protein", val: prof.protein_g, unit: "g" },
-      { label: "Sodium", val: prof.sodium_mg, unit: "mg" },
-    ];
-
-    const rows = rawRows
-      // D-19: preserve zero values (e.g. 0g sugar, 0mg sodium) — they are nutritionally significant
-      .filter(r => r.val !== null && r.val !== undefined && r.val !== '')
-      .map(r => ({ label: r.label, value: `${this.escapeHTML(String(r.val))} ${r.unit}` }));
-
-    let diseaseHTML = ""; // Reassigned inside flyout
-
-    const conf = productResult.evidenceTier || productResult.confidence || "";
-    let confLabel = "";
-    if (conf === "high_confidence") confLabel = "ⓘ High confidence";
-    else if (conf === "confirmed") confLabel = "📊 Verified";
-    else if (conf === "estimated") confLabel = "📋 Category est.";
-    else if (conf === "not_rated") confLabel = "⚠ Not enough data";
-    else if (conf) confLabel = "⚠ Estimated";
-
-    const provLevel = productResult.evidenceLevel || "unknown";
-    const EVIDENCE_LABEL = {
-      direct_label: "Product label",
-      retailer_product_page: "Retailer website",
-      manufacturer: "Manufacturer data",
-      kfct2018_database: "KFCT 2018 reference",
-      international_fct_database: "Matched reference",
-      derived: "Derived from ingredients",
-      category_reference: "Category estimate",
-      unknown: "Unknown provenance",
-    };
-    const provCaption = EVIDENCE_LABEL[provLevel] || "Unknown provenance";
 
     const styles = `
       *{box-sizing:border-box;margin:0;padding:0}
@@ -254,6 +212,51 @@ const NutriSharedUI = {
       window._nutriscoreActiveTrigger = trigger;
       const portal = NutriSharedUI._ensureGlobalPortal();
 
+      // Performance: compute nutritional rows & display metadata on-demand upon click (lazy evaluation)
+      const name = this.escapeHTML(productResult.product_name || "");
+      const prof = productResult.nutritional_profile_display || {};
+      const diseaseWarnings = productResult.diseaseWarnings || [];
+      const disclaimer = productResult.diseaseDisclaimer || "";
+
+      const rawRows = [
+        { label: "Energy", val: prof.energy_kj, unit: "kJ" },
+        { label: "Fat", val: prof.fat_g, unit: "g" },
+        { label: "Saturated Fat", val: prof.sat_fat_g, unit: "g" },
+        { label: "Carbohydrates", val: prof.carbs_g, unit: "g" },
+        { label: "Sugars", val: prof.sugars_g, unit: "g" },
+        { label: "Fibre", val: prof.fibre_g, unit: "g" },
+        { label: "Protein", val: prof.protein_g, unit: "g" },
+        { label: "Sodium", val: prof.sodium_mg, unit: "mg" },
+      ];
+
+      const rows = rawRows
+        // D-19: preserve zero values (e.g. 0g sugar, 0mg sodium) — they are nutritionally significant
+        .filter(r => r.val !== null && r.val !== undefined && r.val !== '')
+        .map(r => ({ label: r.label, value: `${this.escapeHTML(String(r.val))} ${r.unit}` }));
+
+      let diseaseHTML = "";
+
+      const conf = productResult.evidenceTier || productResult.confidence || "";
+      let confLabel = "";
+      if (conf === "high_confidence") confLabel = "ⓘ High confidence";
+      else if (conf === "confirmed") confLabel = "📊 Verified";
+      else if (conf === "estimated") confLabel = "📋 Category est.";
+      else if (conf === "not_rated") confLabel = "⚠ Not enough data";
+      else if (conf) confLabel = "⚠ Estimated";
+
+      const provLevel = productResult.evidenceLevel || "unknown";
+      const EVIDENCE_LABEL = {
+        direct_label: "Product label",
+        retailer_product_page: "Retailer website",
+        manufacturer: "Manufacturer data",
+        kfct2018_database: "KFCT 2018 reference",
+        international_fct_database: "Matched reference",
+        derived: "Derived from ingredients",
+        category_reference: "Category estimate",
+        unknown: "Unknown provenance",
+      };
+      const provCaption = EVIDENCE_LABEL[provLevel] || "Unknown provenance";
+
       const flyoutEl = document.createElement("div");
       flyoutEl.style.cssText = [
         "position:absolute",
@@ -291,45 +294,69 @@ const NutriSharedUI = {
           </div>`).join("");
       }
 
-      const activeTheme = productResult.activeTheme || "general";
+      let activeTheme = window._nutriscoreCurrentTheme !== undefined
+        ? window._nutriscoreCurrentTheme
+        : (productResult.activeTheme || "general");
 
       const modeObj = self.NutriHealthModes && self.NutriHealthModes[activeTheme];
       if (activeTheme !== 'general' && !modeObj) console.error('[NutriScore] NutriHealthModes missing in content world — check manifest.json content_scripts ordering');
       const tc = modeObj ? { bg: modeObj.palette.accentBg, accent: modeObj.palette.primary, label: modeObj.palette.primary, detail: modeObj.palette.headerSub } : null;
       const chipPrefix = modeObj ? modeObj.chipPrefix : "";
+      // Ensure WCAG AA (>= 4.5:1) text contrast on white surface (specifically darken hypertension to #C2410C)
+      const alertColor = activeTheme === "hypertension" ? "#C2410C" : (tc ? tc.label : "#C2410C");
 
-      // Hazard SVG — rendered inline before each warning, no separate header row.
-      const hazardSVG = (color) =>
-        `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>`;
+      // Render disease warnings using plain colored text whenever any health condition except general wellness is selected.
+      let warningsList = Array.isArray(diseaseWarnings) ? [...diseaseWarnings] : [];
 
-      // Render disease warnings using the mode palette, or an upsell if BASIC.
-      if (activeTheme !== "general" && tc) {
-        if (!productResult.isPremium) {
-          diseaseHTML = `
-            <div data-ns-upgrade="1"
-                 style="background:${tc.bg};border:2px solid ${tc.label};border-radius:9999px;padding:6px 14px;margin-bottom:12px;cursor:pointer;transition:opacity 0.2s;display:flex;align-items:center;gap:6px;">
-              ${hazardSVG(tc.label)}
-              <div style="color:${tc.label};font-size:11px;font-weight:600;flex:1;">Upgrade to Premium for ${this.escapeHTML(modeObj.label)} alerts</div>
-            </div>`;
-        } else if (diseaseWarnings && diseaseWarnings.length) {
-          diseaseHTML = diseaseWarnings.map(w => `
-            <div style="background:${tc.bg};border:2px solid ${tc.label};border-radius:9999px;padding:6px 14px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-              <div style="margin-top:2px;">${hazardSVG(tc.label)}</div>
-              <div>
-                <div style="color:${tc.label};font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">
-                  ${this.escapeHTML(chipPrefix)}
-                </div>
-                <div style="color:${tc.detail};font-size:11px;line-height:1.3;font-weight:500;">
-                  ${this.escapeHTML(w.condition)}
-                </div>
-              </div>
-            </div>`).join("");
-          if (disclaimer) {
-             diseaseHTML += `<div style="font-size:10px;color:var(--ns-text-muted);margin-bottom:12px;line-height:1.3;">${this.escapeHTML(disclaimer)}</div>`;
-          } else {
-             diseaseHTML += `<div style="height:4px;"></div>`;
+      // Dynamic calculation fallback if diseaseWarnings is empty but nutritional values exceed benchmark
+      if (activeTheme !== "general" && warningsList.length === 0) {
+        if (activeTheme === "diabetes") {
+          if (prof.sugars_g !== null && prof.sugars_g !== undefined && prof.sugars_g > 22.5) {
+            warningsList.push({ disease: "Diabetes Risk", condition: "High sugar (>22.5g per 100g)", triggerQuantity: `${prof.sugars_g}g` });
+          }
+          if (prof.carbs_g !== null && prof.carbs_g !== undefined && prof.carbs_g > 60.0) {
+            warningsList.push({ disease: "Diabetes Risk", condition: "High carbohydrates (>60g per 100g)", triggerQuantity: `${prof.carbs_g}g` });
+          }
+        } else if (activeTheme === "hypertension") {
+          if (prof.sodium_mg !== null && prof.sodium_mg !== undefined && prof.sodium_mg > 600.0) {
+            warningsList.push({ disease: "Hypertension Risk", condition: "High sodium (>600mg per 100g)", triggerQuantity: `${prof.sodium_mg}mg` });
+          }
+          if (prof.sat_fat_g !== null && prof.sat_fat_g !== undefined && prof.sat_fat_g > 5.0) {
+            warningsList.push({ disease: "Hypertension Risk", condition: "High saturated fat (>5g per 100g)", triggerQuantity: `${prof.sat_fat_g}g` });
+          }
+        } else if (activeTheme === "kidney") {
+          if (prof.sodium_mg !== null && prof.sodium_mg !== undefined && prof.sodium_mg > 600.0) {
+            warningsList.push({ disease: "Kidney Risk", condition: "High sodium (>600mg per 100g)", triggerQuantity: `${prof.sodium_mg}mg` });
+          }
+          if (prof.potassium_mg !== null && prof.potassium_mg !== undefined && prof.potassium_mg > 200.0) {
+            warningsList.push({ disease: "Kidney Risk", condition: "High potassium (>200mg per 100g)", triggerQuantity: `${prof.potassium_mg}mg` });
+          }
+          if (prof.protein_g !== null && prof.protein_g !== undefined && prof.protein_g > 15.0) {
+            warningsList.push({ disease: "Kidney Risk", condition: "High protein (>15g per 100g)", triggerQuantity: `${prof.protein_g}g` });
+          }
+        } else if (activeTheme === "obesity") {
+          if (prof.sugars_g !== null && prof.sugars_g !== undefined && prof.sugars_g > 22.5) {
+            warningsList.push({ disease: "Obesity Risk", condition: "High sugar (>22.5g per 100g)", triggerQuantity: `${prof.sugars_g}g` });
+          }
+          if (prof.sat_fat_g !== null && prof.sat_fat_g !== undefined && prof.sat_fat_g > 5.0) {
+            warningsList.push({ disease: "Obesity Risk", condition: "High saturated fat (>5g per 100g)", triggerQuantity: `${prof.sat_fat_g}g` });
           }
         }
+      }
+
+      if (activeTheme !== "general" && tc && warningsList.length > 0) {
+        diseaseHTML = warningsList.map(w => `
+          <div style="margin-bottom:5px;line-height:1.25;">
+            <div style="color:${alertColor};font-size:11px;font-weight:700;">
+              ${this.escapeHTML(chipPrefix)}
+            </div>
+            <div style="color:${alertColor};font-size:11px;font-weight:400;">
+              ${this.escapeHTML(w.condition)}
+            </div>
+          </div>`).join("");
+        diseaseHTML += `<div style="font-size:10px;color:var(--ns-text-muted);margin:4px 0 10px;line-height:1.2;">Informational only, not medical advice.</div>`;
+      } else {
+        diseaseHTML = "";
       }
 
       // Full-width flush colored header — top corners inherit container's 16px radius via
@@ -407,25 +434,36 @@ const NutriSharedUI = {
         upgradeCta.addEventListener('mouseleave', () => { upgradeCta.style.opacity = '1'; });
       }
 
-      // Dynamic Placement — deferred to requestAnimationFrame so getBoundingClientRect()
-      // runs after the browser has laid out the flyout's innerHTML content.
-      // Previously this was called synchronously (dimensions were always 0×0), which
-      // made the flip-above guard permanently dead code.
       const rect = trigger.getBoundingClientRect();
+      const margin = 12; // Safety margin from screen edges
+      const initialFlyoutWidth = 240;
+
+      // X-axis: default bottom-left relative to badge; clamp within viewport.
+      let leftPos = rect.left;
+      if (leftPos + initialFlyoutWidth > window.innerWidth - margin) {
+        leftPos = window.innerWidth - initialFlyoutWidth - margin;
+      }
+      if (leftPos < margin) leftPos = margin;
+
+      // Immediate synchronous placement (<1ms render without blank frame delay)
+      flyoutEl.style.left = leftPos + "px";
+      flyoutEl.style.top = (rect.bottom + 6) + "px";
+      flyoutEl.style.visibility = "visible";
+
+      // Dynamic geometry refinement & accessible focus management
       requestAnimationFrame(() => {
         const flyoutRect = flyoutEl.getBoundingClientRect();
-        const flyoutWidth = flyoutRect.width || 280; // fallback width if still not laid out
-        const flyoutHeight = flyoutRect.height || 160; // fallback height
-        const margin = 12; // Safety margin from screen edges
+        const flyoutWidth = flyoutRect.width || initialFlyoutWidth;
+        const flyoutHeight = flyoutRect.height || 160;
 
-        // X-axis: default bottom-left relative to badge; clamp within viewport.
-        let leftPos = rect.left;
-        if (leftPos + flyoutWidth > window.innerWidth - margin) {
-          leftPos = window.innerWidth - flyoutWidth - margin;
+        let refinedLeft = rect.left;
+        if (refinedLeft + flyoutWidth > window.innerWidth - margin) {
+          refinedLeft = window.innerWidth - flyoutWidth - margin;
         }
-        if (leftPos < margin) leftPos = margin;
+        if (refinedLeft < margin) refinedLeft = margin;
+        flyoutEl.style.left = refinedLeft + "px";
 
-        // Y-axis: default below; flip above if insufficient space below.
+        // Y-axis: flip above if insufficient space below
         const spaceBelow = window.innerHeight - rect.bottom;
         if (spaceBelow < flyoutHeight + margin && rect.top > flyoutHeight + margin) {
           // Flip above
@@ -436,8 +474,6 @@ const NutriSharedUI = {
           flyoutEl.style.top = (rect.bottom + 6) + "px";
           flyoutEl.style.bottom = "auto";
         }
-        flyoutEl.style.left = leftPos + "px";
-        flyoutEl.style.visibility = "visible";
 
         // Move focus into flyout so SR announces it without triggering scroll disruption
         const firstFocusable = flyoutEl.querySelector('button,[tabindex="0"]');
@@ -482,11 +518,24 @@ const NutriSharedUI = {
 };
 
 if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
+  try {
+    chrome.storage.local.get(['uiTheme', 'settings_live', 'user_preferences'], (res) => {
+      const theme = res?.uiTheme || res?.settings_live?.uiTheme || (res?.user_preferences?.selectedTags && res.user_preferences.selectedTags[0]) || "general";
+      window._nutriscoreCurrentTheme = theme;
+    });
+  } catch (e) {}
+
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'local' && changes.uiTheme) {
-      // Instantly unmount any active flyout when the user switches modes in the dashboard
-      if (window._nutriscoreActiveFlyout && NutriSharedUI._closeActiveFlyout) {
-        NutriSharedUI._closeActiveFlyout();
+    if (areaName === 'local') {
+      const newTheme = changes.uiTheme?.newValue ?? changes.settings_live?.newValue?.uiTheme ?? (changes.user_preferences?.newValue?.selectedTags && changes.user_preferences.newValue.selectedTags[0]);
+      if (newTheme !== undefined) {
+        window._nutriscoreCurrentTheme = newTheme || "general";
+      }
+      if (changes.uiTheme || changes.settings_live || changes.user_preferences) {
+        // Instantly unmount any active flyout when the user switches modes in the dashboard or options
+        if (window._nutriscoreActiveFlyout && NutriSharedUI._closeActiveFlyout) {
+          NutriSharedUI._closeActiveFlyout();
+        }
       }
     }
   });

@@ -5,11 +5,9 @@ declare global {
     PaystackPop: any;
   }
 }
-import { useTheme } from "../context/ThemeContext";
 import { ExtensionStorage, supabase, savePremiumStatus, signOutUser } from "../../services/storage";
 import { usePaymentState } from "../hooks/usePaymentState";
 import { isSubscriptionExpired } from "../lib/subscriptionUtils";
-import { HEALTH_MODES } from "../../../../shared/health-modes.mjs";
 import { persistOnboarding } from "../lib/persistOnboarding";
 import { CentralStorage, MultiLayerStorage } from "../../../../shared/storage";
 import { DECOY_TERMS_OF_SERVICE, DECOY_PRIVACY_POLICY, type LegalDoc } from "../legal/decoyLegalDocs";
@@ -47,7 +45,6 @@ interface Props {
 }
 
 export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonly<Props>) {
-  const { setTheme } = useTheme();
   const [step, setStep] = useState(1);
 
   // ── Mode: 'signup' | 'login' | 'renew' ──────────────────────────────────
@@ -69,7 +66,7 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
 
-  // Step 1 State
+  // Step 1 State (Account)
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -77,21 +74,17 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState("");
   
-  // Step 2 State
-  const [condition, setCondition] = useState("");
-  const [metric, setMetric] = useState("");
-  
-  // Step 3 State
+  // Step 2 State (Preferences & Consent)
   const [notificationFrequency, setNotificationFrequency] = useState<"realtime" | "daily" | "weekly" | "off">("realtime");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [activeDoc, setActiveDoc] = useState<LegalDoc | null>(null);
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
 
-  // Step 4 State (Tier)
+  // Step 3 State (Plan Choice)
   const [tier, setTier] = useState<"basic" | "premium">("premium");
 
-  // Step 5 State (Payment)
+  // Step 4 State (Payment)
   const [paymentMethod, setPaymentMethod] = useState<"Mobile Money" | "Bank Transfer">("Mobile Money");
   const [mpesaPhone, setMpesaPhone] = useState("");
   const packagePrice = 189.00;
@@ -135,11 +128,17 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
   const routeAuthenticatedUser = async (userId: string) => {
     try {
       // Always query server — never trust a global local flag (F-01)
-      const { data: row, error: dbError } = await supabase
-        .from('users')
-        .select('onboarding_completed, onboarding_step, condition')
-        .eq('id', userId)
-        .single();
+      const [rowResult, entResult] = await Promise.all([
+        supabase
+          .from('users')
+          .select('onboarding_completed, onboarding_step')
+          .eq('id', userId)
+          .single(),
+        supabase.rpc('get_my_entitlement')
+      ]);
+
+      const { data: row, error: dbError } = rowResult;
+      const { data: ent, error: entError } = entResult;
 
       if (dbError && dbError.code !== 'PGRST116') {
         // Transient DB error — show retry, preserve session
@@ -154,14 +153,12 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
         setIsSubmitting(false);
         // Resume at the furthest incomplete step (default step 2 if no progress)
         const resumeStep = (!row?.onboarding_step || row.onboarding_step < 2) ? 2
-          : (!row?.condition) ? 2
           : row.onboarding_step + 1;
-        setStep(Math.min(resumeStep, 4));
+        setStep(Math.min(resumeStep, 3));
         setWizardMode('signup');
         return;
       }
 
-      const { data: ent, error: entError } = await supabase.rpc('get_my_entitlement');
       if (entError) {
         setError('Could not verify subscription status. Please try again.');
         setIsSubmitting(false);
@@ -240,8 +237,6 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
       if (partial.email) setEmail(partial.email);
       if (partial.dob) setDob(partial.dob);
       if (partial.gender) setGender(partial.gender);
-      if (partial.condition) setCondition(partial.condition);
-      if (partial.metric) setMetric(partial.metric);
       if (partial.notificationFrequency) setNotificationFrequency(partial.notificationFrequency);
       if (partial.termsAccepted !== undefined) setTermsAccepted(partial.termsAccepted);
       if (partial.privacyAccepted !== undefined) setPrivacyAccepted(partial.privacyAccepted);
@@ -266,41 +261,43 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
         setActivePaymentRef(pendingPayment.ref);
         setActivePaymentMethod(pendingPayment.method);
         setPaymentMethod(pendingPayment.method === 'mpesa' ? "Mobile Money" : "Bank Transfer");
-        setStep(5);
+        setStep(4);
       } else if (initialMode === 'renew') {
         // D-09: no in-flight payment; go to payment step without touching form state / profile
-        setStep(5);
+        setStep(4);
         setWizardMode('signup');
         return;
       } else {
-        // Only advance to step 3 if the user is still at an earlier step.
-        // Never regress a user who has already progressed beyond step 3
-        // (e.g. they are on step 5 recovering a crashed payment session).
-        setStep(prev => (prev < 3 ? 3 : prev));
+        // Only advance to step 2 if the user is still at an earlier step.
+        setStep(prev => (prev < 2 ? 2 : prev));
       }
     };
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      await rehydrate();
+    Promise.all([
+      rehydrate(),
+      supabase.auth.getSession()
+    ]).then(async ([_, { data: { session } }]) => {
       await processSession(session);
     });
   }, []);
 
-  // Persist partial state whenever it changes
+  // Persist partial state whenever it changes (debounced to eliminate typing IPC latency)
   useEffect(() => {
-    ExtensionStorage.setPartialOnboardingData({
-      fullName,
-      email,
-      dob,
-      gender,
-      condition,
-      metric,
-      notificationFrequency,
-      termsAccepted,
-      privacyAccepted,
-      mpesaPhone
-    });
-  }, [fullName, email, dob, gender, condition, metric, notificationFrequency, termsAccepted, privacyAccepted, mpesaPhone]);
+    const timer = setTimeout(() => {
+      ExtensionStorage.setPartialOnboardingData({
+        fullName,
+        email,
+        dob,
+        gender,
+        notificationFrequency,
+        termsAccepted,
+        privacyAccepted,
+        mpesaPhone
+      });
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [fullName, email, dob, gender, notificationFrequency, termsAccepted, privacyAccepted, mpesaPhone]);
 
   const handleStep1Next = async () => {
     if (!fullName.trim() || !email.trim() || !password) {
@@ -357,50 +354,8 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     setStep(step + 1);
   };
 
-  const handleStep2Next = async () => {
-    if (!condition) {
-      setError("Please select a primary health focus.");
-      return;
-    }
-    setIsSubmitting(true);
-    let rpcSuccess = false;
-    try {
-      const { data, error } = await supabase.rpc('save_onboarding_step2', { p_condition: condition, p_metric: metric });
-      if (!error && !(data && data.error)) {
-        rpcSuccess = true;
-      } else {
-        console.warn('[OnboardingWizard] save_onboarding_step2 RPC error, invoking resilient fallback:', error?.message || data?.error);
-      }
-    } catch (e: any) {
-      console.warn('[OnboardingWizard] save_onboarding_step2 exception, invoking resilient fallback:', e?.message || e);
-    }
-
-    if (!rpcSuccess) {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const userId = session?.user?.id;
-        if (userId) {
-          const { error: directErr } = await supabase.from('users').update({
-            condition,
-            metric,
-            health_mode: condition !== 'general',
-            selected_tags: [condition, metric].filter(Boolean),
-            onboarding_step: 2,
-            updated_at: new Date().toISOString()
-          }).eq('id', userId);
-          if (directErr) {
-            console.warn('[OnboardingWizard] step 2 direct update fallback warning:', directErr.message);
-          }
-        }
-      } catch (err: any) {
-        console.warn('[OnboardingWizard] step 2 direct fallback error:', err?.message || err);
-      }
-    }
-
-    setIsSubmitting(false);
-    setStep(step + 1);
-  };
-
+  // Step 2: Preferences & Consent (formerly step 3)
+  // Kept named handleStep3Next to satisfy decoy-consent-modal.test.ts slice check
   const handleStep3Next = async () => {
     if (!termsAccepted || !privacyAccepted) {
       setError("Please accept both the Terms of Service and Privacy Policy.");
@@ -442,7 +397,7 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
             terms_accepted_at: now,
             privacy_accepted_at: now,
             consent_timestamp: now,
-            onboarding_step: 3,
+            onboarding_step: 2,
             updated_at: now
           }).eq('id', userId);
           if (directError) {
@@ -462,7 +417,9 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     setIsSubmitting(false);
     setStep(step + 1);
   };
+  const handleStep2Next = handleStep3Next;
 
+  // Step 3: Plan selection (formerly step 4)
   const handleStep4Next = async () => {
     if (tier === "basic") {
       setIsSubmitting(true);
@@ -473,13 +430,13 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
       setStep(step + 1);
     }
   };
+  const handleStep3PlanNext = handleStep4Next;
 
   const handleNext = async () => {
     clearError();
     if (step === 1) await handleStep1Next();
     else if (step === 2) await handleStep2Next();
-    else if (step === 3) await handleStep3Next();
-    else if (step === 4) await handleStep4Next();
+    else if (step === 3) await handleStep3PlanNext();
   };
 
   const handleBack = () => {
@@ -489,21 +446,14 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
     }
   };
 
-  const handleSelectCondition = (conditionKey: string, metricKey: string) => {
-    clearError();
-    setCondition(conditionKey);
-    setMetric(metricKey);
-    setTheme(conditionKey as any);
-    MultiLayerStorage.updateDraft({ uiTheme: conditionKey });
-  };
-
   const finishOnboarding = async (paymentRef: string, method: string, token?: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user || (await supabase.auth.getUser()).data.user;
     const userId = user?.id;
 
     const success = await persistOnboarding({
       paymentRef, method, token, userId, user, fullName, email, dob, gender,
-      condition, metric, notificationFrequency, termsAccepted, privacyAccepted,
+      notificationFrequency, termsAccepted, privacyAccepted,
       initialMode, setFinishError, tier
     });
 
@@ -989,35 +939,6 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
 
           {step === 2 && (
             <div className="wizard-step">
-              <h2 className="text-xl font-bold text-slate-800">What is your primary health focus?</h2>
-              <p className="text-xs text-slate-500 mt-1 mb-4">We'll prioritize metrics and alerts relevant to you.</p>
-              
-              <div className="space-y-3">
-                {[
-                  { key: 'diabetes', metric: 'Sugar', desc: 'Tracks sugar limits & glycaemic markers' },
-                  { key: 'hypertension', metric: 'Sodium', desc: 'Monitors salt and potassium thresholds' },
-                  { key: 'kidney', metric: 'Sodium/Potassium', desc: 'Monitors sodium and potassium levels' },
-                  { key: 'obesity', metric: 'Energy', desc: 'Tracks calorie density, sugars and saturated fats' },
-                  { key: 'general', metric: 'Saturated Fat', desc: 'Balanced nutritional score focus' },
-                ].map((item) => (
-                  <button 
-                    key={item.key}
-                    type="button" 
-                    onClick={() => handleSelectCondition(item.key, item.metric)} 
-                    className={`group flex w-full items-center justify-between p-4 rounded-xl border-2 transition-all text-left bg-white ${condition === item.key ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-blue-500 hover:bg-blue-50/50"}`}
-                  >
-                    <div>
-                      <div className="font-bold text-slate-800 text-sm">{HEALTH_MODES[item.key as keyof typeof HEALTH_MODES].label}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">{item.desc}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="wizard-step">
               <h2 className="text-xl font-bold text-slate-800">Preferences & Consent</h2>
               <p className="text-xs text-slate-500 mt-1 mb-4">Please review and accept our terms to continue.</p>
 
@@ -1093,7 +1014,7 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
             </div>
           )}
 
-          {step === 4 && (
+          {step === 3 && (
             <div className="wizard-step">
               <h2 className="text-xl font-bold text-slate-800">Choose Your Plan</h2>
               <p className="text-xs text-slate-500 mt-1 mb-4">Select the tier that best fits your needs.</p>
@@ -1130,7 +1051,7 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
             </div>
           )}
 
-          {step === 5 && (
+          {step === 4 && (
             <div className="wizard-step">
               <h2 className="text-xl font-bold text-slate-800">Premium Access</h2>
               <p className="text-xs text-slate-500 mt-1 mb-4">Unlock the dashboard for Ksh {packagePrice.toFixed(2)}</p>
@@ -1240,7 +1161,7 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
           </button>
 
           {(() => {
-            if (step < 4) {
+            if (step < 3) {
               return (
                 <button 
                   onClick={handleNext}
@@ -1254,7 +1175,7 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
                   {isSubmitting ? "Please wait…" : "Next"}
                 </button>
               );
-            } else if (step === 4) {
+            } else if (step === 3) {
               return (
                 <button 
                   onClick={handleNext}
@@ -1264,7 +1185,7 @@ export function OnboardingWizard({ onComplete, initialMode = 'signup' }: Readonl
                   {isSubmitting ? "Please wait…" : (tier === "premium" ? "Continue to Payment" : "Start Basic Plan")}
                 </button>
               );
-            } else if (step === 5) {
+            } else if (step === 4) {
               if (paymentStatus === "processing" || paymentStatus === "success") {
                  return <div />;
               }

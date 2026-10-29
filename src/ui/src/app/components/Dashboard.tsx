@@ -4,9 +4,9 @@ import { toast } from "sonner";
 
 import { ChartBox } from "./ChartBox";
 import { DonutChart, LineTrend, StackedHBarChart, type StackedHBar } from "./charts/Charts";
-import { ExtensionStorage, ChromeExtensionStorage } from "../../services/storage";
+import { ChromeExtensionStorage, ExtensionStorage } from "../../services/storage";
 import { getAllEntries, purgeAll, getSettings, saveSettings, deleteLedgerEntry, DEFAULT_SETTINGS, type Settings } from "../lib/db";
-import { CentralStorage, MultiLayerStorage } from "../../../../shared/storage";
+import { MultiLayerStorage } from "../../../../shared/storage";
 
 import {
   GRADE_LABEL,
@@ -140,15 +140,16 @@ export function Dashboard({ onBack }: DashboardProps) {
   async function load(showLoading = true) {
     if (showLoading) setLoading(true);
     try {
-      const all = await getAllEntries();
+      // PERF: Read IndexedDB entries, settings, and live storage in parallel
+      const [all, s, storageData] = await Promise.all([
+        getAllEntries(),
+        getSettings(),
+        MultiLayerStorage.getLive()
+      ]);
       setEntries(all);
-      const s = await getSettings();
       setSettings(s);
       setProfileName(s.profileName);
       setNameInput(s.profileName);
-
-      // Load extension storage data
-      const storageData = await MultiLayerStorage.getLive();
       setUserData(storageData as any);
     } catch (err) {
       // D-30: IDB failure must not leave the spinner on forever
@@ -182,7 +183,7 @@ export function Dashboard({ onBack }: DashboardProps) {
   const { activeTheme, setTheme } = useTheme();
 
   /** Single-select condition setter — mutually exclusive. Updates Settings flags,
-   *  applies the theme attribute, and persists condition to localStorage profile. */
+   *  applies the theme attribute, and persists condition to all storage layers. */
   function selectCondition(condition: "diabetes" | "hypertension" | "kidney" | "obesity" | "general") {
     const next: Settings = {
       ...settings,
@@ -190,10 +191,22 @@ export function Dashboard({ onBack }: DashboardProps) {
       hypertension: condition === "hypertension",
       kidney: condition === "kidney",
       obesity: condition === "obesity",
+      activeTheme: condition,
+      condition: condition,
     };
     setSettings(next);
     saveSettings(next).catch(console.warn);
     setTheme(condition);
+    MultiLayerStorage.updateDraft({ uiTheme: condition }).then(() => {
+      MultiLayerStorage.commitDraftToLive();
+    });
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ uiTheme: condition }).catch(() => {});
+      ExtensionStorage.updatePreferences({
+        healthMode: condition !== "general",
+        selectedTags: [condition, settings.primaryMetric || "Sugar"].filter(Boolean)
+      }).catch(() => {});
+    }
   }
 
   // Fix #16: debounce IDB persistence — coalesce rapid toggles into a single write.

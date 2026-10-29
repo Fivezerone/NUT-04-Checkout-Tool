@@ -4,6 +4,15 @@
       "key_ops": ["verify"],
       "ext": true,
       "kty": "EC",
+      "x": "WKfieHf8ahimxlvaOynC_HV9I0HecFsb-4QXUErKuyw",
+      "y": "6LExLwX2TxUOHcgPV1p6vWi-MX7bIt43k9v2G8lUy_Q",
+      "crv": "P-256",
+      "kid": "catalog-v2"
+    },
+    {
+      "key_ops": ["verify"],
+      "ext": true,
+      "kty": "EC",
       "x": "ADR4O1Wneg6igl8dKTLvqI2ypAIL-plSqc2i7Anhfak",
       "y": "topSSG_PPYpEf6OBzzyVL-S1IDUkhtFcK4fMdUe6VYs",
       "crv": "P-256",

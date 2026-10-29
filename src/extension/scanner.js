@@ -179,13 +179,20 @@ class NutriScanner {
 
   async _score(batch) {
     return new Promise((resolve) => {
+      const payloads = batch.map((c) => ({
+        product_name: c.item?.name || c.item?.product_name || "",
+        retailer_product_id: c.item?.id || c.item?.retailer_product_id || null,
+        price: c.item?.price ?? null,
+        url: c.item?.url ?? null,
+        name_hash: c.item?.name_hash ?? null,
+        scrapedCategory: c.item?.scrapedCategory ?? null,
+      }));
+
       this._safeSend(
         {
-          action: "CHECK_PRODUCT_SCORE",
-          payload: {
-            retailer: this._adapter.getRetailerCode(),
-            items: batch.map((c) => c.item),
-          },
+          action: "CHECK_PRODUCT_SCORES_BATCH",
+          retailer: this._adapter.getRetailerCode(),
+          payloads,
         },
         (response) => {
           try {
@@ -194,7 +201,8 @@ class NutriScanner {
               const r = results[i];
               if (!r) { this._retryLater(c); return; }
               if (r.status === "error" && r.retryable) { this._retryLater(c); return; }
-              this._adapter.inject(c.el, r);
+              const product = (r.status === "SUCCESS" && r.data) ? r.data : (r.data || r);
+              this._adapter.inject(c.el, product);
             });
           } catch {
             batch.forEach((c) => this._retryLater(c));

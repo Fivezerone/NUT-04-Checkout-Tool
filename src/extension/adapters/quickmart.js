@@ -17,7 +17,9 @@ const _shared = (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : null) ||
     return "synth_" + String(name).toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 32);
   },
   escapeHTML(str) {
-    return String(str ?? "");
+    return String(str ?? "").replace(/[&<>'"`]/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;', '`': '&#96;' }[c])
+    );
   },
   injectBadge(card, _productResult, _price) {
     return card;
@@ -39,7 +41,7 @@ if (typeof NutriSharedUI === "undefined" && typeof window !== "undefined" && win
  * @param {string} productName
  * @returns {string|null} Isolated unit type in uppercase (e.g., "KG", "ML", "L", "G") or null
  */
-export function extractPackSizeUnit(productName) {
+function extractPackSizeUnit(productName) {
   if (!productName || typeof productName !== "string") return null;
   const match = productName.match(/(?:\d+(?:\.\d+)?)\s*(kg|g|gm|gms|ml|l|ltr|ltrs|litres?|packet|pcs|pieces?|pack|can|bottle|sachet|bunch)\b/i);
   if (match && match[1]) {
@@ -57,7 +59,7 @@ export function extractPackSizeUnit(productName) {
  * @param {string|number} priceVal
  * @returns {number} Clean numerical price in KES
  */
-export function parseCleanPrice(priceVal) {
+function parseCleanPrice(priceVal) {
   if (typeof priceVal === "number") {
     return Number.isFinite(priceVal) ? priceVal : 0;
   }
@@ -81,7 +83,7 @@ export function parseCleanPrice(priceVal) {
  * @param {object} raw - Raw tile data extracted from DOM
  * @returns {object} Standardized Canonical Product Schema
  */
-export function mapToCanonicalSchema(raw) {
+function mapToCanonicalSchema(raw) {
   try {
     const rawId = raw?.id || raw?.productId || raw?.selprod_id || "";
     const cleanId = String(rawId).trim();
@@ -162,7 +164,7 @@ export function mapToCanonicalSchema(raw) {
   }
 }
 
-export const QuickmartAdapter = {
+const QuickmartAdapter = {
   getRetailerCode() {
     return "QUICKMART";
   },
@@ -171,10 +173,78 @@ export const QuickmartAdapter = {
     if (typeof document === "undefined") return null;
     return document.querySelector(".product-listing") ||
            document.querySelector(".product-listing-js") ||
-           document.querySelector(".products") ||
+           document.querySelector("#products-section") ||
            document.querySelector("#productsList") ||
            document.querySelector("main") ||
            document.body;
+  },
+
+  /**
+   * Helper to parse a single product card element.
+   * Returns null if product name cannot be resolved.
+   * @param {Element} card
+   * @param {string} pageCategory
+   * @returns {{ id: string, name: string, price: number, url: string|null, scrapedCategory: string }|null}
+   */
+  _parseCard(card, pageCategory) {
+    if (!card) return null;
+
+    // 1. Extract Product ID
+    let id = null;
+    const selProdInput = card.querySelector('input[name="selprod_id"]');
+    if (selProdInput && selProdInput.value) {
+      id = selProdInput.value.trim();
+    }
+    if (!id) {
+      id = card.getAttribute("data-product-id") ||
+           card.getAttribute("data-selprod-id") ||
+           card.getAttribute("data-id") ||
+           null;
+    }
+    if (!id) {
+      const form = card.querySelector('form[name*="frmBuyProduct"], form[id*="frmBuyProd"]');
+      if (form && form.id) {
+        const formMatch = form.id.match(/frmBuyProd(?:uct)?-(\d+)/i);
+        if (formMatch) id = formMatch[1];
+      }
+    }
+
+    // 2. Extract Name
+    let name = "";
+    const nameEl = card.querySelector(".products-title, .product-title, h2, h3, h4, a[title]");
+    if (nameEl) {
+      name = nameEl.textContent?.trim() || nameEl.getAttribute("title") || "";
+    }
+    if (!name) {
+      const link = card.querySelector("a.products-title, a[href]");
+      if (link) {
+        name = link.getAttribute("title") || link.getAttribute("aria-label") || link.textContent?.trim() || "";
+      }
+    }
+    if (!name) return null;
+
+    if (!id) {
+      id = _shared.generateIdFromName(name);
+    }
+
+    // 3. Extract Price
+    let priceNumeric = 0;
+    const priceEl = card.querySelector(".products-price-new, .products-price, .product-price, .price, .special-price");
+    if (priceEl) {
+      priceNumeric = _shared.parsePrice(priceEl.textContent);
+    }
+
+    // 4. Extract URL (slug URLs on Growcer platform, e.g. /brookside-fresh-milk-500ml-51)
+    const anchor = card.querySelector("a.products-title, a[href]:not([href='#'])");
+    const url = anchor ? anchor.href : null;
+
+    return {
+      id: String(id),
+      name: name,
+      price: priceNumeric,
+      url: url,
+      scrapedCategory: pageCategory,
+    };
   },
 
   /**
@@ -209,8 +279,8 @@ export const QuickmartAdapter = {
       ];
       const directCards = Array.from(document.querySelectorAll(cardSelectors.join(", ")));
 
-      // Also scan anchor tags that lead to product detail pages: /products/view/<id>
-      const productAnchors = Array.from(document.querySelectorAll("a[href*='/products/view/'], a[href*='/product/view/'], a.products-title"));
+      // Also scan anchor tags that lead to product detail pages
+      const productAnchors = Array.from(document.querySelectorAll("a.products-title, a[href*='/products/view/'], a[href*='/product/view/']"));
       const allFound = [...directCards];
 
       productAnchors.forEach(a => {
@@ -240,70 +310,17 @@ export const QuickmartAdapter = {
 
         processedCards.add(card);
 
-        // 1. Extract Product ID
-        let id = null;
-        const selProdInput = card.querySelector('input[name="selprod_id"]');
-        if (selProdInput && selProdInput.value) {
-          id = selProdInput.value.trim();
-        }
-        if (!id) {
-          id = card.getAttribute("data-product-id") ||
-               card.getAttribute("data-selprod-id") ||
-               card.getAttribute("data-id") ||
-               null;
-        }
-        if (!id) {
-          const form = card.querySelector('form[name*="frmBuyProduct"], form[id*="frmBuyProd"]');
-          if (form && form.id) {
-            const formMatch = form.id.match(/frmBuyProd(?:uct)?-(\d+)/i);
-            if (formMatch) id = formMatch[1];
-          }
-        }
-        if (!id) {
-          const link = card.querySelector("a[href*='/products/view/'], a[href*='/product/view/']");
-          if (link?.href) {
-            const urlMatch = link.href.match(/\/products?\/view\/(\d+)/i);
-            if (urlMatch) id = urlMatch[1];
-          }
-        }
-
-        // 2. Extract Name
-        let name = "";
-        const nameEl = card.querySelector(".products-title, .product-title, h2, h3, h4, a[title]");
-        if (nameEl) {
-          name = nameEl.textContent?.trim() || nameEl.getAttribute("title") || "";
-        }
-        if (!name) {
-          const link = card.querySelector("a[href*='/products/view/'], a.products-title");
-          if (link) {
-            name = link.getAttribute("title") || link.getAttribute("aria-label") || link.textContent?.trim() || "";
-          }
-        }
-        if (!name) continue;
-
-        if (!id) {
-          id = _shared.generateIdFromName(name);
-        }
-
-        // 3. Extract Price
-        let priceNumeric = 0;
-        const priceEl = card.querySelector(".products-price-new, .products-price, .product-price, .price, .special-price");
-        if (priceEl) {
-          priceNumeric = _shared.parsePrice(priceEl.textContent);
-        }
-
-        // 4. Extract URL
-        const anchor = card.querySelector("a[href*='/products/view/'], a.products-title, a[href]");
-        const url = anchor ? anchor.href : null;
+        const parsed = this._parseCard(card, pageCategory);
+        if (!parsed) continue;
 
         products.push({
           domElement: card,
-          id: String(id),
-          name: name,
+          id: parsed.id,
+          name: parsed.name,
           nameHash: null,
-          price: priceNumeric,
-          scrapedCategory: pageCategory,
-          url: url,
+          price: parsed.price,
+          scrapedCategory: parsed.scrapedCategory,
+          url: parsed.url,
         });
       }
     } catch (err) {
@@ -354,7 +371,7 @@ export const QuickmartAdapter = {
         "li.product-item",
       ];
       const directCards = Array.from(scope.querySelectorAll(cardSelectors.join(", ")));
-      const productAnchors = Array.from(scope.querySelectorAll("a[href*='/products/view/'], a[href*='/product/view/'], a.products-title"));
+      const productAnchors = Array.from(scope.querySelectorAll("a.products-title, a[href*='/products/view/'], a[href*='/product/view/']"));
       const allFound = [...directCards];
 
       productAnchors.forEach(a => {
@@ -376,66 +393,17 @@ export const QuickmartAdapter = {
 
         processedCards.add(card);
 
-        let id = null;
-        const selProdInput = card.querySelector('input[name="selprod_id"]');
-        if (selProdInput && selProdInput.value) {
-          id = selProdInput.value.trim();
-        }
-        if (!id) {
-          id = card.getAttribute("data-product-id") ||
-               card.getAttribute("data-selprod-id") ||
-               card.getAttribute("data-id") ||
-               null;
-        }
-        if (!id) {
-          const form = card.querySelector('form[name*="frmBuyProduct"], form[id*="frmBuyProd"]');
-          if (form && form.id) {
-            const formMatch = form.id.match(/frmBuyProd(?:uct)?-(\d+)/i);
-            if (formMatch) id = formMatch[1];
-          }
-        }
-        if (!id) {
-          const link = card.querySelector("a[href*='/products/view/'], a[href*='/product/view/']");
-          if (link?.href) {
-            const urlMatch = link.href.match(/\/products?\/view\/(\d+)/i);
-            if (urlMatch) id = urlMatch[1];
-          }
-        }
-
-        let name = "";
-        const nameEl = card.querySelector(".products-title, .product-title, h2, h3, h4, a[title]");
-        if (nameEl) {
-          name = nameEl.textContent?.trim() || nameEl.getAttribute("title") || "";
-        }
-        if (!name) {
-          const link = card.querySelector("a[href*='/products/view/'], a.products-title");
-          if (link) {
-            name = link.getAttribute("title") || link.getAttribute("aria-label") || link.textContent?.trim() || "";
-          }
-        }
-        if (!name) continue;
-
-        if (!id) {
-          id = _shared.generateIdFromName(name);
-        }
-
-        let priceNumeric = 0;
-        const priceEl = card.querySelector(".products-price-new, .products-price, .product-price, .price, .special-price");
-        if (priceEl) {
-          priceNumeric = _shared.parsePrice(priceEl.textContent);
-        }
-
-        const anchor = card.querySelector("a[href*='/products/view/'], a.products-title, a[href]");
-        const url = anchor ? anchor.href : null;
+        const parsed = this._parseCard(card, pageCategory);
+        if (!parsed) continue;
 
         candidates.push({
           el: card,
           item: {
-            id: String(id),
-            name: name,
-            price: priceNumeric,
-            url: url,
-            scrapedCategory: pageCategory,
+            id: parsed.id,
+            name: parsed.name,
+            price: parsed.price,
+            url: parsed.url,
+            scrapedCategory: parsed.scrapedCategory,
           },
         });
       }
@@ -453,7 +421,8 @@ export const QuickmartAdapter = {
     const existing = el.querySelector(".nutriscore-isolated-root");
     if (existing) existing.remove();
     el.removeAttribute("data-nutriscore-scanned");
-    _shared.injectBadge(el, result, result?.price ?? 0);
+    const product = (result && result.status === "SUCCESS" && result.data) ? result.data : ((result && result.data) ? result.data : result);
+    _shared.injectBadge(el, product, product?.price ?? product?.Price?.CurrentPriceKES ?? 0);
   },
 
   /**
@@ -604,14 +573,6 @@ export const QuickmartAdapter = {
       }
 
       if (!id) {
-        const anchor = card.querySelector("a[href*='/products/view/']");
-        if (anchor) {
-          const match = anchor.href.match(/\/products?\/view\/(\d+)/i);
-          if (match) id = match[1];
-        }
-      }
-
-      if (!id) {
         const match = window.location.href.match(/\/products?\/view\/(\d+)/i);
         if (match) id = match[1];
       }
@@ -666,13 +627,13 @@ export const QuickmartAdapter = {
           const card = el.closest(".cart-item, li, .dropdown-cart-item") || el.parentElement;
           if (!card) return null;
 
-          let productId = card.getAttribute("data-product-id") || card.getAttribute("data-selprod-id");
+          let productId = card.getAttribute("data-product-id") ||
+                          card.getAttribute("data-selprod-id") ||
+                          card.querySelector('input[name="selprod_id"]')?.value;
           if (!productId) {
-            const anchor = card.querySelector("a[href*='/products/view/']");
-            if (anchor) {
-              const m = anchor.href.match(/\/products?\/view\/(\d+)/i);
-              if (m) productId = m[1];
-            }
+            const oc = el.getAttribute?.("onclick") || "";
+            const ocMatch = oc.match(/cart\.(?:remove|delete)\s*\(\s*['"]?[^,'"]+['"]?\s*,\s*['"]?(\d+)['"]?\s*\)/i);
+            if (ocMatch) productId = ocMatch[1];
           }
 
           // Check if it's a "clear all" cart button
@@ -738,10 +699,25 @@ export const QuickmartAdapter = {
   },
 };
 
-// Expose adapter to content script orchestrator
+// Expose adapter to content script orchestrator and globals
 if (typeof window !== "undefined") {
   window.RetailerAdapter = QuickmartAdapter;
   window.QuickmartAdapter = QuickmartAdapter;
 }
 
-export default QuickmartAdapter;
+if (typeof globalThis !== "undefined") {
+  globalThis.RetailerAdapter = QuickmartAdapter;
+  globalThis.QuickmartAdapter = QuickmartAdapter;
+  globalThis.extractPackSizeUnit = extractPackSizeUnit;
+  globalThis.parseCleanPrice = parseCleanPrice;
+  globalThis.mapToCanonicalSchema = mapToCanonicalSchema;
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    QuickmartAdapter,
+    extractPackSizeUnit,
+    parseCleanPrice,
+    mapToCanonicalSchema,
+  };
+}

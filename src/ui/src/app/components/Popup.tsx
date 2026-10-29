@@ -35,37 +35,23 @@ export function Popup({
   onboardingCompleted,
   onOpenAuth,
 }: PopupProps) {
-  // Single source of truth for the user's display name: the Options page
-  // writes fullName to chrome.storage.local (user_account), which is what
-  // ExtensionStorage returns. The IDB profileName is only used as fallback.
+  // Display name is derived from user_account fullName
   const displayName = userData?.user_account?.fullName?.split(' ')[0] ?? null;
-  const handleToggleHealthMode = () => {
-    if (!userData?.user_preferences) return;
-    const isNowActive = !userData.user_preferences.healthMode;
-    ExtensionStorage.updatePreferences({
-      healthMode: isNowActive
-    });
-    
-    // Sync the toggled theme to IndexedDB for Dashboard / content script usage
-    const selectedDisease = (userData.user_preferences.selectedTags && userData.user_preferences.selectedTags[0]) || "general";
-    // If the user turns OFF the health mode toggle, we revert to general wellness. 
-    // If ON, we use the selected disease.
-    const newTheme = isNowActive && selectedDisease !== "general" ? selectedDisease : "general";
-    
-    MultiLayerStorage.updateDraft({ uiTheme: newTheme }).then(() => {
-      MultiLayerStorage.commitDraftToLive();
-    });
-    
-    getSettings().then(settings => {
-      saveSettings({ ...settings, activeTheme: newTheme as any }).catch(console.warn);
-    });
-  };
 
   const handleNotificationChange = (freq: any) => {
     ExtensionStorage.updatePreferences({
       notificationFrequency: freq
     });
   };
+
+  const activeFocusTag = (userData?.user_preferences?.selectedTags && userData.user_preferences.selectedTags[0]) 
+    || (userData?.user_account as any)?.condition 
+    || "general";
+  const isGeneralWellness = !activeFocusTag || activeFocusTag === "general";
+  const activeModeObj = HEALTH_MODES[activeFocusTag as keyof typeof HEALTH_MODES] as any;
+  const tagColor = activeModeObj 
+    ? { bg: activeModeObj.palette.accentBg, accent: activeModeObj.palette.primary, label: activeModeObj.palette.primary } 
+    : { bg: '#eff6ff', label: '#1d4ed8', accent: '#bfdbfe' };
 
   return (
     <div className="bg-white flex flex-col w-full h-full">
@@ -99,37 +85,22 @@ export function Popup({
           </button>
         </div>
 
-        {/* Quick Toggles & Tags */}
+        {/* Active Health Profile Banner */}
         {userData?.user_preferences && (
-          <div className="px-4 py-4 border-b border-slate-50 space-y-4">
-            
-            {userData.user_preferences.selectedTags && userData.user_preferences.selectedTags.length > 0 && userData.user_preferences.selectedTags[0] !== "general" && (
-              (() => {
-                const tag = userData.user_preferences.selectedTags[0];
-                const modeObj = HEALTH_MODES[tag as keyof typeof HEALTH_MODES] as any;
-                const tc = modeObj ? { bg: modeObj.palette.accentBg, accent: modeObj.palette.primary, label: modeObj.palette.primary } : { bg: '#eff6ff', label: '#1d4ed8', accent: '#bfdbfe' };
-                return (
-                  <div className="flex flex-wrap gap-1.5">
-                    <span 
-                      className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider"
-                      style={{ backgroundColor: tc.bg, color: tc.label, border: `2px solid ${tc.accent}66` }}
-                    >
-                      {tag}
-                    </span>
-                  </div>
-                );
-              })()
-            )}
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-700">Health Mode</span>
-              <button 
-                onClick={handleToggleHealthMode}
-                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${userData.user_preferences.healthMode ? 'bg-blue-600' : 'bg-slate-200'}`}
+          <div className="px-4 py-3 border-b border-slate-50 flex items-center justify-between">
+            <span className="text-sm font-semibold text-slate-700">Health Mode</span>
+            {isGeneralWellness ? (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600">
+                General Wellness
+              </span>
+            ) : (
+              <span 
+                className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-xs"
+                style={{ backgroundColor: tagColor.bg, color: tagColor.label, border: `2px solid ${tagColor.accent}66` }}
               >
-                <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${userData.user_preferences.healthMode ? 'translate-x-4' : 'translate-x-0'}`} />
-              </button>
-            </div>
+                {activeModeObj?.label || activeFocusTag}
+              </span>
+            )}
           </div>
         )}
 

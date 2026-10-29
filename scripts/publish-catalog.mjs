@@ -50,6 +50,24 @@ const COMMIT = flag('--commit')
 const ALLOW_DEDUPE = flag('--allow-dedupe')
 const FORCE_COUNT = flag('--force-count-change')
 
+// Auto-load .env if present
+const envPath = join(ROOT, '.env')
+if (existsSync(envPath)) {
+  const envContent = readFileSync(envPath, 'utf8')
+  for (const line of envContent.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eqIdx = trimmed.indexOf('=')
+    if (eqIdx > 0) {
+      const key = trimmed.slice(0, eqIdx).trim()
+      const val = trimmed.slice(eqIdx + 1).trim()
+      if (!process.env[key]) {
+        process.env[key] = val
+      }
+    }
+  }
+}
+
 // ─── Imports ─────────────────────────────────────────────────────────────────
 const { subtle } = webcrypto
 
@@ -435,7 +453,7 @@ if (!COMMIT) {
 }
 
 // ─── COMMIT mode ─────────────────────────────────────────────────────────────
-const SUPABASE_URL = process.env.SUPABASE_URL
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SIGNING_JWK = process.env.CATALOG_SIGNING_KEY
 

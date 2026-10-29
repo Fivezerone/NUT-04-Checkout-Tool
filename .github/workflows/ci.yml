@@ -36,7 +36,7 @@ jobs:
 
       - name: Assert HTML files exist
         run: |
-          for file in dist/popup.html dist/dashboard.html dist/options.html dist/onboarding.html; do
+          for file in dist/popup.html dist/dashboard.html dist/options.html dist/onboarding.html dist/cad.html; do
             if [ ! -s "$file" ]; then
               echo "::error::$file is missing or empty!"
               exit 1

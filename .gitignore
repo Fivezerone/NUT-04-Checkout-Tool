@@ -23,3 +23,12 @@ assessment-reports/
 
 # Scraped product data (large, regenerable)
 data/
+
+# Android build artifacts & local config
+.gradle/
+**/build/
+android/.gradle/
+android/local.properties
+local.properties
+*.apk
+*.aab
