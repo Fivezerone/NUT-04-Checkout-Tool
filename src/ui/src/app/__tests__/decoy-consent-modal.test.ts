@@ -73,8 +73,8 @@ describe('ConsentDocModal Component Logic & VNode Output', () => {
   });
 });
 
-describe('OnboardingWizard Decoy Integration & RPC Fallback', () => {
-  test('Step 3 contains interactive links for Terms and Privacy decoy modals', () => {
+describe('OnboardingWizard Decoy Integration & Consent Ledger', () => {
+  test('Consent gate contains interactive links for Terms and Privacy decoy modals', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
     expect(src).toContain('id="view-terms-link"');
     expect(src).toContain('id="view-privacy-link"');
@@ -83,16 +83,10 @@ describe('OnboardingWizard Decoy Integration & RPC Fallback', () => {
     expect(src).toContain('<ConsentDocModal');
   });
 
-  test('Step 3 save_onboarding_step3 includes resilient fallback for schema cache misses', () => {
+  test('Consent gate records consent in Supabase consents table', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    const start = src.indexOf('const handleStep3Next');
-    const end = src.indexOf('const handleStep4Next', start);
-    const body = src.slice(start, end);
-
-    expect(body).toContain('save_onboarding_step3');
-    // Direct table fallback must be present so missing RPC doesn't soft-lock user
-    expect(body).toContain("supabase.from('users').update");
-    expect(body).toContain('ExtensionStorage.setPartialOnboardingData');
-    expect(body).toContain('setStep(step + 1)');
+    expect(src).toContain('from("consents")');
+    expect(src).toContain('consent_version');
+    expect(src).toContain('ExtensionStorage.setOnboardingComplete');
   });
 });

@@ -131,38 +131,22 @@ export function Popup({
           </span>
         </div>
 
-        {/* Action button — auth-aware */}
+        {/* Action button — auth & consent aware */}
         <div className="p-4 pt-4">
           {hasActiveSession && !isIncomplete ? (
-            userData?.nutriscore_is_premium ? (
-              /* Authenticated & Onboarded & Premium: open the shopping analytics dashboard */
-              <button
-                id="open-dashboard-btn"
-                type="button"
-                onClick={onOpenDashboard}
-                className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-white transition-all hover:opacity-90 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black font-semibold tracking-wide"
-                style={{ backgroundColor: "var(--shell-primary, #2563eb)" }}
-              >
-                <BarChart3 size={16} aria-hidden />
-                <span style={{ fontSize: "0.88rem" }}>View Shopping Analytics</span>
-              </button>
-            ) : (
-              /* Authenticated & Onboarded & Basic: prompt upgrade */
-              <button
-                id="upgrade-dashboard-btn"
-                type="button"
-                onClick={() => {
-                  chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") + "?mode=renew" });
-                }}
-                className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-white transition-all hover:opacity-90 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black font-semibold tracking-wide"
-                style={{ backgroundColor: "#1e293b" }}
-              >
-                <BarChart3 size={16} aria-hidden />
-                <span style={{ fontSize: "0.88rem" }}>Upgrade to Premium to View Shopping Analytics</span>
-              </button>
-            )
+            /* Authenticated & Enrolled with Consent: open the shopping analytics dashboard */
+            <button
+              id="open-dashboard-btn"
+              type="button"
+              onClick={onOpenDashboard}
+              className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-white transition-all hover:opacity-90 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black font-semibold tracking-wide"
+              style={{ backgroundColor: "var(--shell-primary, #2563eb)" }}
+            >
+              <BarChart3 size={16} aria-hidden />
+              <span style={{ fontSize: "0.88rem" }}>View Shopping Analytics</span>
+            </button>
           ) : (
-            /* Unauthenticated or Incomplete: open onboarding wizard (sign-up/resume) or login modal */
+            /* Unauthenticated or Incomplete Consent: open clinic sign-in or consent gate */
             <button
               id="open-auth-btn"
               type="button"
@@ -172,9 +156,7 @@ export function Popup({
             >
               <LogIn size={16} aria-hidden />
               <span style={{ fontSize: "0.88rem" }}>
-                {isIncomplete 
-                  ? 'Finish Sign Up' 
-                  : (onboardingCompleted ? 'Log In to Your Account' : 'Sign Up — It\'s Free to Start')}
+                {isIncomplete ? "Complete Care Consent" : "Sign in with Clinic Credentials"}
               </span>
             </button>
           )}

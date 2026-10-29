@@ -94,13 +94,12 @@ describe('D-27 — interactive SVG and badge accessibility', () => {
 // ---------------------------------------------------------------------------
 // D-28
 // ---------------------------------------------------------------------------
-describe('D-28 — signup misleading message', () => {
-  test('signup no-session path no longer says "Account created!"', () => {
+describe('D-28 — signup eliminated under CAD authority', () => {
+  test('OnboardingWizard no longer offers self-registration or "Account created!"', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
     expect(src).not.toContain('Account created!');
-    // New neutral message
-    expect(src).toContain("we've sent a confirmation link");
-    expect(src).toContain('Log in option instead');
+    expect(src).not.toContain('handleSignUp');
+    expect(src).toContain('Accounts are provisioned by licensed healthcare providers');
   });
 });
 
