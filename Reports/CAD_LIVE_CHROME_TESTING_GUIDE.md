@@ -642,6 +642,6 @@ node scripts/purge-mocks.mjs --check-clean
 - [ ] `admin-provision-user` Edge Function deployed with `verify_jwt = true`.
 - [ ] Platform Super Admin bootstrapped and MFA enrolled.
 - [ ] All 16 tenant-scoped tables pass RLS audit (`npm run check:rls`).
-- [ ] All 446 unit and integration tests pass cleanly (`npm test`).
+- [ ] All 450 unit and integration tests pass cleanly (`npm test`).
 
 
