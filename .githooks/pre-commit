@@ -30,38 +30,24 @@ if [ -z "$STAGED_FILES" ]; then
 fi
 
 # ─── Gate 1: Prettier Formatting ──────────────────────────────────────────────
-FORMAT_FILES=$(echo "$STAGED_FILES" | grep -E '\.(js|ts|tsx|json|css|md|html)$' || true)
-
-if [ -n "$FORMAT_FILES" ]; then
-  echo "${YELLOW}▸ Gate 1/4: Checking formatting (Prettier)...${NC}"
-  echo "$FORMAT_FILES" | xargs npx prettier --check --ignore-unknown 2>/dev/null
-  if [ $? -ne 0 ]; then
-    echo ""
-    echo "${RED}✗ Formatting check failed.${NC}"
-    echo "  Run: npx prettier --write <files>"
-    exit 1
-  fi
-  echo "${GREEN}  ✓ All staged files formatted correctly.${NC}"
-else
-  echo "${GREEN}▸ Gate 1/4: No formattable files staged. Skipping.${NC}"
+echo "${YELLOW}▸ Gate 1/4: Checking formatting (Prettier)...${NC}"
+if ! npx prettier --check .; then
+  echo ""
+  echo "${RED}✗ Formatting check failed.${NC}"
+  echo "  Run: npx prettier --write ."
+  exit 1
 fi
+echo "${GREEN}  ✓ All files formatted correctly.${NC}"
 echo ""
 
 # ─── Gate 2: ESLint ───────────────────────────────────────────────────────────
-LINT_FILES=$(echo "$STAGED_FILES" | grep -E '\.(js|ts|tsx)$' || true)
-
-if [ -n "$LINT_FILES" ]; then
-  echo "${YELLOW}▸ Gate 2/4: Linting staged files (ESLint)...${NC}"
-  echo "$LINT_FILES" | xargs npx eslint --no-warn-ignored --quiet 2>/dev/null
-  if [ $? -ne 0 ]; then
-    echo ""
-    echo "${RED}✗ Lint check failed. Fix errors above before committing.${NC}"
-    exit 1
-  fi
-  echo "${GREEN}  ✓ No lint errors.${NC}"
-else
-  echo "${GREEN}▸ Gate 2/4: No lintable files staged. Skipping.${NC}"
+echo "${YELLOW}▸ Gate 2/4: Linting files (ESLint)...${NC}"
+if ! npx eslint . --quiet; then
+  echo ""
+  echo "${RED}✗ Lint check failed. Fix errors above before committing.${NC}"
+  exit 1
 fi
+echo "${GREEN}  ✓ No lint errors.${NC}"
 echo ""
 
 # ─── Gate 3: Gitleaks Secret Scan ─────────────────────────────────────────────

@@ -34,6 +34,9 @@ class NutriScoreContentEngine {
 
   init() {
     if (!this.adapter) {
+      this.adapter = window.RetailerAdapter || (typeof globalThis !== "undefined" ? globalThis.RetailerAdapter : null);
+    }
+    if (!this.adapter) {
       console.warn("[NutriScore] No RetailerAdapter found on window.RetailerAdapter. Aborting.");
       return;
     }
@@ -77,7 +80,7 @@ class NutriScoreContentEngine {
     });
 
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName === 'local' && changes.uiTheme) {
+      if (areaName === 'local' && (changes.uiTheme || changes.settings_live || changes.user_preferences)) {
         this.rescan();
       }
     });

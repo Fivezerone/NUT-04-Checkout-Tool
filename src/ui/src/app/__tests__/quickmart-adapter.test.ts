@@ -18,13 +18,15 @@ if (typeof (globalThis as any).NutriSharedUI === "undefined") {
 }
 
 import { describe, it, expect, beforeEach } from "vitest";
-import {
+import "../../../../extension/adapters/quickmart.js";
+import { defaultAdapterFactory, AdapterFactory } from "../../../../extension/adapters/adapter-factory.js";
+
+const {
   QuickmartAdapter,
   extractPackSizeUnit,
   parseCleanPrice,
   mapToCanonicalSchema,
-} from "../../../../extension/adapters/quickmart.js";
-import { defaultAdapterFactory, AdapterFactory } from "../../../../extension/adapters/adapter-factory.js";
+} = globalThis as any;
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -128,6 +130,36 @@ describe("Quickmart Adapter: IRetailerAdapter Contract", () => {
     const candidates = QuickmartAdapter.candidatesIn(mockContainer as any);
     expect(Array.isArray(candidates)).toBe(true);
     expect(candidates.length).toBe(0);
+  });
+
+  it("escapeHTML escapes dangerous HTML special characters", () => {
+    const malicious = '<script>alert("XSS & attack\'s `here`")</script>';
+    const escaped = QuickmartAdapter.escapeHTML(malicious);
+    expect(escaped).not.toContain("<script>");
+    expect(escaped).toContain("&lt;script&gt;");
+    expect(escaped).toContain("&amp;");
+    expect(escaped).toContain("&quot;");
+    expect(escaped).toContain("&#39;");
+    expect(escaped).toContain("&#96;");
+  });
+
+  it("_parseCard extracts ID from selprod_id input or form ID", () => {
+    const mockCard = {
+      querySelector: (sel: string) => {
+        if (sel === 'input[name="selprod_id"]') return { value: "624045" };
+        if (sel.includes("href")) return { href: "https://www.quickmart.co.ke/tuzo-lala-500ml" };
+        if (sel.includes("products-title")) return { textContent: "Tuzo Lala 500ml", getAttribute: () => null };
+        if (sel.includes("products-price")) return { textContent: "Ksh 85" };
+        return null;
+      },
+      getAttribute: () => null,
+    };
+    const parsed = (QuickmartAdapter as any)._parseCard(mockCard, "dairy");
+    expect(parsed).toBeDefined();
+    expect(parsed.id).toBe("624045");
+    expect(parsed.name).toBe("Tuzo Lala 500ml");
+    expect(parsed.price).toBe(85);
+    expect(parsed.url).toBe("https://www.quickmart.co.ke/tuzo-lala-500ml");
   });
 });
 

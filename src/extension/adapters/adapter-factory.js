@@ -5,15 +5,20 @@
  * current page URL, hostname, data stream metadata, or retailer codes.
  */
 
-import { QuickmartAdapter } from "./quickmart.js";
-
 // Lazy / conditional loader for browser content-script contexts or Node/test environments
+let QuickmartAdapter = null;
 let NaivasAdapter = null;
 let CarrefourAdapter = null;
 
 if (typeof window !== "undefined") {
+  if (window.QuickmartAdapter) QuickmartAdapter = window.QuickmartAdapter;
   if (window.NaivasAdapter) NaivasAdapter = window.NaivasAdapter;
   if (window.CarrefourAdapter) CarrefourAdapter = window.CarrefourAdapter;
+}
+if (typeof globalThis !== "undefined") {
+  if (!QuickmartAdapter && globalThis.QuickmartAdapter) QuickmartAdapter = globalThis.QuickmartAdapter;
+  if (!NaivasAdapter && globalThis.NaivasAdapter) NaivasAdapter = globalThis.NaivasAdapter;
+  if (!CarrefourAdapter && globalThis.CarrefourAdapter) CarrefourAdapter = globalThis.CarrefourAdapter;
 }
 
 export class AdapterFactory {
@@ -22,20 +27,25 @@ export class AdapterFactory {
     this.urlRules = [];
 
     // Register built-in retailer adapters
-    this.register("QUICKMART", QuickmartAdapter, [
-      /quickmart\.co\.ke/i,
-      /quickmart/i,
-    ]);
+    const qm = QuickmartAdapter || (typeof window !== "undefined" && window.QuickmartAdapter) || (typeof globalThis !== "undefined" && globalThis.QuickmartAdapter);
+    if (qm) {
+      this.register("QUICKMART", qm, [
+        /quickmart\.co\.ke/i,
+        /quickmart/i,
+      ]);
+    }
 
-    if (CarrefourAdapter || (typeof window !== "undefined" && window.CarrefourAdapter)) {
-      this.register("CARREFOUR", CarrefourAdapter || window.CarrefourAdapter, [
+    const cf = CarrefourAdapter || (typeof window !== "undefined" && window.CarrefourAdapter) || (typeof globalThis !== "undefined" && globalThis.CarrefourAdapter);
+    if (cf) {
+      this.register("CARREFOUR", cf, [
         /carrefour\.ke/i,
         /carrefourkenya\.com/i,
       ]);
     }
 
-    if (NaivasAdapter || (typeof window !== "undefined" && window.NaivasAdapter)) {
-      this.register("NAIVAS", NaivasAdapter || window.NaivasAdapter, [
+    const nv = NaivasAdapter || (typeof window !== "undefined" && window.NaivasAdapter) || (typeof globalThis !== "undefined" && globalThis.NaivasAdapter);
+    if (nv) {
+      this.register("NAIVAS", nv, [
         /naivas\.online/i,
         /naivas\.co\.ke/i,
       ]);

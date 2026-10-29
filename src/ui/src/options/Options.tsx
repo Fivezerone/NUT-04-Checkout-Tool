@@ -3,7 +3,7 @@ import { ExtensionStorage, ChromeExtensionStorage, signOutUser, supabase, setOnb
 import { toast } from "sonner";
 import { Toaster } from "sonner";
 import { purgeAll, getSettings, saveSettings } from "../app/lib/db";
-import { CentralStorage, MultiLayerStorage } from "../../../shared/storage";
+import { MultiLayerStorage } from "../../../shared/storage";
 import { HEALTH_MODES } from "../../../shared/health-modes.mjs";
 import { isSubscriptionExpired } from "../app/lib/subscriptionUtils";
 
@@ -26,82 +26,154 @@ export function Options() {
 
   async function loadData() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const draftData = await MultiLayerStorage.initDraft();
+      // PERF: Use getSession() (cached in localStorage) instead of getUser() which makes a blocking network call (~500–1500ms)
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user || null;
 
-      let isOnboarded = false;
-      let isPremium = false;
+      // PERF: Read local draft, extension storage, chrome.storage.local, and IDB settings in parallel (<5ms total)
+      const [draftData, storageData, local, idbSettings] = await Promise.all([
+        MultiLayerStorage.initDraft(),
+        ExtensionStorage.getOnboardingData(user?.id),
+        typeof chrome !== 'undefined' && chrome.storage?.local
+          ? chrome.storage.local.get([
+              'onboarding_completed',
+              'nutri_entitlement',
+              'nutriscore_is_premium',
+              'uiTheme',
+              'user_account',
+              'user_preferences',
+              'user_payment'
+            ])
+          : Promise.resolve({} as any),
+        getSettings().catch(() => null)
+      ]);
 
-      // 1. Check local ExtensionStorage
-      const storageData = await ExtensionStorage.getOnboardingData(user?.id);
-      if (storageData.onboarding_completed) {
-        isOnboarded = true;
-      }
+      let isOnboarded = !!storageData?.onboarding_completed || local?.onboarding_completed === true;
+      let isPremium = local?.nutriscore_is_premium === true || !!local?.nutri_entitlement;
 
-      // 2. Check chrome.storage.local directly
-      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-        const local = await chrome.storage.local.get(['onboarding_completed', 'nutri_entitlement', 'nutriscore_is_premium']);
-        if (local.onboarding_completed === true) isOnboarded = true;
-        if (local.nutriscore_is_premium === true || !!local.nutri_entitlement) isPremium = true;
-      }
-
-      // 3. Check remote Supabase user & entitlement
-      if (user) {
-        try {
-          const { data: profile } = await supabase
-            .from('users')
-            .select('onboarding_completed, is_premium')
-            .eq('id', user.id)
-            .maybeSingle();
-
-          if (profile?.onboarding_completed) isOnboarded = true;
-          if (profile?.is_premium === true) isPremium = true;
-        } catch (e) {
-          console.warn("[Options] failed to fetch profile:", e);
+      // Check cached entitlement if available
+      if (local?.nutri_entitlement) {
+        const ent = local.nutri_entitlement;
+        if (ent.premium_expires_at) {
+          setExpiryDate(new Date(ent.premium_expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
         }
-
-        try {
-          const { data: ent } = await supabase.rpc('get_my_entitlement');
-          if (ent) {
-            if (ent.premium_expires_at) {
-              setExpiryDate(new Date(ent.premium_expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
-            }
-            const expired = ent.tier !== 'premium' || isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
-            if (!expired || ent.tier === 'premium') {
-              isPremium = true;
-              isOnboarded = true; // Premium subscribers are always granted onboarding status
-            }
-            setTrueSubStatus(expired ? 'expired' : 'active');
-          }
-        } catch (e) {
-          console.warn("[Options] failed to fetch entitlement:", e);
+        const expired = ent.tier !== 'premium' || isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
+        setTrueSubStatus(expired ? 'expired' : 'active');
+        if (!expired || ent.tier === 'premium') {
+          isPremium = true;
+          isOnboarded = true; // Premium subscribers are always granted onboarding status
         }
+      } else if (isPremium) {
+        setTrueSubStatus('active');
       }
 
       // Settings access unlocked for onboarded users OR any premium subscribers
       const canAccessSettings = isOnboarded || isPremium;
 
+      const effectiveCondition = 
+        (local?.user_account as any)?.condition ||
+        (local?.user_preferences?.selectedTags && local.user_preferences.selectedTags[0]) ||
+        (storageData?.user_account as any)?.condition ||
+        (storageData?.user_preferences?.selectedTags && storageData.user_preferences.selectedTags[0]) ||
+        idbSettings?.activeTheme ||
+        (local as any)?.uiTheme ||
+        (draftData as any)?.uiTheme ||
+        "general";
+
+      const effectiveMetric = 
+        (local?.user_account as any)?.metric ||
+        (local?.user_preferences?.selectedTags && local.user_preferences.selectedTags[1]) ||
+        (storageData?.user_account as any)?.metric ||
+        idbSettings?.primaryMetric ||
+        "Sugar";
+
       const merged = {
         ...draftData,
         ...storageData,
+        ...local,
+        uiTheme: effectiveCondition,
+        user_account: {
+          ...(draftData?.user_account || {}),
+          ...(storageData?.user_account || {}),
+          ...(local?.user_account || {}),
+          condition: effectiveCondition,
+          metric: effectiveMetric
+        },
+        user_preferences: {
+          ...(draftData?.user_preferences || {}),
+          ...(storageData?.user_preferences || {}),
+          ...(local?.user_preferences || {}),
+          healthMode: effectiveCondition !== "general",
+          selectedTags: [effectiveCondition, effectiveMetric].filter(Boolean)
+        },
+        user_payment: {
+          ...(draftData?.user_payment || {}),
+          ...(storageData?.user_payment || {}),
+          ...(local?.user_payment || {})
+        },
         onboarding_completed: canAccessSettings,
         nutriscore_is_premium: isPremium
       };
 
+      // Render settings immediately from merged cache!
       setData(merged as any);
+      setLoading(false);
 
-      if (canAccessSettings && user?.id) {
-        await setOnboardingCompleted(user.id, true);
-        await MultiLayerStorage.updateDraft({ onboarding_completed: true });
-        if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-          await chrome.storage.local.set({ onboarding_completed: true });
-        }
+      // Stale-While-Revalidate: Revalidate with remote Supabase in the background (fire-and-forget)
+      if (user) {
+        Promise.all([
+          supabase
+            .from('users')
+            .select('onboarding_completed, is_premium')
+            .eq('id', user.id)
+            .maybeSingle(),
+          supabase.rpc('get_my_entitlement')
+        ])
+          .then(async ([profileRes, entRes]) => {
+            let updatedOnboarded = isOnboarded;
+            let updatedPremium = isPremium;
+
+            if (profileRes.data) {
+              if (profileRes.data.onboarding_completed) updatedOnboarded = true;
+              if (profileRes.data.is_premium === true) updatedPremium = true;
+            }
+
+            if (entRes.data) {
+              const ent = entRes.data;
+              if (ent.premium_expires_at) {
+                setExpiryDate(new Date(ent.premium_expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }));
+              }
+              const expired = ent.tier !== 'premium' || isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
+              if (!expired || ent.tier === 'premium') {
+                updatedPremium = true;
+                updatedOnboarded = true;
+              }
+              setTrueSubStatus(expired ? 'expired' : 'active');
+            }
+
+            const updatedCanAccess = updatedOnboarded || updatedPremium;
+            setData(prev => prev ? {
+              ...prev,
+              onboarding_completed: updatedCanAccess,
+              nutriscore_is_premium: updatedPremium
+            } : prev);
+
+            if (updatedCanAccess) {
+              setOnboardingCompleted(user.id, true).catch(() => {});
+              MultiLayerStorage.updateDraft({ onboarding_completed: true }).catch(() => {});
+              if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+                chrome.storage.local.set({ onboarding_completed: true }).catch(() => {});
+              }
+            }
+          })
+          .catch(e => {
+            console.warn("[Options] Background revalidation error:", e);
+          });
       }
     } catch (e) {
       console.warn("Failed to fetch settings/expiry", e);
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   const handleAccountChange = (field: string, value: string) => {
@@ -156,16 +228,88 @@ export function Options() {
     if (!data) return;
     setSaving(true);
     try {
-      await MultiLayerStorage.commitDraftToLive();
+      const rawCondition = (data.user_account as any)?.condition 
+        || (data.user_preferences?.selectedTags && data.user_preferences.selectedTags[0]) 
+        || (data as any)?.uiTheme 
+        || "general";
+      const condition = (!rawCondition || rawCondition === "none") ? "general" : rawCondition;
+      const metric = (data.user_account as any)?.metric 
+        || (data.user_preferences?.selectedTags && data.user_preferences.selectedTags[1]) 
+        || "Sugar";
+      const theme = condition;
       
-      // Also commit to IDB/ExtensionStorage for legacy compatibility
-      await chrome.storage.local.set({
-        user_account: data.user_account,
-        user_preferences: data.user_preferences,
-        user_payment: data.user_payment
+      const isNoCondition = condition === "general";
+      const nextPreferences = {
+        ...(data.user_preferences || {}),
+        healthMode: !isNoCondition,
+        selectedTags: isNoCondition ? [] : [condition, metric].filter(Boolean)
+      };
+      const nextAccount = {
+        ...(data.user_account || {}),
+        condition,
+        metric
+      };
+
+      // 1. Commit draft to live storage in MultiLayerStorage
+      await MultiLayerStorage.updateDraft({
+        uiTheme: theme,
+        user_preferences: nextPreferences as any,
+        user_account: nextAccount as any
       });
+      await MultiLayerStorage.commitDraftToLive();
+
+      // 2. Persist to chrome.storage.local (including explicit uiTheme for content script listener)
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        await chrome.storage.local.set({
+          uiTheme: theme,
+          user_account: nextAccount,
+          user_preferences: nextPreferences,
+          user_payment: data.user_payment
+        });
+      }
+
+      // 3. Persist to IndexedDB user_settings for background SW & Dashboard
+      try {
+        const currentSettings = await getSettings();
+        await saveSettings({
+          ...currentSettings,
+          activeTheme: theme as any,
+          condition: condition,
+          primaryMetric: metric,
+          diabetes: condition === "diabetes",
+          hypertension: condition === "hypertension",
+          kidney: condition === "kidney",
+          obesity: condition === "obesity"
+        });
+      } catch (dbErr) {
+        console.warn("[Options] Failed to save to IndexedDB settings:", dbErr);
+      }
+
+      // 4. If Supabase user is logged in, update remote profile
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
+        if (userId) {
+          await supabase.from('users').update({
+            condition,
+            metric,
+            health_mode: !isNoCondition,
+            selected_tags: isNoCondition ? [] : [condition, metric].filter(Boolean),
+            updated_at: new Date().toISOString()
+          }).eq('id', userId);
+        }
+      } catch (sbErr) {
+        console.warn("[Options] Failed to update remote Supabase profile:", sbErr);
+      }
+
+      // 5. Broadcast to runtime so active tabs rescan immediately
+      if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ action: "REFRESH_ENTITLEMENT" }).catch(() => {});
+      }
+
       toast.success("Settings saved successfully!");
     } catch (e) {
+      console.error("[Options] handleSave error:", e);
       toast.error("Failed to save settings.");
     }
     setSaving(false);
@@ -285,7 +429,13 @@ export function Options() {
               <input
                 type="text"
                 readOnly
-                value={HEALTH_MODES[((data.user_account as any)?.condition as keyof typeof HEALTH_MODES) || "general"]?.label || "General Wellness"}
+                value={
+                  (() => {
+                    const focus = (data?.user_account as any)?.condition || (data?.user_preferences?.selectedTags && data.user_preferences.selectedTags[0]) || (data as any)?.uiTheme || "general";
+                    if (!focus || focus === "general" || focus === "none") return "No Condition (General Wellness)";
+                    return HEALTH_MODES[focus as keyof typeof HEALTH_MODES]?.label || focus;
+                  })()
+                }
                 className="w-full border border-slate-200 rounded-xl p-3 bg-slate-100 text-slate-600 font-medium cursor-not-allowed"
               />
               <p className="text-xs text-slate-500 mt-1">Select a new primary health focus below to change this.</p>
@@ -301,39 +451,53 @@ export function Options() {
           </h2>
           <div className="space-y-3">
             {[
-              { key: 'diabetes', metric: 'Sugar', desc: 'Tracks sugar limits & glycaemic markers' },
-              { key: 'hypertension', metric: 'Sodium', desc: 'Monitors salt and potassium thresholds' },
-              { key: 'kidney', metric: 'Sodium/Potassium', desc: 'Monitors sodium and potassium levels' },
-              { key: 'obesity', metric: 'Energy', desc: 'Tracks calorie density, sugars and saturated fats' },
-              { key: 'general', metric: 'Saturated Fat', desc: 'Balanced nutritional score focus' },
+              { key: 'general', label: 'No Condition (General Wellness)', metric: 'Saturated Fat', desc: 'Standard nutritional scoring without disease alerts' },
+              { key: 'diabetes', label: 'Diabetes', metric: 'Sugar', desc: 'Tracks sugar limits & glycaemic markers' },
+              { key: 'hypertension', label: 'Hypertension', metric: 'Sodium', desc: 'Monitors salt and potassium thresholds' },
+              { key: 'kidney', label: 'Kidney Disease', metric: 'Sodium/Potassium', desc: 'Monitors sodium and potassium levels' },
+              { key: 'obesity', label: 'Obesity / Weight Management', metric: 'Energy', desc: 'Tracks calorie density, sugars and saturated fats' },
             ].map((item) => {
-              const isActive = (data.user_preferences?.selectedTags && data.user_preferences.selectedTags[0]) === item.key;
+              const currentFocus = (data?.user_preferences?.selectedTags && data.user_preferences.selectedTags[0])
+                || (data?.user_account as any)?.condition
+                || (data as any)?.uiTheme
+                || "general";
+              const isActive = (item.key === 'general' && (!currentFocus || currentFocus === 'general' || currentFocus === 'none'))
+                || currentFocus === item.key;
               return (
                 <button 
                   key={item.key}
                   type="button" 
                   onClick={() => {
+                    const isNoCond = item.key === 'general';
+                    const nextAccount = {
+                      ...(data?.user_account || {}),
+                      condition: item.key,
+                      metric: item.metric
+                    };
+                    const nextPreferences = {
+                      ...(data?.user_preferences || {}),
+                      healthMode: !isNoCond,
+                      selectedTags: isNoCond ? [] : [item.key, item.metric].filter(Boolean)
+                    };
                     const newData = {
                       ...data,
-                      user_preferences: {
-                        ...data?.user_preferences,
-                        healthMode: item.key !== "general",
-                        selectedTags: [item.key]
-                      },
-                      user_account: {
-                        ...data?.user_account,
-                        condition: item.key,
-                        metric: item.metric
-                      } as any
+                      uiTheme: item.key,
+                      user_preferences: nextPreferences,
+                      user_account: nextAccount as any
                     };
-                    // Sync the new theme to the draft state
-                    const theme = item.key;
-                    MultiLayerStorage.updateDraft({ uiTheme: theme, user_preferences: newData.user_preferences as any, user_account: newData.user_account });
+                    // Update React state immediately so UI highlights choice
+                    setData(newData as any);
+                    // Sync the new theme and account/preferences to draft state
+                    MultiLayerStorage.updateDraft({ 
+                      uiTheme: item.key, 
+                      user_preferences: nextPreferences as any, 
+                      user_account: nextAccount as any
+                    });
                   }} 
                   className={`group flex w-full items-center justify-between p-4 rounded-xl border-2 transition-all text-left bg-white ${isActive ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-blue-500 hover:bg-blue-50/50"}`}
                 >
                   <div>
-                    <div className="font-bold text-slate-800 text-sm">{HEALTH_MODES[item.key as keyof typeof HEALTH_MODES].label}</div>
+                    <div className="font-bold text-slate-800 text-sm">{item.label}</div>
                     <div className="text-xs text-slate-500 mt-0.5">{item.desc}</div>
                   </div>
                 </button>

@@ -73,6 +73,8 @@ function createSlimClient(supabaseUrl, supabaseKey, options = {}) {
   return {
     auth,
     from: (table) => rest.from(table),
+    rpc: (fn, args, options) => rest.rpc(fn, args, options),
+    schema: (s) => rest.schema(s),
     rest,
   };
 }

@@ -9,6 +9,9 @@
     "build:ui": "vite build",
     "build": "npm run build:db && npm run build:ui && npm run build:ext",
     "check:manifest": "node scripts/check-manifest-globals.mjs",
+    "check:rls": "node scripts/check-rls-policies.mjs",
+    "verify:audit": "node scripts/verify-audit-chain.mjs",
+    "stage:pilot": "node scripts/stage-pilot-fixtures.mjs",
     "dev": "vite",
     "test": "vitest run src/ui/src/app/__tests__",
     "test:watch": "vitest src/ui/src/app/__tests__",
@@ -18,7 +21,7 @@
     "format:check": "prettier --check .",
     "enrich:quickmart": "node scripts/enrich_quickmart.mjs",
     "migrate:quickmart": "node scripts/migrate-quickmart-supabase.mjs",
-    "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && npm run check:rls && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
     "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {

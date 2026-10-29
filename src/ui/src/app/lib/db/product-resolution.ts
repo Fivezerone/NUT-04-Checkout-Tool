@@ -111,6 +111,28 @@ export async function resolveProductMatch(
     }
   }
 
+  // Quickmart URL slug matching (Growcer slugs have varying branch/seller suffixes like -3 vs -36)
+  if (url && isQuickmart) {
+    const cleanSlug = (u: string) => {
+      if (!u) return null;
+      try {
+        const parsed = new URL(u, "https://www.quickmart.co.ke");
+        const path = parsed.pathname.replace(/^\/+|\/+$/g, "");
+        if (!path || path.startsWith("products/view/")) return null;
+        return path.replace(/-\d+$/, "").toLowerCase();
+      } catch {
+        return null;
+      }
+    };
+    const targetSlug = cleanSlug(url);
+    if (targetSlug) {
+      const found = cacheArr.find(p => cleanSlug(p.Identity?.RetailerProductUrl || "") === targetSlug);
+      if (found) {
+        return { matched: true, matchMethod: "url_slug", confidence: "high", product: found };
+      }
+    }
+  }
+
   if (productName) {
     const nameTx = db.transaction(storeName as any, "readonly");
     const nameHit = await (nameTx.store.index as any)("by-name").get(productName);

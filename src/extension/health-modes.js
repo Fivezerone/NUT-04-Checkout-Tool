@@ -36,12 +36,12 @@ self.NutriHealthModes = {
     "engineKey": "hypertension",
     "chipPrefix": "Hypertension Risk",
     "palette": {
-      "primary": "#E65100",
+      "primary": "#C2410C",
       "accentBg": "#FFF3E0",
       "border": "#FFCC80",
       "headerBg": "#FFE0B2",
       "headerText": "#212121",
-      "headerSub": "#E65100",
+      "headerSub": "#C2410C",
       "detail": "#7C2D12"
     }
   },

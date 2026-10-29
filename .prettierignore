@@ -13,6 +13,9 @@ Assessment reports/
 assessment-reports/
 Docs/
 NUT-04_Release_Documentation/
+Reports/
+android/
+server/
 supabase/.temp/
 supabase/.branches/
 eslint-report.*

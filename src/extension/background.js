@@ -83,17 +83,23 @@ function ensureStorageReady() {
   return storageReadyPromise;
 }
 
-async function ensureCatalogReady() {
-  await ensureStorageReady();
-  try {
-    // F-01: do NOT call NutriEntitlement.refresh() here.
-    // Entitlement is refreshed by the 'entitlement-refresh' alarm (every 12 h).
-    // A plain wake makes 0 network requests unless the catalog or entitlement alarm fires.
-    await NutriCatalogSync?.ensureReady?.();
-    console.log("[NutriScore SW] Catalog synced and ready.");
-  } catch (e) {
-    console.warn("[NutriScore SW] catalog unavailable; local DB remains usable:", e);
+let catalogReadyPromise = null;
+function ensureCatalogReady() {
+  if (!catalogReadyPromise) {
+    catalogReadyPromise = (async () => {
+      await ensureStorageReady();
+      try {
+        // F-01: do NOT call NutriEntitlement.refresh() here.
+        // Entitlement is refreshed by the 'entitlement-refresh' alarm (every 12 h).
+        // A plain wake makes 0 network requests unless the catalog or entitlement alarm fires.
+        await NutriCatalogSync?.ensureReady?.();
+        console.log("[NutriScore SW] Catalog synced and ready.");
+      } catch (e) {
+        console.warn("[NutriScore SW] catalog unavailable; local DB remains usable:", e);
+      }
+    })();
   }
+  return catalogReadyPromise;
 }
 
 // ── M2/L2: Alarm-driven retry & cache eviction ────────────────────────────────
@@ -201,7 +207,7 @@ function buildNutritionalProfileDisplay(nutrition) {
 // F-03: hoist settings + tier resolution to once per batch so N-card batches
 // don't each fire a 9-read getSettings() + JWT verify inside getProductInfo().
 async function getBatchContext() {
-  await ensureStorageReady();
+  await ensureCatalogReady();
   const settings = await (NutriScoreDB.getSettings
     ? NutriScoreDB.getSettings()
     : { diabetes: true, hypertension: true, kidney: true, activeTheme: "general" });
@@ -218,7 +224,7 @@ async function getProductInfo(payload, retailerCode, ctx = null) {
   if (ctx) {
     ({ settings, tier } = ctx);
   } else {
-    await ensureStorageReady();
+    await ensureCatalogReady();
     settings = await (NutriScoreDB.getSettings
       ? NutriScoreDB.getSettings()
       : { diabetes: true, hypertension: true, kidney: true, activeTheme: "general" });
@@ -228,7 +234,11 @@ async function getProductInfo(payload, retailerCode, ctx = null) {
     settings.isPremium = (tier === "premium");
   }
 
-  const { product_name, name_hash, retailer_product_id, url, price } = payload;
+  const product_name = payload.product_name || payload.name || "";
+  const retailer_product_id = payload.retailer_product_id || payload.id || null;
+  const url = payload.url || null;
+  const price = payload.price ?? null;
+  const name_hash = payload.name_hash || null;
   const cacheKey = retailer_product_id || url || product_name;
 
   if (cacheKey && typeof NutriScoreDB !== "undefined" && NutriScoreDB.getCachedProduct) {
@@ -322,7 +332,7 @@ async function appendPremiumAssessment(result, retailerCode, productId, activeTh
   result.diseaseWarnings = [];
   result.diseaseDisclaimer = "";
 
-  if (tier === "premium" && result.activeTheme !== "general") {
+  if (result.activeTheme !== "general") {
     const mode = self.NutriHealthModes && self.NutriHealthModes[result.activeTheme];
     if (mode && mode.engineKey) {
       try {
@@ -339,6 +349,113 @@ async function appendPremiumAssessment(result, retailerCode, productId, activeTh
         }
       } catch (e) {
         console.warn("[NutriScore SW] Error reading premium assessment:", e);
+      }
+    }
+
+    // Dynamic threshold evaluation fallback:
+    // Ensures health alerts render whenever any condition is active except general wellness.
+    if (!result.diseaseWarnings || result.diseaseWarnings.length === 0) {
+      const prof = result.nutritional_profile_display || {};
+      const warnings = [];
+      const theme = result.activeTheme;
+
+      if (theme === "diabetes") {
+        const sugar = prof.sugars_g;
+        if (sugar !== null && sugar !== undefined && sugar > 22.5) {
+          warnings.push({
+            disease: "Diabetes Risk",
+            condition: "High sugar (>22.5g per 100g)",
+            triggerQuantity: `${sugar}g`
+          });
+        }
+        const carbs = prof.carbs_g;
+        if (carbs !== null && carbs !== undefined && carbs > 60.0) {
+          warnings.push({
+            disease: "Diabetes Risk",
+            condition: "High carbohydrates (>60g per 100g)",
+            triggerQuantity: `${carbs}g`
+          });
+        }
+        const energyKcal = prof.energy_kj ? Math.round(prof.energy_kj / 4.184) : null;
+        if (energyKcal !== null && energyKcal > 400.0) {
+          warnings.push({
+            disease: "Diabetes Risk",
+            condition: "High calories (>400kcal per 100g)",
+            triggerQuantity: `${energyKcal}kcal`
+          });
+        }
+      } else if (theme === "hypertension") {
+        const sodium = prof.sodium_mg;
+        if (sodium !== null && sodium !== undefined && sodium > 600.0) {
+          warnings.push({
+            disease: "Hypertension Risk",
+            condition: "High sodium (>600mg per 100g)",
+            triggerQuantity: `${sodium}mg`
+          });
+        }
+        const satFat = prof.sat_fat_g;
+        if (satFat !== null && satFat !== undefined && satFat > 5.0) {
+          warnings.push({
+            disease: "Hypertension Risk",
+            condition: "High saturated fat (>5g per 100g)",
+            triggerQuantity: `${satFat}g`
+          });
+        }
+      } else if (theme === "kidney") {
+        const sodium = prof.sodium_mg;
+        if (sodium !== null && sodium !== undefined && sodium > 600.0) {
+          warnings.push({
+            disease: "Kidney Risk",
+            condition: "High sodium (>600mg per 100g)",
+            triggerQuantity: `${sodium}mg`
+          });
+        }
+        const potassium = prof.potassium_mg;
+        if (potassium !== null && potassium !== undefined && potassium > 200.0) {
+          warnings.push({
+            disease: "Kidney Risk",
+            condition: "High potassium (>200mg per 100g)",
+            triggerQuantity: `${potassium}mg`
+          });
+        }
+        const protein = prof.protein_g;
+        if (protein !== null && protein !== undefined && protein > 15.0) {
+          warnings.push({
+            disease: "Kidney Risk",
+            condition: "High protein (>15g per 100g)",
+            triggerQuantity: `${protein}g`
+          });
+        }
+      } else if (theme === "obesity") {
+        const energyKcal = prof.energy_kj ? Math.round(prof.energy_kj / 4.184) : null;
+        if (energyKcal !== null && energyKcal > 400.0) {
+          warnings.push({
+            disease: "Obesity Risk",
+            condition: "High calories (>400kcal per 100g)",
+            triggerQuantity: `${energyKcal}kcal`
+          });
+        }
+        const sugar = prof.sugars_g;
+        if (sugar !== null && sugar !== undefined && sugar > 22.5) {
+          warnings.push({
+            disease: "Obesity Risk",
+            condition: "High sugar (>22.5g per 100g)",
+            triggerQuantity: `${sugar}g`
+          });
+        }
+        const satFat = prof.sat_fat_g;
+        if (satFat !== null && satFat !== undefined && satFat > 5.0) {
+          warnings.push({
+            disease: "Obesity Risk",
+            condition: "High saturated fat (>5g per 100g)",
+            triggerQuantity: `${satFat}g`
+          });
+        }
+      }
+
+      result.diseaseWarnings = warnings;
+      if (warnings.length > 0 && !result.diseaseDisclaimer) {
+        result.diseaseDisclaimer = "Assesses dietary composition against nutritional benchmarks for your selected focus. Informational only, not medical advice.";
       }
     }
   }
@@ -400,7 +517,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "CHECK_PRODUCT_SCORE") {
-    const retailerCode = message.retailer || "NAIVAS";
+    const retailerCode = message.retailer || message.payload?.retailer || "NAIVAS";
 
     // D-30: guard against malformed messages — payload missing would throw TypeError
     const payload = message.payload;
@@ -409,8 +526,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
 
-    if (payload.retailer_product_id && payload.price && typeof NutriScoreDB !== "undefined" && NutriScoreDB.savePrice) {
-      NutriScoreDB.savePrice(payload.retailer_product_id, payload.price).catch(()=>{});
+    if (Array.isArray(payload.items)) {
+      (async () => {
+        try {
+          const ctx = await getBatchContext();
+          const results = [];
+          for (const item of payload.items) {
+            const p = {
+              product_name: item.product_name || item.name || "",
+              retailer_product_id: item.retailer_product_id || item.id || null,
+              price: item.price ?? null,
+              url: item.url ?? null,
+              name_hash: item.name_hash ?? null,
+            };
+            if (p.retailer_product_id && p.price && typeof NutriScoreDB !== "undefined" && NutriScoreDB.savePrice) {
+              await NutriScoreDB.savePrice(p.retailer_product_id, p.price);
+            }
+            try {
+              const data = await getProductInfo(p, retailerCode, ctx);
+              results.push({ status: "SUCCESS", data });
+            } catch (err) {
+              results.push({
+                status: "NOT_FOUND",
+                data: { product_name: p.product_name, nutriscore_grade: "UNKNOWN" },
+                error: err.message
+              });
+            }
+          }
+          sendResponse({ status: "SUCCESS", results });
+        } catch (err) {
+          sendResponse({ status: "ERROR", error: err.message });
+        }
+      })();
+      return true;
+    }
+
+    const prodId = payload.retailer_product_id || payload.id;
+    if (prodId && payload.price && typeof NutriScoreDB !== "undefined" && NutriScoreDB.savePrice) {
+      NutriScoreDB.savePrice(prodId, payload.price).catch(()=>{});
     }
 
     getProductInfo(payload, retailerCode)
@@ -423,7 +576,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         sendResponse({
           status: "NOT_FOUND",
-          data: { product_name: payload.product_name, nutriscore_grade: "UNKNOWN" },
+          data: { product_name: payload.product_name || payload.name, nutriscore_grade: "UNKNOWN" },
           error: err.message
         });
       });
@@ -432,8 +585,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === "CHECK_PRODUCT_SCORES_BATCH") {
-    const retailerCode = message.retailer || "NAIVAS";
-    const payloads = message.payloads || [];
+    const retailerCode = message.retailer || message.payload?.retailer || "NAIVAS";
+    const payloads = message.payloads || message.payload?.items || message.items || [];
 
     // F-19: reject oversized batches immediately
     if (!Array.isArray(payloads) || payloads.length === 0) {
@@ -454,15 +607,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const results = [];
         for (const payload of payloads) {
           try {
-            if (payload.retailer_product_id && payload.price && typeof NutriScoreDB !== "undefined" && NutriScoreDB.savePrice) {
-              await NutriScoreDB.savePrice(payload.retailer_product_id, payload.price);
+            const prodId = payload.retailer_product_id || payload.id;
+            if (prodId && payload.price && typeof NutriScoreDB !== "undefined" && NutriScoreDB.savePrice) {
+              await NutriScoreDB.savePrice(prodId, payload.price);
             }
             const data = await getProductInfo(payload, retailerCode, ctx);
             results.push({ status: "SUCCESS", data });
           } catch (err) {
             results.push({
               status: "NOT_FOUND",
-              data: { product_name: payload.product_name, nutriscore_grade: "UNKNOWN" },
+              data: { product_name: payload.product_name || payload.name, nutriscore_grade: "UNKNOWN" },
               error: err.message
             });
           }
