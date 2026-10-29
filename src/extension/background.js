@@ -15,6 +15,32 @@ importScripts(
 
 console.log("[NutriScore SW] Component Architecture v2.0 active.");
 
+// CAD Rollback — Extension Update & Storage Cleanup (Phase 6)
+// Clean up legacy consumer payment, entitlement, and profile keys on extension install or update.
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onInstalled) {
+  chrome.runtime.onInstalled.addListener(async (details) => {
+    try {
+      const obsoleteKeys = [
+        "nutri_entitlement",
+        "nutriscore_is_premium",
+        "activePaymentRef",
+        "activePaymentMethod",
+        "partial_onboarding",
+        "user_payment",
+        "user_health_profile",
+        "payment_reference",
+        "last_payment_timestamp"
+      ];
+      if (chrome.storage && chrome.storage.local) {
+        await chrome.storage.local.remove(obsoleteKeys);
+        if (DEBUG) console.log("[NutriScore SW] Cleaned obsolete consumer keys onInstalled:", details.reason);
+      }
+    } catch (err) {
+      console.warn("[NutriScore SW] Error cleaning storage onInstalled:", err);
+    }
+  });
+}
+
 // P5 perf fix: gate per-message logging behind a flag.
 // Flip to true in DevTools console (self.NUTRISCORE_DEBUG = true) when diagnosing issues.
 const DEBUG = (typeof self !== "undefined" && self.NUTRISCORE_DEBUG === true);

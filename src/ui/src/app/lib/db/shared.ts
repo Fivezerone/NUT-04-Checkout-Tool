@@ -82,7 +82,7 @@ interface NutriDB extends DBSchema {
 }
 
 const DB_NAME = "nut04-nutriscore";
-export const DB_VERSION = 17;
+export const DB_VERSION = 18;
 export const SCORING_VERSION = "v4";
 
 /**
@@ -250,6 +250,18 @@ export function getDB() {
             const qStore = db.createObjectStore("quickmartProducts", { keyPath: "Identity.ProductID" });
             qStore.createIndex("by-url", "Identity.RetailerProductUrl");
             qStore.createIndex("by-name", "Identity.ProductName");
+          }
+        }
+        // v18: Purge obsolete consumer stores and keys (CAD-Only Rollback Phase 6)
+        if (oldVersion < 18) {
+          if (db.objectStoreNames.contains("user_payment" as any)) {
+            db.deleteObjectStore("user_payment" as any);
+          }
+          if (db.objectStoreNames.contains("user_settings")) {
+            const settingsStore = transaction.objectStore("user_settings");
+            settingsStore.delete("isPremium");
+            settingsStore.delete("user_payment");
+            settingsStore.delete("user_health_profile");
           }
         }
       },
