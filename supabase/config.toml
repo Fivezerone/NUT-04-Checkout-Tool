@@ -217,7 +217,11 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
-enable_signup = false
+# NOTE: Must be true for email PASSWORD LOGIN to work locally.
+# Self-registration is blocked at the [auth] level (enable_signup = false)
+# and enforced at the application/CAD layer. This flag only controls the
+# email *provider* being available as an auth method.
+enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
