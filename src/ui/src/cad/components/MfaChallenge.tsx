@@ -76,7 +76,7 @@ export const MfaChallenge: React.FC = () => {
                 />
               </div>
               <p className="mt-2 text-xs text-slate-500 text-center">
-                Enter the 6-digit code from Google Authenticator or your clinic TOTP device.
+                Enter the 6-digit code from your authenticator app (TOTP) or clinic hardware token.
               </p>
             </div>
 
