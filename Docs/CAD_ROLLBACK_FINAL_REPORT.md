@@ -244,4 +244,4 @@ npm run purge:mocks -- --check-clean
 | Phase 5 | `2eb59da` | `feat(phase5): clinician-owned health modes and dynamic rules engine` |
 | Phase 6 | `8a9a002` | `feat(phase6): storage migration and extension update clean-up` |
 | Phase 7 | `1b09107` | `feat(phase7): idempotent mock credentials seed and purge scripts` |
-| Phase 8 | *(Pending)* | `docs(phase8): final rollback report, documentation updates, and operational checklist` |
+| Phase 8 | `5c7e4c2` | `docs(phase8): final rollback report, documentation updates, and operational checklist` |
