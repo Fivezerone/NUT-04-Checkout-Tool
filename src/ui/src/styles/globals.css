@@ -34,6 +34,232 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
+  font-family: var(--font-sans);
   margin: 0;
   padding: 0;
 }
+
+@layer base {
+  :focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  .cad-shell { background: var(--color-canvas); color: var(--color-text); min-height: 100vh; }
+  .cad-topbar { background: var(--color-surface-raised); border-bottom: 1px solid var(--color-border-subtle); height: var(--header-height); position: sticky; top: 0; z-index: 40; }
+  .cad-topbar-inner { align-items: center; display: flex; height: 100%; justify-content: space-between; margin: 0 auto; max-width: var(--content-max); padding: 0 var(--space-3); }
+  .cad-brand { align-items: center; display: flex; gap: var(--space-1); min-width: 0; }
+  .cad-brand-mark { align-items: center; background: var(--color-brand); border-radius: var(--ui-radius-md); color: var(--color-on-brand); display: inline-flex; font-size: 1rem; font-weight: 800; height: 2rem; justify-content: center; width: 2rem; }
+  .cad-brand-product { background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--ui-radius-sm); color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 700; padding: var(--space-0-5) var(--space-1); text-transform: uppercase; }
+  .cad-tenant-select { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--ui-radius-md); color: var(--color-text-strong); font-size: var(--text-body); font-weight: 600; max-width: 23rem; min-height: 2.5rem; padding: var(--space-1) var(--space-2); }
+  .cad-workspace { margin-left: var(--rail-width); min-height: calc(100vh - var(--header-height)); }
+  .cad-main { margin: 0 auto; max-width: var(--content-max); padding: var(--space-4); }
+  .cad-footer { border-top: 1px solid var(--color-border-subtle); color: var(--color-text-muted); font-size: var(--text-caption); margin-top: var(--space-6); padding: var(--space-3); text-align: center; }
+  .cad-rail { background: var(--color-surface-raised); border-right: 1px solid var(--color-border-subtle); bottom: 0; display: flex; flex-direction: column; left: 0; padding: var(--space-3); position: fixed; top: var(--header-height); width: var(--rail-width); z-index: 30; }
+  .cad-rail-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: var(--space-2); padding: 0 var(--space-1); }
+  .cad-nav-list { display: grid; gap: var(--space-0-5); }
+  .cad-nav-item { align-items: center; border-radius: var(--ui-radius-md); color: var(--color-text-muted); display: flex; font-size: var(--text-body); font-weight: 650; gap: var(--space-1); min-height: 2.75rem; padding: var(--space-1) var(--space-2); text-align: left; transition: background-color var(--transition-fast), color var(--transition-fast); width: 100%; }
+  .cad-nav-item:hover { background: var(--color-surface-muted); color: var(--color-text-strong); }
+  .cad-nav-item-active { background: var(--color-brand-subtle); color: var(--color-brand-hover); }
+  .cad-rail-note { border-top: 1px solid var(--color-border-subtle); color: var(--color-text-muted); font-size: var(--text-caption); line-height: var(--leading-body); margin: auto 0 0; padding: var(--space-2) var(--space-1) 0; }
+  .cad-nav-scrim { background: rgb(15 23 42 / 0.4); border: 0; inset: 0; position: fixed; z-index: 45; }
+  .cad-health-banner { align-items: center; border-bottom: 1px solid; display: flex; font-size: var(--text-body); font-weight: 650; gap: var(--space-1); min-height: 2.5rem; padding: var(--space-1) var(--space-4); }
+  .cad-health-banner-critical { background: var(--color-critical-subtle); border-color: var(--color-critical-border); color: var(--color-critical-text); }
+  .cad-health-banner-warning { background: var(--color-warning-subtle); border-color: var(--color-warning-border); color: var(--color-warning-text); }
+  .cad-health-banner-success { background: var(--color-success-subtle); border-color: var(--color-success-border); color: var(--color-success-text); }
+  .cad-health-banner-info { background: var(--color-info-subtle); border-color: var(--color-info-border); color: var(--color-info-text); }
+  .metric-icon { align-items: center; border-radius: var(--ui-radius-md); display: inline-flex; height: 2.5rem; justify-content: center; width: 2.5rem; }
+  .metric-icon-neutral { background: var(--color-surface-muted); color: var(--color-text-muted); }
+  .metric-icon-critical { background: var(--color-critical-subtle); color: var(--color-critical); }
+  .metric-icon-warning { background: var(--color-warning-subtle); color: var(--color-warning); }
+  .metric-icon-success { background: var(--color-success-subtle); color: var(--color-success); }
+  .metric-icon-info { background: var(--color-info-subtle); color: var(--color-info); }
+  .ui-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--ui-radius-lg);
+    box-shadow: var(--shadow-card);
+  }
+
+  .ui-page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .ui-eyebrow {
+    color: var(--color-text-muted);
+    font-size: var(--text-caption);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    line-height: var(--leading-caption);
+    text-transform: uppercase;
+  }
+
+  .ui-button, .ui-icon-button, .ui-input, .ui-select, .ui-textarea {
+    transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+
+  .ui-button {
+    align-items: center;
+    border-radius: var(--ui-radius-md);
+    display: inline-flex;
+    font-size: var(--text-body);
+    font-weight: 700;
+    gap: var(--space-1);
+    justify-content: center;
+    min-height: 2.5rem;
+    padding: var(--space-1) var(--space-2);
+  }
+
+  .ui-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .ui-button-primary {
+    background: var(--color-brand);
+    color: var(--color-on-brand);
+  }
+
+  .ui-button-primary:hover:not(:disabled) { background: var(--color-brand-hover); }
+
+  .ui-button-secondary {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-strong);
+  }
+
+  .ui-button-secondary:hover:not(:disabled) { background: var(--color-surface-muted); }
+
+  .ui-button-critical {
+    background: var(--color-critical);
+    color: var(--color-on-brand);
+  }
+
+  .ui-button-critical:hover:not(:disabled) { background: var(--color-critical-hover); }
+
+  .ui-icon-button {
+    align-items: center;
+    border-radius: var(--ui-radius-md);
+    color: var(--color-text-muted);
+    display: inline-flex;
+    height: 2.5rem;
+    justify-content: center;
+    width: 2.5rem;
+  }
+
+  .ui-icon-button:hover { background: var(--color-surface-muted); color: var(--color-text-strong); }
+
+  .ui-input, .ui-select, .ui-textarea {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--ui-radius-md);
+    color: var(--color-text-strong);
+    font-size: var(--text-body);
+    line-height: var(--leading-body);
+    min-height: 2.5rem;
+    padding: var(--space-1) var(--space-2);
+    width: 100%;
+  }
+
+  .ui-textarea { min-height: 6rem; resize: vertical; }
+  .ui-input:focus, .ui-select:focus, .ui-textarea:focus { border-color: var(--focus-ring); outline: none; }
+  .ui-input::placeholder, .ui-textarea::placeholder { color: var(--color-text-disabled); }
+  .ui-field-label { color: var(--color-text-strong); display: block; font-size: var(--text-body); font-weight: 700; line-height: var(--leading-body); }
+  .ui-helper-text { color: var(--color-text-muted); font-size: var(--text-caption); line-height: var(--leading-caption); margin-top: var(--space-0-5); }
+
+  .ui-modal-backdrop { align-items: center; background: var(--color-overlay); display: flex; inset: 0; justify-content: center; padding: var(--space-2); position: fixed; z-index: 60; }
+  .ui-modal { background: var(--color-surface-raised); border: 1px solid var(--color-border-subtle); border-radius: var(--ui-radius-xl); box-shadow: var(--shadow-raised); max-height: calc(100vh - var(--space-4)); overflow: auto; padding: var(--space-3); width: min(100%, 36rem); }
+
+  .ui-status, .ui-role-badge {
+    align-items: center;
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: var(--text-caption);
+    font-weight: 700;
+    gap: var(--space-0-5);
+    line-height: var(--leading-caption);
+    padding: var(--space-0-5) var(--space-1);
+  }
+
+  .ui-role-badge { background: var(--color-surface-muted); border: 1px solid var(--color-border); color: var(--color-text-strong); }
+  .ui-status-critical { background: var(--color-critical-subtle); border: 1px solid var(--color-critical-border); color: var(--color-critical-text); }
+  .ui-status-warning { background: var(--color-warning-subtle); border: 1px solid var(--color-warning-border); color: var(--color-warning-text); }
+  .ui-status-success { background: var(--color-success-subtle); border: 1px solid var(--color-success-border); color: var(--color-success-text); }
+  .ui-status-info { background: var(--color-info-subtle); border: 1px solid var(--color-info-border); color: var(--color-info-text); }
+  .ui-status-neutral { background: var(--color-surface-muted); border: 1px solid var(--color-border); color: var(--color-text-muted); }
+
+  .ui-table { border-collapse: collapse; width: 100%; }
+  .ui-table th { background: var(--color-surface-muted); color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 700; letter-spacing: 0.04em; padding: var(--space-2); text-transform: uppercase; }
+  .ui-table td { border-top: 1px solid var(--color-border-subtle); color: var(--color-text); font-size: var(--text-body); padding: var(--space-2); vertical-align: middle; }
+  .ui-table tbody tr { transition: background-color var(--transition-fast); }
+  .ui-table tbody tr:hover { background: var(--color-canvas-subtle); }
+
+  .ui-skeleton { animation: ui-loading 1.4s ease-in-out infinite; background: var(--color-surface-muted); border-radius: var(--ui-radius-md); }
+
+  /* Transitional token bridge for established CAD operational views. New code uses
+     the primitives above; this keeps remaining secured workflows visually aligned
+     while their domain-specific layouts are progressively decomposed. */
+  .cad-main .bg-white { background-color: var(--color-surface); }
+  .cad-main .bg-slate-50,
+  .cad-main .bg-slate-100 { background-color: var(--color-surface-muted); }
+  .cad-main .bg-slate-200 { background-color: var(--color-border-subtle); }
+  .cad-main .border-slate-100,
+  .cad-main .border-slate-200 { border-color: var(--color-border-subtle); }
+  .cad-main .border-slate-300 { border-color: var(--color-border); }
+  .cad-main .text-slate-900,
+  .cad-main .text-slate-800 { color: var(--color-text-strong); }
+  .cad-main .text-slate-700,
+  .cad-main .text-slate-600 { color: var(--color-text); }
+  .cad-main .text-slate-500,
+  .cad-main .text-slate-400 { color: var(--color-text-muted); }
+  .cad-main .bg-emerald-50 { background-color: var(--color-success-subtle); }
+  .cad-main .border-emerald-200 { border-color: var(--color-success-border); }
+  .cad-main .text-emerald-600,
+  .cad-main .text-emerald-700,
+  .cad-main .text-emerald-800 { color: var(--color-success-text); }
+  .cad-main .bg-amber-50,
+  .cad-main .bg-amber-100 { background-color: var(--color-warning-subtle); }
+  .cad-main .border-amber-200 { border-color: var(--color-warning-border); }
+  .cad-main .text-amber-600,
+  .cad-main .text-amber-700,
+  .cad-main .text-amber-800 { color: var(--color-warning-text); }
+  .cad-main .bg-red-50,
+  .cad-main .bg-red-100,
+  .cad-main .bg-rose-50 { background-color: var(--color-critical-subtle); }
+  .cad-main .border-red-200,
+  .cad-main .border-rose-200 { border-color: var(--color-critical-border); }
+  .cad-main .text-red-600,
+  .cad-main .text-red-700,
+  .cad-main .text-red-800,
+  .cad-main .text-rose-600,
+  .cad-main .text-rose-700,
+  .cad-main .text-rose-800 { color: var(--color-critical-text); }
+  .cad-main .bg-blue-50,
+  .cad-main .bg-blue-100 { background-color: var(--color-info-subtle); }
+  .cad-main .border-blue-200 { border-color: var(--color-info-border); }
+  .cad-main .text-blue-600,
+  .cad-main .text-blue-700,
+  .cad-main .text-blue-800 { color: var(--color-info-text); }
+}
+
+@media (max-width: 1023px) {
+  .cad-workspace { margin-left: 0; }
+  .cad-rail { box-shadow: var(--shadow-raised); transform: translateX(-100%); transition: transform var(--transition-fast); z-index: 50; }
+  .cad-rail-open { transform: translateX(0); }
+}
+
+@media (max-width: 639px) {
+  .cad-topbar-inner { padding: 0 var(--space-1); }
+  .cad-main { padding: var(--space-2); }
+  .cad-health-banner { align-items: flex-start; padding: var(--space-1) var(--space-2); }
+  .ui-page-header { flex-direction: column; }
+}
+
+@keyframes ui-loading { 50% { opacity: 0.5; } }

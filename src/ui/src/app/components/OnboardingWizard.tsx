@@ -285,31 +285,31 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
   // Loading state
   if (step === "loading") {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[color:var(--color-canvas)] flex items-center justify-center p-4">
         <div className="text-center space-y-3">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs text-slate-500 font-medium">Checking care enrollment...</p>
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[color:var(--color-brand)] border-t-transparent" />
+          <p className="text-sm text-[color:var(--color-text-muted)] font-medium">Checking care enrollment...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+    <div className="min-h-screen bg-[color:var(--color-canvas)] flex items-center justify-center p-4 font-sans text-[color:var(--color-text)]">
+      <div className="ui-card w-full max-w-md overflow-hidden rounded-[var(--ui-radius-xl)]">
         {/* Brand Header */}
-        <div className="bg-blue-600 p-6 text-white text-center">
+        <div className="bg-[color:var(--color-brand)] p-6 text-[color:var(--color-on-brand)] text-center">
           <div className="inline-flex items-center justify-center w-12 h-12 bg-white/20 rounded-xl mb-3 shadow-sm">
             <ShieldCheck className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-xl font-bold tracking-tight">NutriScore Clinical Care</h1>
-          <p className="text-xs text-blue-100 mt-1">Clinician-Monitored Nutritional Guidance</p>
+          <p className="text-sm text-white/80 mt-1">Clinician-monitored nutritional guidance</p>
         </div>
 
         {/* Error Banner */}
         {errorMessage && (
-          <div className="m-5 mb-0 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start space-x-2.5 text-xs text-rose-800">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+          <div className="ui-status-critical m-5 mb-0 rounded-xl flex items-start gap-2.5 p-4 text-sm">
+            <AlertCircle className="shrink-0 mt-0.5" size={17} />
             <span className="leading-relaxed">{errorMessage}</span>
           </div>
         )}
@@ -318,49 +318,49 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
         {step === "signin" && (
           <div className="p-6 space-y-5">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Sign In with Clinic Credentials</h2>
-              <p className="text-xs text-slate-500 mt-1">
+              <h2 className="text-lg font-bold text-[color:var(--color-text-strong)]">Sign in with clinic credentials</h2>
+              <p className="text-sm text-[color:var(--color-text-muted)] mt-1">
                 Enter your registered email and the temporary password provided by your clinician.
               </p>
             </div>
 
             <form onSubmit={handleSignIn} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700">Patient Email Address</label>
+                <label className="ui-field-label">Patient email address</label>
                 <input
                   type="email"
                   required
                   placeholder="patient@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="ui-input mt-1"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700">Temporary Password</label>
+                <label className="ui-field-label">Temporary password</label>
                 <input
                   type="password"
                   required
                   placeholder="••••••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="ui-input mt-1"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                className="ui-button ui-button-primary min-h-11 w-full"
               >
                 <span>{isSubmitting ? "Signing In..." : "Sign In & Continue"}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </form>
 
-            <div className="pt-2 border-t border-slate-100 text-center">
-              <p className="text-[11px] text-slate-400">
+            <div className="pt-2 border-t border-[color:var(--color-border-subtle)] text-center">
+              <p className="text-xs text-[color:var(--color-text-muted)]">
                 Accounts are provisioned by licensed healthcare providers. Public registration is not supported.
               </p>
             </div>
@@ -372,43 +372,43 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
           <div className="p-6 space-y-5">
             <div>
               <div className="flex items-center space-x-2">
-                <Lock className="w-4 h-4 text-blue-600" />
-                <h2 className="text-base font-bold text-slate-900">Set a New Password</h2>
+                <Lock className="text-[color:var(--color-brand)]" size={17} />
+                <h2 className="text-lg font-bold text-[color:var(--color-text-strong)]">Set a new password</h2>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-sm text-[color:var(--color-text-muted)] mt-1">
                 For security, please replace your clinic-issued temporary password with a private one.
               </p>
             </div>
 
             <form onSubmit={handlePasswordChange} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700">New Password (min. 8 characters)</label>
+                <label className="ui-field-label">New password (minimum 8 characters)</label>
                 <input
                   type="password"
                   required
                   placeholder="••••••••••••"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="ui-input mt-1"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700">Confirm New Password</label>
+                <label className="ui-field-label">Confirm new password</label>
                 <input
                   type="password"
                   required
                   placeholder="••••••••••••"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="ui-input mt-1"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors disabled:opacity-50"
+                className="ui-button ui-button-primary min-h-11 w-full"
               >
                 {isSubmitting ? "Updating Password..." : "Update Password & Proceed"}
               </button>
@@ -420,22 +420,22 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
         {step === "consent" && (
           <div className="p-6 space-y-5">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Clinical Care Agreement & Privacy Consent</h2>
-              <p className="text-xs text-slate-500 mt-1">
+              <h2 className="text-lg font-bold text-[color:var(--color-text-strong)]">Clinical care agreement and privacy consent</h2>
+              <p className="text-sm text-[color:var(--color-text-muted)] mt-1">
                 Your clinician has enrolled you in nutritional monitoring. Please review and accept before activating your extension.
               </p>
             </div>
 
             {/* Informational Points */}
-            <div className="p-3.5 bg-blue-50/70 border border-blue-200/60 rounded-xl space-y-2 text-xs text-slate-700">
+            <div className="space-y-2 rounded-xl border border-[color:var(--color-info-border)] bg-[color:var(--color-info-subtle)] p-4 text-sm text-[color:var(--color-info-text)]">
               <div className="flex items-start space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <CheckCircle2 className="shrink-0 mt-0.5" size={17} />
                 <span>
                   <strong>Clinical Thresholds:</strong> Dietary alerts are calibrated by your doctor, not arbitrary consumer targets.
                 </span>
               </div>
               <div className="flex items-start space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <CheckCircle2 className="shrink-0 mt-0.5" size={17} />
                 <span>
                   <strong>Privacy Safeguards:</strong> Monitored shopping events are encrypted and protected under the Kenya Data Protection Act 2019.
                 </span>
@@ -444,11 +444,11 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
 
             {/* Preference: Notification Frequency */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-slate-700">Notification Alerts</label>
+              <label className="ui-field-label">Notification alerts</label>
               <select
                 value={notificationFrequency}
                 onChange={(e) => setNotificationFrequency(e.target.value as any)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="ui-select mt-1"
               >
                 <option value="realtime">Real-time alerts at checkout (Recommended)</option>
                 <option value="daily">Daily summary</option>
@@ -464,9 +464,9 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
                   type="checkbox"
                   checked={termsAccepted}
                   onChange={(e) => setTermsAccepted(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                  className="mt-0.5 h-4 w-4 rounded border-[color:var(--color-border)] accent-[color:var(--color-brand)]"
                 />
-                <span className="text-xs text-slate-600 leading-snug">
+                <span className="text-sm text-[color:var(--color-text)] leading-snug">
                   I agree to the{" "}
                   <button
                     type="button"
@@ -475,7 +475,7 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
                       setActiveDoc(DECOY_TERMS_OF_SERVICE);
                       setIsDocModalOpen(true);
                     }}
-                    className="text-blue-600 hover:underline font-semibold"
+                    className="font-semibold text-[color:var(--color-brand-hover)] hover:underline"
                   >
                     Clinical Care Terms of Service
                   </button>
@@ -488,9 +488,9 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
                   type="checkbox"
                   checked={privacyAccepted}
                   onChange={(e) => setPrivacyAccepted(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                  className="mt-0.5 h-4 w-4 rounded border-[color:var(--color-border)] accent-[color:var(--color-brand)]"
                 />
-                <span className="text-xs text-slate-600 leading-snug">
+                <span className="text-sm text-[color:var(--color-text)] leading-snug">
                   I consent to the processing of my nutritional data under the{" "}
                   <button
                     type="button"
@@ -499,7 +499,7 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
                       setActiveDoc(DECOY_PRIVACY_POLICY);
                       setIsDocModalOpen(true);
                     }}
-                    className="text-blue-600 hover:underline font-semibold"
+                    className="font-semibold text-[color:var(--color-brand-hover)] hover:underline"
                   >
                     Health Data Privacy Notice
                   </button>
@@ -509,7 +509,7 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
             </div>
 
             {consentDismissed && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+              <div className="ui-status-warning block rounded-lg p-3 text-sm">
                 Consent is required before product scoring or nutrition features can be enabled. Your account remains signed in, but extension features remain inactive.
               </div>
             )}
@@ -519,7 +519,7 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
                 type="button"
                 onClick={handleAcceptConsent}
                 disabled={!termsAccepted || !privacyAccepted || isSubmitting}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="ui-button ui-button-primary min-h-11 w-full"
               >
                 {isSubmitting ? "Activating Care Profile..." : "Accept & Activate Extension"}
               </button>
@@ -528,14 +528,14 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
                 <button
                   type="button"
                   onClick={() => setConsentDismissed(true)}
-                  className="text-xs text-slate-500 hover:text-slate-700 font-medium"
+                  className="text-sm font-medium text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-strong)]"
                 >
                   Dismiss for now
                 </button>
                 <button
                   type="button"
                   onClick={handleSignOut}
-                  className="text-xs text-rose-600 hover:text-rose-800 font-semibold flex items-center space-x-1"
+                  className="flex items-center gap-1 text-sm font-semibold text-[color:var(--color-critical)] hover:text-[color:var(--color-critical-hover)]"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Sign Out</span>
@@ -548,11 +548,11 @@ export function OnboardingWizard({ onComplete }: Readonly<Props>) {
         {/* ── STEP 4: COMPLETED ─────────────────────────────────────────────── */}
         {step === "completed" && (
           <div className="p-8 text-center space-y-3">
-            <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-7 h-7" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[color:var(--color-success-subtle)] text-[color:var(--color-success)] mx-auto">
+              <CheckCircle2 size={28} />
             </div>
-            <h2 className="text-base font-bold text-slate-900">Clinical Care Activated</h2>
-            <p className="text-xs text-slate-500">
+            <h2 className="text-lg font-bold text-[color:var(--color-text-strong)]">Clinical care activated</h2>
+            <p className="text-sm text-[color:var(--color-text-muted)]">
               Your care profile and clinician dietary targets are loaded. Redirecting to your Shopper Dashboard...
             </p>
           </div>

@@ -6,7 +6,8 @@ import React, { useState, useEffect } from 'react'
 import { useCadAuth } from '../context/AuthContext'
 import { cadSupabase } from '../supabaseClient'
 import type { TenantMember, CadRole } from '../types'
-import { UserPlus, CheckCircle, AlertTriangle, ShieldCheck, UserX, Copy, Check, Lock } from 'lucide-react'
+import { UserPlus, CheckCircle, AlertTriangle, UserX, Copy, Check } from 'lucide-react'
+import { PageHeader, StatusBadge } from '../components/Primitives'
 
 const ROLE_RANK: Record<CadRole, number> = {
   super_admin: 100,
@@ -239,46 +240,27 @@ export const UserManagementView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* View Header */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-600" />
-            <span>Clinic Clinical Staff & Licence Verification</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Clinic: <strong>{activeTenant?.name || claims.tenantId}</strong> &middot; Writing clinicians must be verified before prescribing patient targets.
-          </p>
-        </div>
-
-        {callerRank > ROLE_RANK.patient && (
-          <button
-            onClick={() => {
-              setProvisionSuccess(null)
-              setShowInviteModal(true)
-            }}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>Provision Clinic Member</span>
-          </button>
-        )}
-      </div>
+      <PageHeader
+        eyebrow="Tenant access"
+        title="Clinical staff and licence verification"
+        description={<>Clinic: <strong>{activeTenant?.name || claims.tenantId}</strong>. Writing clinicians must be verified before prescribing patient targets.</>}
+        actions={callerRank > ROLE_RANK.patient ? <button onClick={() => { setProvisionSuccess(null); setShowInviteModal(true) }} className="ui-button ui-button-primary"><UserPlus size={17} /> Provision member</button> : undefined}
+      />
 
       {/* Provisioning Success Modal / Notification */}
       {provisionSuccess && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start justify-between">
+        <div className="ui-card flex items-start justify-between border-[color:var(--color-success-border)] bg-[color:var(--color-success-subtle)] p-4">
           <div className="space-y-1">
-            <div className="text-sm font-bold text-emerald-900 flex items-center gap-1.5">
-              <CheckCircle className="w-4 h-4 text-emerald-600" />
+            <div className="text-sm font-bold text-[color:var(--color-success-text)] flex items-center gap-1.5">
+              <CheckCircle size={17} />
               <span>User Successfully Provisioned ({provisionSuccess.email})</span>
             </div>
-            <p className="text-xs text-emerald-700">
+            <p className="text-xs text-[color:var(--color-success-text)]">
               Assigned Role: <strong className="capitalize">{provisionSuccess.role.replace('_', ' ')}</strong>. Deliver the temporary credentials below to the member:
             </p>
             {provisionSuccess.password && (
               <div className="mt-2 flex items-center gap-2">
-                <span className="font-mono text-xs bg-white px-2.5 py-1 rounded border border-emerald-300 font-bold text-slate-900 select-all">
+                <span className="font-mono text-xs bg-[color:var(--color-surface)] px-2 py-1 rounded border border-[color:var(--color-success-border)] font-bold text-[color:var(--color-text-strong)] select-all">
                   {provisionSuccess.password}
                 </span>
                 <button
@@ -287,9 +269,9 @@ export const UserManagementView: React.FC = () => {
                     setCopiedPwd(true)
                     setTimeout(() => setCopiedPwd(false), 2000)
                   }}
-                  className="px-2 py-1 bg-white hover:bg-emerald-100 text-emerald-800 rounded text-xs border border-emerald-300 flex items-center gap-1"
+                  className="ui-button ui-button-secondary"
                 >
-                  {copiedPwd ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  {copiedPwd ? <Check size={14} /> : <Copy size={14} />}
                   <span>{copiedPwd ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
@@ -297,7 +279,8 @@ export const UserManagementView: React.FC = () => {
           </div>
           <button
             onClick={() => setProvisionSuccess(null)}
-            className="text-xs text-emerald-800 hover:text-emerald-950 font-bold ml-4"
+            className="ui-icon-button ml-4"
+            aria-label="Dismiss provisioning confirmation"
           >
             ✕
           </button>
@@ -305,10 +288,10 @@ export const UserManagementView: React.FC = () => {
       )}
 
       {/* Staff Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="ui-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead className="bg-slate-50 font-semibold text-slate-600">
+          <table className="ui-table min-w-full text-left">
+            <thead>
               <tr>
                 <th className="px-4 py-3">User / Email</th>
                 <th className="px-4 py-3">Role</th>
@@ -319,10 +302,10 @@ export const UserManagementView: React.FC = () => {
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
+            <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="py-8 text-center text-[color:var(--color-text-muted)]">
                     Loading roster...
                   </td>
                 </tr>
@@ -332,55 +315,40 @@ export const UserManagementView: React.FC = () => {
                   const canManage = callerRank > targetRank
 
                   return (
-                    <tr key={member.user_id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-slate-900">
+                    <tr key={member.user_id}>
+                      <td className="font-medium text-[color:var(--color-text-strong)]">
                         <div>{member.email || member.user_id}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{member.user_id}</div>
+                        <div className="mt-1 text-xs text-[color:var(--color-text-muted)] font-mono">{member.user_id}</div>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="capitalize px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-800">
-                          {member.role.replace('_', ' ')}
-                        </span>
+                      <td>
+                        <StatusBadge tone="neutral">{member.role.replace('_', ' ')}</StatusBadge>
                       </td>
-                      <td className="px-4 py-3 font-mono text-slate-700">
+                      <td className="font-mono">
                         {member.licence_number || '—'}
                       </td>
-                      <td className="px-4 py-3 text-slate-500">
+                      <td className="text-[color:var(--color-text-muted)]">
                         {member.licence_expiry || '—'}
                       </td>
-                      <td className="px-4 py-3">
+                      <td>
                         {member.role === 'writing_clinician' || member.role === 'viewing_dietician' ? (
                           member.licence_verified ? (
-                            <span className="inline-flex items-center text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-bold border border-emerald-200">
-                              <CheckCircle className="w-3 h-3 mr-1" /> Verified
-                            </span>
+                            <StatusBadge tone="success"><CheckCircle size={14} /> Verified</StatusBadge>
                           ) : (
-                            <span className="inline-flex items-center text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-[10px] font-bold border border-amber-200">
-                              <AlertTriangle className="w-3 h-3 mr-1" /> Pending Validation
-                            </span>
+                            <StatusBadge tone="warning"><AlertTriangle size={14} /> Pending validation</StatusBadge>
                           )
                         ) : (
-                          <span className="text-slate-400 text-[10px]">N/A (Administrative)</span>
+                          <span className="text-xs text-[color:var(--color-text-muted)]">Not applicable</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-block w-2 h-2 rounded-full mr-1.5 ${
-                            member.status === 'active'
-                              ? 'bg-emerald-500'
-                              : member.status === 'suspended'
-                              ? 'bg-amber-500'
-                              : 'bg-rose-500'
-                          }`}
-                        />
-                        <span className="capitalize text-slate-700">{member.status}</span>
+                      <td>
+                        <StatusBadge tone={member.status === 'active' ? 'success' : member.status === 'suspended' ? 'warning' : 'critical'}>{member.status}</StatusBadge>
                       </td>
-                      <td className="px-4 py-3 text-right space-x-2">
+                      <td className="text-right space-x-2">
                         {canManage &&
                           (member.role === 'writing_clinician' || member.role === 'viewing_dietician') && (
                             <button
                               onClick={() => toggleVerifyLicence(member.user_id, member.licence_verified)}
-                              className="text-xs text-emerald-600 hover:text-emerald-800 font-semibold px-2 py-1 rounded hover:bg-emerald-50 transition-colors"
+                              className="ui-button ui-button-secondary"
                             >
                               {member.licence_verified ? 'Unverify' : 'Verify Licence'}
                             </button>
@@ -391,15 +359,15 @@ export const UserManagementView: React.FC = () => {
                             {member.status === 'active' ? (
                               <button
                                 onClick={() => handleStatusChange(member.user_id, member.role, 'deactivated')}
-                                className="text-xs text-rose-600 hover:text-rose-800 font-semibold px-2 py-1 rounded hover:bg-rose-50 transition-colors inline-flex items-center gap-1"
+                                className="ui-button ui-button-critical"
                               >
-                                <UserX className="w-3 h-3" />
+                                <UserX size={14} />
                                 <span>Deactivate</span>
                               </button>
                             ) : (
                               <button
                                 onClick={() => handleStatusChange(member.user_id, member.role, 'active')}
-                                className="text-xs text-emerald-600 hover:text-emerald-800 font-semibold px-2 py-1 rounded hover:bg-emerald-50 transition-colors"
+                                className="ui-button ui-button-secondary"
                               >
                                 Reactivate
                               </button>
@@ -418,31 +386,31 @@ export const UserManagementView: React.FC = () => {
 
       {/* Invite Modal */}
       {showInviteModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-slate-900">Provision Clinic Staff Member</h3>
-            <p className="text-xs text-slate-500">
+        <div className="ui-modal-backdrop" role="presentation">
+          <div className="ui-modal space-y-4" role="dialog" aria-modal="true" aria-labelledby="provision-dialog-title">
+            <h2 id="provision-dialog-title" className="text-xl font-bold text-[color:var(--color-text-strong)]">Provision clinic staff member</h2>
+            <p className="text-sm text-[color:var(--color-text-muted)]">
               Only roles strictly below your authority ({claims.role}) can be provisioned.
             </p>
             <form onSubmit={handleInvite} className="space-y-4 text-sm">
               <div>
-                <label className="block text-xs font-semibold text-slate-700">Email Address</label>
+                <label className="ui-field-label">Email address</label>
                 <input
                   type="email"
                   required
                   placeholder="doctor@clinic.co.ke"
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className="ui-input mt-1"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700">Role</label>
+                <label className="ui-field-label">Role</label>
                 <select
                   value={newRole}
                   onChange={(e) => setNewRole(e.target.value as CadRole)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+                  className="ui-select mt-1"
                 >
                   {callerRank > ROLE_RANK.writing_clinician && (
                     <option value="writing_clinician">Writing Clinician (Prescribe Targets)</option>
@@ -464,15 +432,13 @@ export const UserManagementView: React.FC = () => {
 
               {(newRole === 'writing_clinician' || newRole === 'viewing_dietician') && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700">
-                    Medical / Dietetic Licence Number
-                  </label>
+                  <label className="ui-field-label">Medical or dietetic licence number</label>
                   <input
                     type="text"
                     placeholder="KMPDC/2026/12345"
                     value={newLicence}
                     onChange={(e) => setNewLicence(e.target.value)}
-                    className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                    className="ui-input mt-1"
                   />
                 </div>
               )}
@@ -481,14 +447,14 @@ export const UserManagementView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowInviteModal(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 text-xs font-semibold"
+                  className="ui-button ui-button-secondary"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold disabled:opacity-50"
+                  className="ui-button ui-button-primary"
                 >
                   {submitting ? 'Provisioning...' : 'Provision Member'}
                 </button>

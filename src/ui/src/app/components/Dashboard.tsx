@@ -108,6 +108,7 @@ export function Dashboard({ onBack }: DashboardProps) {
   const [range, setRange] = useState<Range>("month");
   const [retailerFilter, setRetailerFilter] = useState<RetailerFilter>("all");
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
+  const [showDetailedInsights, setShowDetailedInsights] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -412,9 +413,9 @@ export function Dashboard({ onBack }: DashboardProps) {
   }
 
   return (
-    <div className="min-h-full" style={{ backgroundColor: "var(--background)" }}>
+    <div className="min-h-full bg-[color:var(--color-canvas)]">
       <header
-        className="flex items-center justify-between px-6 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] relative z-10 transition-colors duration-300"
+        className="relative z-10 flex items-center justify-between border-b border-[color:var(--color-border-subtle)] px-4 py-4 shadow-sm transition-colors duration-300 sm:px-6"
         style={{ backgroundColor: "var(--shell-header-bg)" }}
       >
         <div className="flex items-center gap-3">
@@ -422,7 +423,7 @@ export function Dashboard({ onBack }: DashboardProps) {
             type="button"
             onClick={onBack}
             aria-label="Back to store"
-            className="rounded-md p-1.5 hover:bg-black/10 transition-colors"
+            className="ui-icon-button"
           >
             <ArrowLeft size={18} aria-hidden style={{ color: "var(--shell-header-text)" }} />
           </button>
@@ -449,9 +450,9 @@ export function Dashboard({ onBack }: DashboardProps) {
             onClick={() => chrome.runtime.openOptionsPage()}
             aria-label="Settings"
             title="Settings"
-            className="flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors focus:outline-none p-2"
+            className="ui-icon-button"
           >
-            <Settings2 size={20} className="text-slate-600" />
+            <Settings2 size={20} className="text-[color:var(--color-text-muted)]" />
           </button>
           
           {/* Removed profile dropdown and trigger as they moved to Settings */}
@@ -464,7 +465,7 @@ export function Dashboard({ onBack }: DashboardProps) {
         </div>
       ) : (
         <div
-          className="space-y-4 p-6"
+          className="space-y-4 p-4 sm:p-6"
           // Reset the donut selection whenever interaction or focus moves to
           // any component outside the basket-quality section.
           onPointerDownCapture={(e) => {
@@ -550,6 +551,20 @@ export function Dashboard({ onBack }: DashboardProps) {
 
           {/* User data panels removed */}
 
+          <section className="ui-card p-4" aria-labelledby="shopper-summary-title">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+              <div>
+                <p className="ui-eyebrow">Your shopping progress</p>
+                <h2 id="shopper-summary-title" className="mt-1 text-xl font-bold text-[color:var(--color-text-strong)]">Small choices add up</h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-[color:var(--color-text-muted)]">{filtered.length === 0 ? 'Add an item at checkout to start seeing simple nutrition guidance.' : `${filtered.length} item${filtered.length === 1 ? '' : 's'} in this view. Open the details only when you want to explore a trend.`}</p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <button type="button" className="ui-button ui-button-primary" onClick={onBack}>Return to store</button>
+                <button type="button" className="ui-button ui-button-secondary" onClick={() => setShowDetailedInsights((value) => !value)} aria-expanded={showDetailedInsights}>{showDetailedInsights ? 'Hide details' : 'Show detailed trends'}</button>
+              </div>
+            </div>
+          </section>
+
           {filtered.length === 0 ? (
             <div
               className="rounded-xl bg-white p-8 text-center shadow-sm ring-1 ring-black/5"
@@ -559,7 +574,7 @@ export function Dashboard({ onBack }: DashboardProps) {
             </div>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-3">
+          {showDetailedInsights ? <div className="grid gap-4 lg:grid-cols-3">
             {/* Basket quality donut */}
             <section ref={basketRef} className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 overflow-hidden flex flex-col">
               <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--shell-header-bg)" }}>
@@ -689,10 +704,10 @@ export function Dashboard({ onBack }: DashboardProps) {
               </div>
               </div>
             </section>
-          </div>
+          </div> : null}
 
           {/* Category insights bar */}
-          <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 overflow-hidden flex flex-col">
+          {showDetailedInsights ? <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 overflow-hidden flex flex-col">
             <div className="px-4 py-3 border-b border-slate-100 transition-colors duration-300" style={{ backgroundColor: "var(--shell-header-bg)" }}>
               <h3 className="font-bold" style={{ color: "var(--shell-header-text)" }}>Category Insights</h3>
               <p className="text-xs mt-1" style={{ color: "var(--shell-header-sub)" }}>
@@ -709,7 +724,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                 )}
               </ChartBox>
             </div>
-          </section>
+          </section> : null}
 
           {/* Health Alerts Summary */}
           <section className="rounded-xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-slate-100 lg:col-span-3 overflow-hidden flex flex-col">

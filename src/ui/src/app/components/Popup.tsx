@@ -51,26 +51,26 @@ export function Popup({
   const activeModeObj = HEALTH_MODES[activeFocusTag as keyof typeof HEALTH_MODES] as any;
   const tagColor = activeModeObj 
     ? { bg: activeModeObj.palette.accentBg, accent: activeModeObj.palette.primary, label: activeModeObj.palette.primary } 
-    : { bg: '#eff6ff', label: '#1d4ed8', accent: '#bfdbfe' };
+    : { bg: 'var(--color-info-subtle)', label: 'var(--color-info-text)', accent: 'var(--color-info-border)' };
 
   return (
-    <div className="bg-white flex flex-col w-full h-full">
+    <div className="flex h-full w-full flex-col bg-[color:var(--color-surface)] text-[color:var(--color-text)]">
       <div className="flex-1 overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 pb-3 pt-4 border-b border-slate-50">
+        <div className="flex items-center justify-between border-b border-[color:var(--color-border-subtle)] px-4 pb-3 pt-4">
           <div className="flex items-center gap-2">
             <div
-              className="grid size-8 place-items-center rounded-lg shadow-sm"
-              style={{ backgroundColor: "var(--ns-grade-a)", color: "#fff" }}
+              className="grid size-10 place-items-center rounded-lg shadow-sm"
+              style={{ backgroundColor: "var(--ns-grade-a)", color: "var(--ns-on-grade-a)" }}
             >
               <span style={{ fontWeight: 800 }}>N</span>
             </div>
             <div>
-              <p className="text-slate-800 leading-tight" style={{ fontWeight: 800, fontSize: "1.05rem", paddingLeft: "2px" }}>
+              <p className="leading-tight text-[color:var(--color-text-strong)]" style={{ fontWeight: 800, fontSize: "1.05rem", paddingLeft: "2px" }}>
                 NutriScore
               </p>
               {displayName && (
-                <p className="text-xs text-slate-500 font-medium pl-0.5">
+                <p className="pl-0.5 text-sm font-medium text-[color:var(--color-text-muted)]">
                   Hi, {displayName}
                 </p>
               )}
@@ -79,7 +79,7 @@ export function Popup({
           <button 
             title="Settings" 
             onClick={() => chrome.runtime.openOptionsPage()}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
+            className="ui-icon-button"
           >
             <Settings2 size={18} />
           </button>
@@ -87,16 +87,16 @@ export function Popup({
 
         {/* Active Health Profile Banner */}
         {userData?.user_preferences && (
-          <div className="px-4 py-3 border-b border-slate-50 flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-700">Health Mode</span>
+          <div className="flex items-center justify-between border-b border-[color:var(--color-border-subtle)] px-4 py-3">
+            <span className="text-sm font-semibold text-[color:var(--color-text-strong)]">Health Mode</span>
             {isGeneralWellness ? (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600">
+              <span className="ui-status ui-status-neutral">
                 General Wellness
               </span>
             ) : (
               <span 
-                className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-xs"
-                style={{ backgroundColor: tagColor.bg, color: tagColor.label, border: `2px solid ${tagColor.accent}66` }}
+                className="inline-flex items-center rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider shadow-sm"
+                style={{ backgroundColor: tagColor.bg, color: tagColor.label, borderColor: tagColor.accent, borderWidth: 2 }}
               >
                 {activeModeObj?.label || activeFocusTag}
               </span>
@@ -105,7 +105,7 @@ export function Popup({
         )}
 
         {/* Status indicator */}
-        <div className="mx-4 mt-4 flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 border border-slate-100">
+        <div className="mx-4 mt-4 flex items-center gap-3 rounded-xl border border-[color:var(--color-border-subtle)] bg-[color:var(--color-canvas-subtle)] px-3 py-3">
           <span
             className={siteActive ? "ns-pulse" : ""}
             style={{
@@ -118,13 +118,13 @@ export function Popup({
             }}
             aria-hidden
           />
-          <span className="text-slate-700 font-medium" style={{ fontSize: "0.82rem" }}>
+          <span className="font-medium text-[color:var(--color-text-strong)]" style={{ fontSize: "0.875rem" }}>
             {siteActive ? `Active on ${siteName}` : "Not a supported store"}
           </span>
         </div>
 
         {/* Session metrics */}
-        <div className="mx-4 mt-3 flex items-center justify-center rounded-xl border border-slate-100 px-3 py-3 shadow-sm bg-white">
+        <div className="ui-card mx-4 mt-3 flex items-center justify-center px-3 py-3">
           <span style={{ fontSize: "0.85rem", color: "var(--muted-foreground)", fontWeight: 500 }}>
             <span style={{ fontWeight: 800, color: "var(--foreground)" }}>{scoredCount}</span>
             {(totalCount ?? 0) > 0 ? ` of ${totalCount} items graded` : " items graded"}
@@ -139,11 +139,10 @@ export function Popup({
               id="open-dashboard-btn"
               type="button"
               onClick={onOpenDashboard}
-              className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-white transition-all hover:opacity-90 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black font-semibold tracking-wide"
-              style={{ backgroundColor: "var(--shell-primary, #2563eb)" }}
+              className="ui-button ui-button-primary min-h-11 w-full"
             >
               <BarChart3 size={16} aria-hidden />
-              <span style={{ fontSize: "0.88rem" }}>View Shopping Analytics</span>
+              <span>Open shopper dashboard</span>
             </button>
           ) : (
             /* Unauthenticated or Incomplete Consent: open clinic sign-in or consent gate */
@@ -151,11 +150,10 @@ export function Popup({
               id="open-auth-btn"
               type="button"
               onClick={onOpenAuth}
-              className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-white transition-all hover:opacity-90 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black font-semibold tracking-wide"
-              style={{ backgroundColor: "var(--shell-primary, #2563eb)" }}
+              className="ui-button ui-button-primary min-h-11 w-full"
             >
               <LogIn size={16} aria-hidden />
-              <span style={{ fontSize: "0.88rem" }}>
+              <span>
                 {isIncomplete ? "Complete Care Consent" : "Sign in with Clinic Credentials"}
               </span>
             </button>

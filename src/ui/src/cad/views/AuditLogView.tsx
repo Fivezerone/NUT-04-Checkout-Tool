@@ -7,6 +7,7 @@ import { useCadAuth } from '../context/AuthContext'
 import { cadSupabase } from '../supabaseClient'
 import type { AuditLogEntry } from '../types'
 import { CheckCircle2, ShieldAlert, Link as ChainIcon, Search, Lock } from 'lucide-react'
+import { PageHeader, StatusBadge } from '../components/Primitives'
 
 export const AuditLogView: React.FC = () => {
   const { claims, activeTenant } = useCadAuth()
@@ -115,64 +116,38 @@ export const AuditLogView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner / Invariant Status */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
-            <Lock className="w-5 h-5 text-emerald-600" />
-            <span>Immutable Cryptographic Audit Trail</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Tenant: <strong>{activeTenant?.name || claims.tenantId}</strong> &middot; Retention: 20 Years (DPA s.46 / HIM Reg 24)
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-semibold">
-            {chainValid ? (
-              <>
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>SHA-256 Hash Chain Verified</span>
-              </>
-            ) : (
-              <>
-                <ShieldAlert className="w-4 h-4 text-red-600" />
-                <span>Chain Break Detected</span>
-              </>
-            )}
-          </div>
-
-          <div className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium">
-            Append-Only Trigger Active (UPDATE/DELETE Denied)
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Compliance evidence"
+        title="Immutable audit trail"
+        description={<>Tenant: <strong>{activeTenant?.name || claims.tenantId}</strong>. Retention: 20 years under DPA s.46 / HIM Reg 24.</>}
+        actions={<><StatusBadge tone={chainValid ? 'success' : 'critical'}>{chainValid ? <CheckCircle2 size={14} /> : <ShieldAlert size={14} />}{chainValid ? 'SHA-256 chain verified' : 'Chain break detected'}</StatusBadge><StatusBadge tone="neutral"><Lock size={14} /> Append-only</StatusBadge></>}
+      />
 
       {/* Filter and Search */}
-      <div className="flex justify-between items-center gap-4">
+      <div className="ui-card flex flex-col justify-between gap-3 p-3 sm:flex-row sm:items-center">
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+          <Search className="absolute left-3 top-3 text-[color:var(--color-text-muted)]" size={17} />
           <input
             type="text"
             placeholder="Search by action, resource, actor or patient ref..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+            className="ui-input pl-9"
           />
         </div>
         <button
           onClick={loadAuditLogs}
-          className="text-xs text-slate-600 hover:text-slate-900 font-medium px-3 py-2 border border-slate-300 rounded-lg bg-white"
+          className="ui-button ui-button-secondary"
         >
           Refresh Log
         </button>
       </div>
 
       {/* Audit Log Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="ui-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead className="bg-slate-50 font-semibold text-slate-600">
+          <table className="ui-table min-w-full text-left">
+            <thead>
               <tr>
                 <th className="px-4 py-3">Seq</th>
                 <th className="px-4 py-3">Timestamp (UTC)</th>
@@ -184,57 +159,50 @@ export const AuditLogView: React.FC = () => {
                 <th className="px-4 py-3 font-mono">Row Hash</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
+            <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={8} className="py-8 text-center text-[color:var(--color-text-muted)]">
                     Loading audit trail...
                   </td>
                 </tr>
               ) : filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={8} className="py-8 text-center text-[color:var(--color-text-muted)]">
                     No matching audit records found.
                   </td>
                 </tr>
               ) : (
                 filteredLogs.map((log) => (
-                  <tr key={log.event_id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-mono font-bold text-slate-900">
+                  <tr key={log.event_id}>
+                    <td className="font-mono font-bold text-[color:var(--color-text-strong)]">
                       #{log.seq}
                     </td>
-                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                    <td className="whitespace-nowrap text-[color:var(--color-text-muted)]">
                       {new Date(log.occurred_at).toLocaleString()}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="font-medium text-slate-900">{log.actor_id}</div>
-                      <div className="text-[10px] text-slate-400 uppercase font-semibold">{log.actor_role}</div>
+                    <td className="whitespace-nowrap">
+                      <div className="font-medium text-[color:var(--color-text-strong)]">{log.actor_id}</div>
+                      <div className="mt-1 text-xs uppercase font-semibold text-[color:var(--color-text-muted)]">{log.actor_role}</div>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        log.mutation_type === 'create' ? 'bg-emerald-100 text-emerald-800' :
-                        log.mutation_type === 'update' ? 'bg-blue-100 text-blue-800' :
-                        log.mutation_type === 'revoke' ? 'bg-red-100 text-red-800' :
-                        'bg-slate-100 text-slate-700'
-                      }`}>
-                        {log.mutation_type}
-                      </span>
+                    <td>
+                      <StatusBadge tone={log.mutation_type === 'revoke' ? 'critical' : log.mutation_type === 'create' ? 'success' : log.mutation_type === 'update' ? 'info' : 'neutral'}>{log.mutation_type}</StatusBadge>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-slate-800">
+                    <td className="font-semibold text-[color:var(--color-text-strong)]">
                       {log.action}
                     </td>
-                    <td className="px-4 py-3">
+                    <td>
                       <div>{log.resource_type}</div>
                       {log.subject_ref && (
-                        <div className="text-[10px] text-slate-400 font-mono">Ref: {log.subject_ref}</div>
+                        <div className="mt-1 text-xs text-[color:var(--color-text-muted)] font-mono">Ref: {log.subject_ref}</div>
                       )}
                     </td>
-                    <td className="px-4 py-3 max-w-xs truncate text-slate-600" title={log.reason}>
+                    <td className="max-w-xs truncate" title={log.reason}>
                       {log.reason}
                     </td>
-                    <td className="px-4 py-3 font-mono text-[10px] text-slate-400">
+                    <td className="font-mono text-xs text-[color:var(--color-text-muted)]">
                       <div className="flex items-center space-x-1" title={`Row: ${log.row_hash}\nPrev: ${log.prev_hash}`}>
-                        <ChainIcon className="w-3 h-3 text-slate-400" />
+                        <ChainIcon className="text-[color:var(--color-text-muted)]" size={14} />
                         <span>{log.row_hash.slice(0, 10)}...</span>
                       </div>
                     </td>

@@ -5,7 +5,8 @@
 import React, { useState } from 'react'
 import { useCadAuth } from '../context/AuthContext'
 import type { NutrientTarget } from '../types'
-import { ShieldCheck, Plus, CheckCircle, Clock } from 'lucide-react'
+import { Plus, CheckCircle, Clock } from 'lucide-react'
+import { PageHeader, StatusBadge } from '../components/Primitives'
 
 export const PatientTargetsView: React.FC = () => {
   const { claims, activeTenant } = useCadAuth()
@@ -124,34 +125,18 @@ export const PatientTargetsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-600" />
-            <span>Clinical Nutrient Targets & Signed Bundles</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Clinic: <strong>{activeTenant?.name || claims.tenantId}</strong> &middot; Targets are compiled into ES256 cryptographically signed bundles for client extensions.
-          </p>
-        </div>
-
-        {isWritingClinician && (
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Prescribe Target</span>
-          </button>
-        )}
-      </div>
+      <PageHeader
+        eyebrow="Clinical targets"
+        title="Nutrient targets and signed bundles"
+        description={<>Clinic: <strong>{activeTenant?.name || claims.tenantId}</strong>. Targets are compiled into ES256-signed client bundles.</>}
+        actions={isWritingClinician ? <button onClick={() => setShowModal(true)} className="ui-button ui-button-primary"><Plus size={17} /> Prescribe target</button> : undefined}
+      />
 
       {/* Targets Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="ui-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead className="bg-slate-50 font-semibold text-slate-600">
+          <table className="ui-table min-w-full text-left">
+            <thead>
               <tr>
                 <th className="px-4 py-3">Scope / Subject</th>
                 <th className="px-4 py-3">Nutrient</th>
@@ -162,49 +147,39 @@ export const PatientTargetsView: React.FC = () => {
                 <th className="px-4 py-3 text-right">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
+            <tbody>
               {targets.map((tgt) => (
-                <tr key={tgt.target_id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-slate-900">{tgt.subject_ref || 'Tenant Default'}</div>
-                    <div className="text-[10px] text-slate-400 capitalize">{tgt.scope} Scope</div>
+                <tr key={tgt.target_id}>
+                  <td>
+                    <div className="font-semibold text-[color:var(--color-text-strong)]">{tgt.subject_ref || 'Tenant Default'}</div>
+                    <div className="mt-1 text-xs text-[color:var(--color-text-muted)] capitalize">{tgt.scope} scope</div>
                   </td>
-                  <td className="px-4 py-3 font-semibold text-slate-800">
+                  <td className="font-semibold text-[color:var(--color-text-strong)]">
                     {tgt.nutrient_code}
                   </td>
-                  <td className="px-4 py-3 font-mono font-bold text-slate-900">
+                  <td className="font-mono font-bold text-[color:var(--color-text-strong)]">
                     {tgt.comparator.toUpperCase()} {tgt.value} {tgt.unit} / {tgt.basis.replace('_', ' ')}
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      tgt.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                      tgt.severity === 'caution' ? 'bg-amber-100 text-amber-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {tgt.severity}
-                    </span>
+                  <td>
+                    <StatusBadge tone={tgt.severity === 'critical' ? 'critical' : tgt.severity === 'caution' ? 'warning' : 'info'}>{tgt.severity}</StatusBadge>
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     {tgt.status === 'active' ? (
-                      <span className="inline-flex items-center text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-bold">
-                        <CheckCircle className="w-3 h-3 mr-1" /> Active
-                      </span>
+                      <StatusBadge tone="success"><CheckCircle size={14} /> Active</StatusBadge>
                     ) : tgt.status === 'pending_cosign' ? (
-                      <span className="inline-flex items-center text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-bold">
-                        <Clock className="w-3 h-3 mr-1" /> Pending Co-Sign
-                      </span>
+                      <StatusBadge tone="warning"><Clock size={14} /> Pending co-sign</StatusBadge>
                     ) : (
-                      <span className="text-[10px] text-slate-400 uppercase font-semibold">{tgt.status}</span>
+                      <StatusBadge tone="neutral">{tgt.status}</StatusBadge>
                     )}
                   </td>
-                  <td className="px-4 py-3 max-w-xs truncate text-slate-600" title={tgt.reason}>
+                  <td className="max-w-xs truncate" title={tgt.reason}>
                     {tgt.reason}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="text-right">
                     {tgt.status === 'pending_cosign' && isWritingClinician && (
                       <button
                         onClick={() => handleCosign(tgt.target_id)}
-                        className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold px-2.5 py-1 rounded transition-colors"
+                        className="ui-button ui-button-secondary"
                       >
                         Co-Sign Rule
                       </button>
@@ -219,25 +194,25 @@ export const PatientTargetsView: React.FC = () => {
 
       {/* Target Prescription Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-slate-900">Prescribe Clinical Nutrient Target</h3>
+        <div className="ui-modal-backdrop" role="presentation">
+          <div className="ui-modal space-y-4" role="dialog" aria-modal="true" aria-labelledby="target-dialog-title">
+            <h2 id="target-dialog-title" className="text-xl font-bold text-[color:var(--color-text-strong)]">Prescribe clinical nutrient target</h2>
             <form onSubmit={handleCreateTarget} className="space-y-4 text-sm">
               <div>
-                <label className="block text-xs font-semibold text-slate-700">Patient Identifier Ref</label>
+                <label className="ui-field-label">Patient identifier ref</label>
                 <input
                   type="text"
                   required
                   placeholder="pat-anon-1234"
                   value={patientRef}
                   onChange={(e) => setPatientRef(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                  className="ui-input mt-1"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700">Nutrient</label>
+                  <label className="ui-field-label">Nutrient</label>
                   <select
                     value={nutrientCode}
                     onChange={(e) => {
@@ -248,7 +223,7 @@ export const PatientTargetsView: React.FC = () => {
                         setUnit('g')
                       }
                     }}
-                    className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                    className="ui-select mt-1"
                   >
                     <option value="SodiumMG">Sodium (mg)</option>
                     <option value="SugarsG">Sugars (g)</option>
@@ -260,12 +235,12 @@ export const PatientTargetsView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700">Comparator & Limit</label>
+                  <label className="ui-field-label">Comparator and limit</label>
                   <div className="flex space-x-2 mt-1">
                     <select
                       value={comparator}
                       onChange={(e) => setComparator(e.target.value as any)}
-                      className="px-2 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                      className="ui-select w-auto"
                     >
                       <option value="lte">&le; (Max)</option>
                       <option value="lt">&lt; (Less)</option>
@@ -276,18 +251,18 @@ export const PatientTargetsView: React.FC = () => {
                       required
                       value={value}
                       onChange={(e) => setValue(Number(e.target.value))}
-                      className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold"
+                      className="ui-input flex-1 font-bold"
                     />
                   </div>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700">Severity</label>
+                <label className="ui-field-label">Severity</label>
                 <select
                   value={severity}
                   onChange={(e) => setSeverity(e.target.value as any)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                  className="ui-select mt-1"
                 >
                   <option value="critical">Critical (Breach triggers emergency alert)</option>
                   <option value="caution">Caution (Warning on high concentration)</option>
@@ -296,14 +271,14 @@ export const PatientTargetsView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700">Clinical Rationale & Evidence Ref</label>
+                <label className="ui-field-label">Clinical rationale and evidence reference</label>
                 <textarea
                   required
                   rows={2}
                   placeholder="Clinical indication (e.g. KDIGO 2024 Guidelines, Stage 3 CKD management)..."
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                  className="ui-textarea mt-1"
                 />
               </div>
 
@@ -311,13 +286,13 @@ export const PatientTargetsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 text-xs font-semibold"
+                  className="ui-button ui-button-secondary"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold"
+                  className="ui-button ui-button-primary"
                 >
                   Publish Target
                 </button>

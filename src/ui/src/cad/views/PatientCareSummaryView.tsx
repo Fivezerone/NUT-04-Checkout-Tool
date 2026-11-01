@@ -1,0 +1,6 @@
+import { HeartPulse, ShieldCheck } from 'lucide-react'
+import { MetricCard, PageHeader, StatusBadge } from '../components/Primitives'
+
+export function PatientCareSummaryView() {
+  return <div className="space-y-6"><PageHeader eyebrow="Care access" title="Your clinical nutrition support" description="Use the shopper dashboard for checkout guidance. This clinical area keeps your care profile and data-sharing state clear." /><section className="grid grid-cols-1 gap-4 sm:grid-cols-2"><MetricCard label="Care profile" value="Active" detail="Your clinician-guided nutrition settings are available" icon={HeartPulse} tone="success" /><MetricCard label="Data sharing" value="In control" detail="Your consent choices determine clinical visibility" icon={ShieldCheck} tone="info" /></section><section className="ui-card p-4"><StatusBadge tone="success">Care profile active</StatusBadge><h2 className="mt-3 text-xl font-bold text-[color:var(--color-text-strong)]">Continue in your shopper dashboard</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[color:var(--color-text-muted)]">Checkout guidance uses short, clear actions and your selected health mode. Technical clinical administration remains separate from your shopper experience.</p></section></div>
+}
