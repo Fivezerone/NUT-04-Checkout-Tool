@@ -1,97 +1,71 @@
 #!/usr/bin/env node
 /**
- * scripts/check-rls-policies.mjs
+ * CI guard for the CAD restrictive tenant wall.
  *
- * Implements CAD Implementation Plan §5.2 and Test T11:
- * "New table added without RLS -> CI build fails"
- *
- * Parses SQL migrations in supabase/migrations/ to verify that:
- * 1. Every table defined with a `tenant_id` column explicitly has ROW LEVEL SECURITY enabled.
- * 2. Every table with `tenant_id` has at least one RLS policy defined.
+ * A live database test is kept in supabase/tests/cad_tenant_wall.sql. This
+ * static companion fails fast whenever a migration omits the required forced,
+ * restrictive wall for a Stage A tenant relation.
  */
 
-import { readFileSync, readdirSync } from 'fs'
-import { join, resolve, dirname } from 'path'
-import { fileURLToPath } from 'url'
+import { readFileSync, readdirSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = resolve(__dirname, '..')
-const MIGRATIONS_DIR = join(REPO_ROOT, 'supabase', 'migrations')
+const dirnameHere = dirname(fileURLToPath(import.meta.url))
+const repoRoot = resolve(dirnameHere, '..')
+const migrationsDir = join(repoRoot, 'supabase', 'migrations')
 
-function checkRLSPolicies() {
-  const migrationFiles = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .sort()
+const phaseOneTenantRelations = [
+  'iam.members',
+  'audit.legacy_audit_log',
+  'clinical.targets',
+  'clinical.target_bundles',
+  'clinical.consumption_diary',
+  'clinical.consent_records',
+  'clinical.patient_links',
+  'clinical.consents',
+  'clinical.health_modes',
+  'clinical.health_mode_rules',
+  'public.users',
+  'public.payments',
+  'public.subscriptions',
+  'public.invoices',
+  'public.payment_attempts',
+]
 
-  const combinedSql = migrationFiles
-    .map((file) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8'))
-    .join('\n\n')
+const migrationFiles = readdirSync(migrationsDir)
+  .filter((file) => file.endsWith('.sql'))
+  .sort()
+const combinedSql = migrationFiles
+  .map((file) => readFileSync(join(migrationsDir, file), 'utf8'))
+  .join('\n\n')
 
-  // Find all CREATE TABLE statements
-  const createTableRegex =
-    /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?([a-zA-Z0-9_]+)\s*\(([\s\S]*?)\);/gi
-
-  const tenantTables = new Set()
-  let match
-
-  while ((match = createTableRegex.exec(combinedSql)) !== null) {
-    const tableName = match[1].toLowerCase()
-    const tableBody = match[2]
-
-    // Check if table contains tenant_id or is the tenants table
-    if (tableName === 'tenants' || /\btenant_id\b/i.test(tableBody)) {
-      tenantTables.add(tableName)
-    }
-  }
-
-  // Also check ALTER TABLE ... ADD COLUMN tenant_id
-  const alterAddTenantIdRegex =
-    /ALTER\s+TABLE\s+(?:ONLY\s+)?(?:public\.)?([a-zA-Z0-9_]+)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?tenant_id\b/gi
-
-  while ((match = alterAddTenantIdRegex.exec(combinedSql)) !== null) {
-    tenantTables.add(match[1].toLowerCase())
-  }
-
-  if (tenantTables.size === 0) {
-    console.log('[check-rls] No tenant tables found yet.')
-    return
-  }
-
-  console.log(
-    `[check-rls] Found ${tenantTables.size} tenant-scoped table(s): ${Array.from(tenantTables).join(', ')}`,
+const errors = []
+for (const relation of phaseOneTenantRelations) {
+  const escaped = relation.replace('.', '\\.')
+  const wallCall = new RegExp(
+    `SELECT\\s+app_private\\.apply_tenant_wall\\(\\s*'${escaped}'\\s*\\)`,
+    'i',
   )
-
-  const errors = []
-
-  for (const table of tenantTables) {
-    // Check for ENABLE ROW LEVEL SECURITY
-    const rlsRegex = new RegExp(
-      `ALTER\\s+TABLE\\s+(?:ONLY\\s+)?(?:public\\.)?${table}\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY`,
-      'i',
-    )
-    if (!rlsRegex.test(combinedSql)) {
-      errors.push(`Table '${table}' has tenant_id but missing 'ENABLE ROW LEVEL SECURITY'`)
-    }
-
-    // Check for at least one CREATE POLICY on this table
-    const policyRegex = new RegExp(
-      `CREATE\\s+POLICY\\s+[a-zA-Z0-9_]+\\s+ON\\s+(?:public\\.)?${table}\\b`,
-      'i',
-    )
-    if (!policyRegex.test(combinedSql)) {
-      errors.push(`Table '${table}' has tenant_id but has no CREATE POLICY defined`)
-    }
+  if (!wallCall.test(combinedSql)) {
+    errors.push(`${relation} is missing an explicit restrictive tenant-wall application`)
   }
-
-  if (errors.length > 0) {
-    console.error('\n❌ [check-rls] Security violations detected:')
-    for (const err of errors) {
-      console.error(`  - ${err}`)
-    }
-    process.exit(1)
-  }
-
-  console.log('✅ [check-rls] All tenant-scoped tables have RLS enabled and policies defined.')
 }
 
-checkRLSPolicies()
+if (!/ALTER\s+TABLE\s+%s\s+FORCE\s+ROW\s+LEVEL\s+SECURITY/i.test(combinedSql)) {
+  errors.push('tenant-wall helper does not FORCE ROW LEVEL SECURITY')
+}
+if (!/CREATE\s+POLICY\s+tenant_wall[\s\S]*?AS\s+RESTRICTIVE/i.test(combinedSql)) {
+  errors.push('tenant-wall helper does not create a restrictive tenant_wall policy')
+}
+
+if (errors.length > 0) {
+  console.error('❌ [check-rls] CAD tenant-wall violations detected:')
+  for (const error of errors) console.error(`  - ${error}`)
+  process.exit(1)
+}
+
+console.log(
+  `✅ [check-rls] ${phaseOneTenantRelations.length} tenant relations have explicit forced restrictive walls.`,
+)
+console.log('[check-rls] Live gate query is covered by supabase/tests/cad_tenant_wall.sql.')
