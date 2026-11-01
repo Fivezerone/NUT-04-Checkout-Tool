@@ -12,6 +12,7 @@ supabase/.cache/
 .idea/
 
 # Build artifacts & generated files
+.mock-credentials.json
 eslint-report.json
 eslint-report.txt
 publish-report.json

@@ -22,21 +22,14 @@ function read(rel: string) {
 // ---------------------------------------------------------------------------
 
 describe('D-08 — billing columns not written by client', () => {
-  test('OnboardingWizard finishOnboarding upsert does not set is_premium', () => {
+  test('OnboardingWizard does not write is_premium', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    // Find the upsert in finishOnboarding
-    const fnStart = src.indexOf('const finishOnboarding = async');
-    const fnEnd   = src.indexOf('\n  const handle', fnStart);
-    const body    = src.slice(fnStart, fnEnd);
-    expect(body).not.toMatch(/is_premium\s*:/);
+    expect(src).not.toMatch(/is_premium\s*:/);
   });
 
-  test('OnboardingWizard finishOnboarding upsert does not set subscription_status', () => {
+  test('OnboardingWizard does not write subscription_status', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    const fnStart = src.indexOf('const finishOnboarding = async');
-    const fnEnd   = src.indexOf('\n  const handle', fnStart);
-    const body    = src.slice(fnStart, fnEnd);
-    expect(body).not.toMatch(/subscription_status\s*:/);
+    expect(src).not.toMatch(/subscription_status\s*:/);
   });
 
   test('useSubscriptionGuard client update does not set is_premium', () => {
@@ -57,62 +50,54 @@ describe('D-08 — billing columns not written by client', () => {
 });
 
 // ---------------------------------------------------------------------------
-// D-09
+// D-09 — Phase 3 CAD-Only Patient Sign-In & Forced Password Change
 // ---------------------------------------------------------------------------
 
-describe('D-09 — renewal path fixes', () => {
-  test('processSession checks active payment BEFORE renew early return', () => {
+describe('D-09 — CAD patient sign-in and forced password change', () => {
+  test('OnboardingWizard signs in with clinic credentials (email + password)', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    // getActivePayment must appear before the renew else-if block
-    const paymentIdx = src.indexOf('getActivePayment()');
-    const renewIdx   = src.indexOf("initialMode === 'renew'");
-    // First occurrence of initialMode === 'renew' in processSession should come AFTER getActivePayment
-    expect(paymentIdx).toBeGreaterThan(0);
-    expect(renewIdx).toBeGreaterThan(paymentIdx);
+    expect(src).toContain('signInWithPassword');
+    expect(src).toContain('handleSignIn');
   });
 
-  test("finishOnboarding skips upsert for renewals (isRenewal guard present)", () => {
-    const src = read('src/ui/src/app/lib/persistOnboarding.ts');
-    expect(src).toContain('const isRenewal = initialMode === \'renew\'');
-    expect(src).toContain('if (!isRenewal)');
+  test('OnboardingWizard enforces password change when force_password_change is set', () => {
+    const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
+    expect(src).toContain('force_password_change');
+    expect(src).toContain('handlePasswordChange');
+    expect(src).toContain('updateUser');
   });
 
-  test("Paystack uses user.email not the form-state fallback", () => {
+  test('OnboardingWizard does not contain consumer self-registration or Google sign-in', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    expect(src).not.toContain('"user@example.com"');
-    expect(src).toContain('user?.email || email.trim()');
+    expect(src).not.toContain('signInWithOAuth');
+    expect(src).not.toContain('google');
+    expect(src).not.toContain('chrome.identity');
   });
 });
 
 // ---------------------------------------------------------------------------
-// D-10
+// D-10 — Phase 3 Standalone Consent Gate & Excised Consumer Billing
 // ---------------------------------------------------------------------------
 
-describe('D-10 - profile save failure retry affordance', () => {
-  test('finishError state is declared', () => {
+describe('D-10 — standalone consent gate and excised consumer billing', () => {
+  test('OnboardingWizard requires both Terms and Privacy acceptance before activation', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    expect(src).toContain('finishError');
-    expect(src).toContain('setFinishError');
+    expect(src).toContain('termsAccepted');
+    expect(src).toContain('privacyAccepted');
+    expect(src).toContain('handleAcceptConsent');
   });
 
-  test('success block has retry button referencing finishError', () => {
+  test('OnboardingWizard supports dismissing consent leaving extension inert', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    expect(src).toContain('Retry saving profile');
-    expect(src).toContain('setFinishError(null)');
+    expect(src).toContain('consentDismissed');
+    expect(src).toContain('Dismiss for now');
   });
 
-  test('success block no longer shows "Payment Successful! Redirecting..."', () => {
+  test('OnboardingWizard does not contain consumer plan selection or pricing', () => {
     const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    expect(src).not.toContain('Payment Successful! Redirecting...');
-  });
-
-  test('RPC error path uses setFinishError (not setError)', () => {
-    const src = read('src/ui/src/app/lib/persistOnboarding.ts');
-    // The complete_onboarding RPC error branch must use setFinishError
-    // (previously: if (upsertError); now: if (rpcError || data.error) per audit F-07 fix)
-    const errStart = src.indexOf('if (rpcError ||');
-    const errEnd   = src.indexOf('return false;', errStart);
-    const block    = src.slice(errStart, errEnd);
-    expect(block).toContain('setFinishError(');
+    expect(src).not.toContain('189.00');
+    expect(src).not.toContain('packagePrice');
+    expect(src).not.toContain('PaystackPop');
+    expect(src).not.toContain('usePaymentState');
   });
 });

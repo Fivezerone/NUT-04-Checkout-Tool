@@ -215,9 +215,8 @@ function PopupRoot() {
    * After login/resume, redirectAfterLogin() in OnboardingWizard handles routing.
    */
   const handleOpenAuth = () => {
-    const mode = authState === 'returning' ? "login" : "signup";
     chrome.tabs.create({
-      url: chrome.runtime.getURL("onboarding.html") + `?mode=${mode}`,
+      url: chrome.runtime.getURL("onboarding.html"),
     });
   };
 

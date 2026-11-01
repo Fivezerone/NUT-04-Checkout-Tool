@@ -14,6 +14,7 @@
 | 0.1 | — | — | Initial OpenAPI skeleton created |
 | 1.0 | 2026-08-08 | Claude (doc pass) | Rewritten to document the real internal message-passing contract |
 | 1.1 | 2026-08-10 | Claude (consolidation pass) | Replaced illustrative `DiseaseWarning` threshold examples with the actual verified DR-001–DR-006 values from `engine/disease-engine.js`; documented the confirmed FR-011/FR-012 divergence (independent single-nutrient warnings vs. the spec's combined AND-condition warnings); replaced the placeholder AI-003 disclaimer text with the verbatim shipped string; noted the FR-002 architectural pivot (no Open Food Facts call — see Architecture doc ADR-005) |
+| 2.0 | 2026-10-29 | Kibet & Antigravity | CAD-Only Identity Rollback: decommissioned Google OAuth and public self-registration; established CAD Edge Function admin-provision-user, custom access-token hook, and check_patient_consent RPC |
 
 ---
 

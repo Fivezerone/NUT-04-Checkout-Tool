@@ -92,6 +92,7 @@ const USER_STORAGE_KEYS = [
   'user_account',
   'user_preferences',
   'user_payment',
+  'user_health_profile',
   'onboarding_completed',
   'activePaymentRef',
   'activePaymentMethod',
@@ -111,8 +112,12 @@ export const signOutUser = async (): Promise<void> => {
   } catch { /* network offline — still clear local flags */ }
   try {
     await chrome.storage.local.remove([...USER_STORAGE_KEYS]);
-    // Also clear theme from localStorage (not chrome.storage)
-    try { localStorage.removeItem('nutriscore_theme'); } catch { /* sandboxed page */ }
+    // Also clear legacy theme and health profile from localStorage
+    try { 
+      localStorage.removeItem('nutriscore_theme'); 
+      localStorage.removeItem('user_health_profile');
+      localStorage.removeItem('isPremium');
+    } catch { /* sandboxed page */ }
   } catch { /* ignore */ }
 };
 

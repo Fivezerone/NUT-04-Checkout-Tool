@@ -296,7 +296,7 @@ var NutriScoreDB = (() => {
 
   // src/ui/src/app/lib/db/shared.ts
   var DB_NAME = "nut04-nutriscore";
-  var DB_VERSION = 17;
+  var DB_VERSION = 18;
   var SCORING_VERSION = "v4";
   var dbPromise = null;
   function getDB() {
@@ -423,6 +423,17 @@ var NutriScoreDB = (() => {
               const qStore = db.createObjectStore("quickmartProducts", { keyPath: "Identity.ProductID" });
               qStore.createIndex("by-url", "Identity.RetailerProductUrl");
               qStore.createIndex("by-name", "Identity.ProductName");
+            }
+          }
+          if (oldVersion < 18) {
+            if (db.objectStoreNames.contains("user_payment")) {
+              db.deleteObjectStore("user_payment");
+            }
+            if (db.objectStoreNames.contains("user_settings")) {
+              const settingsStore = transaction.objectStore("user_settings");
+              settingsStore.delete("isPremium");
+              settingsStore.delete("user_payment");
+              settingsStore.delete("user_health_profile");
             }
           }
         }

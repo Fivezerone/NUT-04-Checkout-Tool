@@ -176,15 +176,23 @@ describe("F-09: premium sync atomicity", () => {
 
   it("IDB schema v16 adds premium_staging store", () => {
     const sharedSrc = readFileSync(join(ROOT, "src/ui/src/app/lib/db/shared.ts"), "utf8");
-    expect(sharedSrc).toMatch(/DB_VERSION = (?:16|17)/);
+    expect(sharedSrc).toMatch(/DB_VERSION = (?:16|17|18)/);
     expect(sharedSrc).toContain("premium_staging");
     expect(sharedSrc).toContain("oldVersion < 16");
   });
 
   it("IDB schema v17 adds quickmartProducts store", () => {
     const sharedSrc = readFileSync(join(ROOT, "src/ui/src/app/lib/db/shared.ts"), "utf8");
-    expect(sharedSrc).toContain("DB_VERSION = 17");
+    expect(sharedSrc).toMatch(/DB_VERSION = (?:17|18)/);
     expect(sharedSrc).toContain("quickmartProducts");
     expect(sharedSrc).toContain("oldVersion < 17");
+  });
+
+  it("IDB schema v18 cleans up obsolete consumer stores and settings keys", () => {
+    const sharedSrc = readFileSync(join(ROOT, "src/ui/src/app/lib/db/shared.ts"), "utf8");
+    expect(sharedSrc).toContain("DB_VERSION = 18");
+    expect(sharedSrc).toContain("oldVersion < 18");
+    expect(sharedSrc).toContain("isPremium");
+    expect(sharedSrc).toContain("user_health_profile");
   });
 });

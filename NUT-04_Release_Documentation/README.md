@@ -7,10 +7,11 @@ A Manifest V3 Chrome extension that shows a Nutri-Score style grade (A to E), nu
 | Extension version | `1.1.0` (`src/extension/manifest.json`) |
 | Platform | Chrome 110 or newer, Manifest V3 |
 | Scoring basis | FSA-NPS 2023 algorithm; KFCT-based 14-tier food categories; NOVA 1 to 4 |
-| Supported retailers | Naivas (`naivas.online`, `naivas.co.ke`), Carrefour Kenya (`carrefour.ke`, `carrefourkenya.com`) |
-| Backend | Supabase (Postgres, Auth, Edge Functions) |
-| Payments | M-Pesa STK Push (Safaricom Daraja) and Paystack; Premium is 189 KES per 30 days |
-| Documentation date | 2026-10-07 |
+| Supported retailers | Naivas (`naivas.online`, `naivas.co.ke`), Carrefour Kenya (`carrefour.ke`, `carrefourkenya.com`), Quickmart Kenya (`quickmart.co.ke`) |
+| Backend | Supabase (Postgres, Auth, Edge Functions) under Clinic Admin Dashboard (CAD) RBAC |
+| Identity & Authority | CAD-only provisioning (KMPDC/KNDI verified clinicians; zero public self-signup; Google OAuth removed) |
+| Health Modes | Clinician-prescribed via CAD; patients monitor clinical targets; consumer plan tiers removed |
+| Documentation date | 2026-10-29 |
 
 ## Contents
 
