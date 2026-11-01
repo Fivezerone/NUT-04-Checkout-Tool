@@ -16,6 +16,8 @@ BEGIN
   ON CONFLICT (tenant_id, user_id) DO UPDATE
   SET status = 'active', licence_verified = true;
 
+  DELETE FROM iam.token_denylist WHERE sid = 'claims-session' OR user_id = fixture_user_id;
+
   hook_result := public.custom_access_token_hook(jsonb_build_object(
     'user_id', fixture_user_id::text,
     'claims', jsonb_build_object(
