@@ -5,6 +5,8 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react'
 import { cadSupabase } from '../supabaseClient'
 import type { CadRole, Tenant } from '../types'
+import { claimsFromAccessToken, type CanonicalClaims } from '../../../../shared/claims'
+import { SupabaseAuthProvider } from '../../../../shared/auth-provider'
 
 interface CadUserClaims {
   userId: string
@@ -33,6 +35,16 @@ const defaultClaims: CadUserClaims = {
   tenantId: '00000000-0000-0000-0000-000000000000',
   role: 'patient',
   licenceVerified: false,
+}
+
+function toCadUserClaims(claims: CanonicalClaims | null): CadUserClaims {
+  if (!claims) return defaultClaims
+  return {
+    userId: claims.sub,
+    tenantId: claims.tenantId || '00000000-0000-0000-0000-000000000000',
+    role: claims.appRole,
+    licenceVerified: claims.licOk,
+  }
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -64,19 +76,15 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return claims.role !== 'patient' && !mfaVerified
   }, [claims.role, mfaVerified])
 
-  const resolveUserClaims = (sessionUser: any): CadUserClaims => {
-    if (!sessionUser) return defaultClaims
-    const appMeta = sessionUser.app_metadata || {}
-    const userMeta = sessionUser.user_metadata || {}
+  const authProvider = useMemo(
+    () => new SupabaseAuthProvider(cadSupabase, claimsFromAccessToken),
+    [],
+  )
 
-    return {
-      userId: sessionUser.id,
-      tenantId: appMeta.tenant_id || userMeta.tenant_id || '00000000-0000-0000-0000-000000000000',
-      role: (appMeta.role || userMeta.role || 'writing_clinician') as CadRole,
-      licenceVerified: Boolean(appMeta.licence_verified ?? userMeta.licence_verified ?? true),
-      email: sessionUser.email,
-    }
-  }
+  const resolveUserClaims = (accessToken: string | null | undefined, email?: string): CadUserClaims => ({
+    ...toCadUserClaims(claimsFromAccessToken(accessToken)),
+    email,
+  })
 
   const loadTenantData = async (tenantId: string) => {
     try {
@@ -162,9 +170,9 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const { data: { session } } = await cadSupabase.auth.getSession()
         if (!mounted) return
 
-        if (session?.user) {
+        if (session?.user && session.access_token) {
           setUser(session.user)
-          const resolved = resolveUserClaims(session.user)
+          const resolved = resolveUserClaims(session.access_token, session.user.email)
           setClaims(resolved)
           await loadTenantData(resolved.tenantId)
           if (resolved.role === 'super_admin') {
@@ -182,9 +190,9 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const { data: { subscription } } = cadSupabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return
-      if (session?.user) {
+      if (session?.user && session.access_token) {
         setUser(session.user)
-        const resolved = resolveUserClaims(session.user)
+        const resolved = resolveUserClaims(session.access_token, session.user.email)
         setClaims(resolved)
         await loadTenantData(resolved.tenantId)
       } else {
@@ -213,14 +221,11 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const signIn = async (email: string, password: string) => {
     setIsLoading(true)
     try {
-      const { data, error } = await cadSupabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        setIsLoading(false)
-        return { success: false, error: error.message }
-      }
-      if (data?.user) {
-        setUser(data.user)
-        const resolved = resolveUserClaims(data.user)
+      const canonical = await authProvider.signInWithClinicCredentials({ email, password })
+      const { data } = await cadSupabase.auth.getSession()
+      if (data.session?.user) {
+        setUser(data.session.user)
+        const resolved = { ...toCadUserClaims(canonical), email: data.session.user.email }
         setClaims(resolved)
         await loadTenantData(resolved.tenantId)
         if (resolved.role === 'super_admin') {
@@ -246,7 +251,7 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }
 
   const signOut = async () => {
-    await cadSupabase.auth.signOut()
+    await authProvider.signOut()
     setUser(null)
     setClaims(defaultClaims)
     setActiveTenant(null)

@@ -10,6 +10,7 @@
     "build": "npm run build:db && npm run build:ui && npm run build:ext",
     "check:manifest": "node scripts/check-manifest-globals.mjs",
     "check:rls": "node scripts/check-rls-policies.mjs",
+    "check:cad-security": "node scripts/check-cad-security.mjs",
     "verify:audit": "node scripts/verify-audit-chain.mjs",
     "stage:pilot": "node scripts/stage-pilot-fixtures.mjs",
     "dev": "vite",
@@ -23,7 +24,7 @@
     "migrate:quickmart": "node scripts/migrate-quickmart-supabase.mjs",
     "seed:mocks": "node scripts/seed-mock-users.mjs",
     "purge:mocks": "node scripts/purge-mocks.mjs",
-    "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && npm run check:rls && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && npm run check:rls && npm run check:cad-security && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
     "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {

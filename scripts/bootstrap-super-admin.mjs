@@ -122,10 +122,10 @@ async function bootstrap() {
     userId = existingUser.id
     console.log(`[bootstrap] Existing auth user found: ${userId}`)
 
-    // Update app_metadata to ensure super_admin role and tenant_id
+    // Identity metadata contains only routing data. iam.platform_members is the
+    // application-role source of truth at the Phase 3 lifecycle boundary.
     const { error: updateErr } = await supabase.auth.admin.updateUserById(userId, {
       app_metadata: {
-        role: 'super_admin',
         tenant_id: PLATFORM_TENANT_ID,
         account_status: 'active',
       },
@@ -149,7 +149,6 @@ async function bootstrap() {
       password: initialPassword,
       email_confirm: true,
       app_metadata: {
-        role: 'super_admin',
         tenant_id: PLATFORM_TENANT_ID,
         account_status: 'active',
       },

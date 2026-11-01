@@ -8,4 +8,5 @@
 | D-004 | 3 | A tenant administrator may suspend (but not create, reactivate, or role-change) a commercial stakeholder within its own tenant. | D1 preserves this narrow leaver safeguard from SOP §5.2 while reserving onboarding, reactivation, and role transitions for `super_admin`. | Implement in Phase 3. |
 | D-005 | 3 | Commercial stakeholders are bound to exactly one tenant selected by the super administrator. | D1 assumption O1 keeps the tenant wall and k≥5 suppression intact. | Kibet confirmation still required before any multi-tenant partner feature. |
 | D-006 | 3 | Platform auditors have cross-tenant audit metadata/proofs only, not clinical content. | Blueprint §4.5 narrows D3’s general wording and takes precedence. | Implement in Phase 5. |
+| D-007 | 2 | The Phase 2 rollback is intentionally a safe no-op; rollback from the `app_role` contract is forward-only. | Reintroducing application data into Supabase's reserved `role` claim or deleting denylist rows can re-authorize still-valid tokens. A corrective forward migration preserves revocation and canonical claims. | Staff Engineering; documented in the rollback file. |
 

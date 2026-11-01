@@ -9,14 +9,14 @@ import type { TenantMember, CadRole } from '../types'
 import { UserPlus, CheckCircle, AlertTriangle, UserX, Copy, Check } from 'lucide-react'
 import { PageHeader, StatusBadge } from '../components/Primitives'
 
-const ROLE_RANK: Record<CadRole, number> = {
-  super_admin: 100,
-  tenant_admin: 80,
-  compliance_auditor: 70,
-  writing_clinician: 60,
-  viewing_dietician: 50,
-  commercial_stakeholder: 40,
-  patient: 10,
+const PROVISIONABLE_ROLES: Record<CadRole, CadRole[]> = {
+  super_admin: ['tenant_admin', 'compliance_auditor', 'commercial_stakeholder'],
+  tenant_admin: ['writing_clinician', 'viewing_dietician', 'compliance_auditor', 'patient'],
+  writing_clinician: ['patient'],
+  viewing_dietician: [],
+  compliance_auditor: [],
+  commercial_stakeholder: [],
+  patient: [],
 }
 
 export const UserManagementView: React.FC = () => {
@@ -35,7 +35,7 @@ export const UserManagementView: React.FC = () => {
   } | null>(null)
   const [copiedPwd, setCopiedPwd] = useState<boolean>(false)
 
-  const callerRank = ROLE_RANK[claims.role] ?? 0
+  const permittedProvisionRoles = PROVISIONABLE_ROLES[claims.role]
 
   useEffect(() => {
     loadMembers()
@@ -135,13 +135,7 @@ export const UserManagementView: React.FC = () => {
     )
   }
 
-  const handleStatusChange = async (memberUserId: string, targetRole: CadRole, newStatus: 'active' | 'suspended' | 'deactivated') => {
-    const targetRank = ROLE_RANK[targetRole] ?? 0
-    if (callerRank <= targetRank) {
-      alert(`Cannot alter status of user with equal or higher role (${targetRole})`)
-      return
-    }
-
+  const handleStatusChange = async (memberUserId: string, _targetRole: CadRole, newStatus: 'active' | 'suspended' | 'deactivated') => {
     try {
       const { data, error } = await cadSupabase.functions.invoke('admin-provision-user', {
         body: {
@@ -174,9 +168,8 @@ export const UserManagementView: React.FC = () => {
     e.preventDefault()
     if (!newEmail) return
 
-    const targetRank = ROLE_RANK[newRole] ?? 0
-    if (callerRank <= targetRank) {
-      alert(`Permission Denied: You cannot provision role '${newRole}', which is equal or superior to your role '${claims.role}'.`)
+    if (!permittedProvisionRoles.includes(newRole)) {
+      alert('Permission Denied')
       return
     }
 
@@ -244,7 +237,7 @@ export const UserManagementView: React.FC = () => {
         eyebrow="Tenant access"
         title="Clinical staff and licence verification"
         description={<>Clinic: <strong>{activeTenant?.name || claims.tenantId}</strong>. Writing clinicians must be verified before prescribing patient targets.</>}
-        actions={callerRank > ROLE_RANK.patient ? <button onClick={() => { setProvisionSuccess(null); setShowInviteModal(true) }} className="ui-button ui-button-primary"><UserPlus size={17} /> Provision member</button> : undefined}
+        actions={permittedProvisionRoles.length > 0 ? <button onClick={() => { setProvisionSuccess(null); setShowInviteModal(true) }} className="ui-button ui-button-primary"><UserPlus size={17} /> Provision member</button> : undefined}
       />
 
       {/* Provisioning Success Modal / Notification */}
@@ -311,8 +304,8 @@ export const UserManagementView: React.FC = () => {
                 </tr>
               ) : (
                 members.map((member) => {
-                  const targetRank = ROLE_RANK[member.role] ?? 0
-                  const canManage = callerRank > targetRank
+                  const canManage = claims.role === 'super_admin'
+                    || (claims.role === 'tenant_admin' && member.role !== 'super_admin')
 
                   return (
                     <tr key={member.user_id}>
@@ -390,7 +383,7 @@ export const UserManagementView: React.FC = () => {
           <div className="ui-modal space-y-4" role="dialog" aria-modal="true" aria-labelledby="provision-dialog-title">
             <h2 id="provision-dialog-title" className="text-xl font-bold text-[color:var(--color-text-strong)]">Provision clinic staff member</h2>
             <p className="text-sm text-[color:var(--color-text-muted)]">
-              Only roles strictly below your authority ({claims.role}) can be provisioned.
+              Available roles are determined by the provisioning grant matrix.
             </p>
             <form onSubmit={handleInvite} className="space-y-4 text-sm">
               <div>
@@ -412,19 +405,19 @@ export const UserManagementView: React.FC = () => {
                   onChange={(e) => setNewRole(e.target.value as CadRole)}
                   className="ui-select mt-1"
                 >
-                  {callerRank > ROLE_RANK.writing_clinician && (
+                  {permittedProvisionRoles.includes('writing_clinician') && (
                     <option value="writing_clinician">Writing Clinician (Prescribe Targets)</option>
                   )}
-                  {callerRank > ROLE_RANK.viewing_dietician && (
+                  {permittedProvisionRoles.includes('viewing_dietician') && (
                     <option value="viewing_dietician">Viewing Dietician (Read & Consult)</option>
                   )}
-                  {callerRank > ROLE_RANK.compliance_auditor && (
+                  {permittedProvisionRoles.includes('compliance_auditor') && (
                     <option value="compliance_auditor">Compliance Auditor (Read-only)</option>
                   )}
-                  {callerRank > ROLE_RANK.commercial_stakeholder && (
+                  {permittedProvisionRoles.includes('commercial_stakeholder') && (
                     <option value="commercial_stakeholder">Commercial Stakeholder</option>
                   )}
-                  {callerRank > ROLE_RANK.tenant_admin && (
+                  {permittedProvisionRoles.includes('tenant_admin') && (
                     <option value="tenant_admin">Tenant Administrator</option>
                   )}
                 </select>

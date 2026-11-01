@@ -185,7 +185,7 @@ RETURNS text
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT COALESCE(auth.jwt() ->> 'role', 'patient');
+  SELECT COALESCE(auth.jwt() ->> 'app_role', 'patient');
 $$;
 
 -- 8. RLS Policies: Tenants Table

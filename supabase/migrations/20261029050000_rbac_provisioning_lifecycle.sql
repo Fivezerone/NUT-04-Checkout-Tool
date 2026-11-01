@@ -94,7 +94,7 @@ SECURITY DEFINER
 SET search_path = public, auth
 AS $$
 DECLARE
-  v_caller_role text := coalesce(auth.jwt() ->> 'role', 'patient');
+  v_caller_role text := coalesce(auth.jwt() ->> 'app_role', 'patient');
   v_caller_tenant uuid := (auth.jwt() ->> 'tenant_id')::uuid;
   v_target_role text;
 BEGIN
@@ -137,7 +137,7 @@ BEGIN
     
     IF p_new_status = 'deactivated' THEN
       UPDATE auth.users 
-      SET banned_until = '3000-01-01 00:00:00+00'
+      SET banned_until = 'infinity'::timestamptz
       WHERE id = p_target_user_id;
     END IF;
   ELSIF p_new_status = 'active' THEN
