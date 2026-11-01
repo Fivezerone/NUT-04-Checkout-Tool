@@ -132,6 +132,7 @@ async function run() {
     await supabaseAdmin.from('consumption_diary').delete().eq('user_id', user.id)
     await supabaseAdmin.from('tenant_members').delete().eq('user_id', user.id)
     await supabaseAdmin.from('users').delete().eq('id', user.id)
+    await supabaseAdmin.rpc('remove_platform_member', { p_user_id: user.id })
 
     // Delete from auth.users
     const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(user.id)

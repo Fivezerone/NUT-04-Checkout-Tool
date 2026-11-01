@@ -1,41 +1,48 @@
-// Stage A provisioning service. Provisioning authority is exclusively the
-// iam.role_grants matrix; display order is never an authorization input.
+// Stage A provisioning service. The database grant matrix is the sole source
+// of provisioning authority. All authorization denials are generic to callers
+// and carry GRANT_MATRIX only in the audit ledger.
 
 import { serve } from '@std/http'
 import { createClient } from '@supabase/supabase-js'
 import { corsHeaders } from '../_shared/cors.ts'
 import { extractClaims, type CadRole } from '../_shared/rbac.ts'
 
-const PLATFORM_TENANT_ID = '00000000-0000-0000-0000-000000000000'
+type ProvisionScope = 'platform' | 'tenant' | 'own_patients'
 
-function genericForbidden(cors: HeadersInit): Response {
+const PLATFORM_TENANT_ID = '00000000-0000-0000-0000-000000000000'
+const REGULATOR_BODIES = new Set(['DHA', 'ODPC'])
+
+function securePassword(): string {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%^&*'
+  return Array.from(
+    crypto.getRandomValues(new Uint8Array(20)),
+    (byte) => alphabet[byte % alphabet.length],
+  ).join('')
+}
+
+function forbidden(cors: HeadersInit): Response {
   return new Response(JSON.stringify({ error: 'forbidden', message: 'Forbidden' }), {
     status: 403,
     headers: { ...cors, 'Content-Type': 'application/json' },
   })
 }
 
-function securePassword(): string {
-  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%^&*'
-  const bytes = crypto.getRandomValues(new Uint8Array(20))
-  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')
+function badRequest(cors: HeadersInit): Response {
+  return new Response(JSON.stringify({ error: 'bad_request', message: 'Invalid request' }), {
+    status: 400,
+    headers: { ...cors, 'Content-Type': 'application/json' },
+  })
 }
 
-async function permitted(
-  client: ReturnType<typeof createClient>,
-  grantorRole: CadRole,
-  granteeRole: CadRole,
-  scope: 'platform' | 'tenant' | 'own_patients',
-): Promise<boolean> {
-  const { data, error } = await client
-    .schema('iam')
-    .from('role_grants')
-    .select('grantor_role')
-    .eq('grantor_role', grantorRole)
-    .eq('grantee_role', granteeRole)
-    .eq('scope', scope)
-    .maybeSingle()
-  return !error && Boolean(data)
+function requestedScope(
+  callerRole: CadRole,
+  targetRole: CadRole,
+  auditorScope: unknown,
+): ProvisionScope {
+  if (callerRole === 'writing_clinician' && targetRole === 'patient') return 'own_patients'
+  if (callerRole === 'super_admin') return 'platform'
+  if (targetRole === 'compliance_auditor' && auditorScope === 'platform') return 'platform'
+  return 'tenant'
 }
 
 serve(async (req: Request) => {
@@ -59,108 +66,218 @@ serve(async (req: Request) => {
   if (!url || !key)
     return new Response(JSON.stringify({ error: 'unavailable' }), { status: 503, headers: cors })
   const admin = createClient(url, key)
+  // Keep the service credential for privileged writes, but forward the caller
+  // token for lifecycle RPCs. Those SQL functions re-check app_role and tenant
+  // from the actual request JWT on every transition.
+  const callerDb = createClient(url, key, {
+    global: { headers: { Authorization: req.headers.get('Authorization') || '' } },
+  })
+
+  const { data: tokenDenied, error: tokenCheckError } = await admin.rpc('edge_token_is_denied', {
+    p_sid: claims.sid,
+    p_sub: claims.sub,
+  })
+  if (tokenCheckError || tokenDenied === true) {
+    return new Response(JSON.stringify({ error: 'unauthorized', message: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const auditDeny = async (tenantId: string | null | undefined) => {
+    if (!tenantId) return
+    await admin.from('audit_log').insert({
+      tenant_id: tenantId,
+      actor_id: claims.sub,
+      actor_role: claims.appRole,
+      action: 'AUTHZ_DENY',
+      mutation_type: 'read',
+      resource_type: 'Provisioning',
+      reason: 'GRANT_MATRIX',
+    })
+  }
 
   try {
     const body = await req.json().catch(() => null)
-    if (!body || typeof body !== 'object') {
-      return new Response(JSON.stringify({ error: 'bad_request', message: 'Invalid request' }), {
-        status: 400,
-        headers: cors,
+    if (!body || typeof body !== 'object') return badRequest(cors)
+    const action = body.action
+
+    if (action === 'create_user') {
+      const targetRole = body.role as CadRole
+      const email = typeof body.email === 'string' ? body.email.trim() : ''
+      const targetTenantId = typeof body.tenantId === 'string' ? body.tenantId : null
+      const auditorScope = body.auditorScope
+      const scope = requestedScope(claims.appRole, targetRole, auditorScope)
+      const auditTenant = claims.tenantId || targetTenantId || PLATFORM_TENANT_ID
+
+      const { data: permitted } = await admin.rpc('provisioning_grant_exists', {
+        p_grantor: claims.appRole,
+        p_grantee: targetRole,
+        p_scope: scope,
+      })
+      if (!email || targetRole === 'super_admin' || !permitted) {
+        await auditDeny(auditTenant)
+        return forbidden(cors)
+      }
+
+      const isPlatformAuditor = targetRole === 'compliance_auditor' && auditorScope === 'platform'
+      const isCommercialStakeholder = targetRole === 'commercial_stakeholder'
+      const partnerOrg = typeof body.partnerOrg === 'string' ? body.partnerOrg.trim() : ''
+      const regulatorBody = typeof body.regulatorBody === 'string' ? body.regulatorBody : ''
+      const mandateRef = typeof body.mandateRef === 'string' ? body.mandateRef.trim() : ''
+      const primaryClinicianId =
+        typeof body.primaryClinicianId === 'string' ? body.primaryClinicianId : null
+
+      if (
+        (scope !== 'platform' &&
+          (!claims.tenantId || (targetTenantId && targetTenantId !== claims.tenantId))) ||
+        (scope === 'platform' && !isPlatformAuditor && !targetTenantId) ||
+        (targetRole === 'patient' && !primaryClinicianId) ||
+        (scope === 'own_patients' && primaryClinicianId !== claims.sub) ||
+        (isCommercialStakeholder && (!targetTenantId || !partnerOrg)) ||
+        (isPlatformAuditor && (!REGULATOR_BODIES.has(regulatorBody) || !mandateRef))
+      ) {
+        await auditDeny(auditTenant)
+        return forbidden(cors)
+      }
+
+      const temporaryPassword =
+        typeof body.password === 'string' && body.password.length >= 16
+          ? body.password
+          : securePassword()
+      const { data: created, error: createError } = await admin.auth.admin.createUser({
+        email,
+        password: temporaryPassword,
+        email_confirm: true,
+        user_metadata: {
+          full_name: typeof body.fullName === 'string' ? body.fullName : undefined,
+          force_password_change: true,
+        },
+        app_metadata: isPlatformAuditor ? {} : { tenant_id: targetTenantId || claims.tenantId },
+      })
+      if (createError || !created.user) return badRequest(cors)
+
+      const newUserId = created.user.id
+      if (isPlatformAuditor) {
+        const { error } = await admin.rpc('create_platform_member', {
+          p_user_id: newUserId,
+          p_role: targetRole,
+          p_regulator_body: regulatorBody,
+          p_mandate_ref: mandateRef,
+          p_created_by: claims.sub,
+        })
+        if (error) {
+          await admin.auth.admin.deleteUser(newUserId)
+          return badRequest(cors)
+        }
+        await admin.from('audit_log').insert({
+          tenant_id: PLATFORM_TENANT_ID,
+          actor_id: claims.sub,
+          actor_role: claims.appRole,
+          action: 'PROVISION_PLATFORM_AUDITOR',
+          mutation_type: 'create',
+          resource_type: 'PlatformMember',
+          resource_id: newUserId,
+          reason: `REGULATOR:${regulatorBody};MANDATE:${mandateRef}`,
+        })
+      } else {
+        const memberTenantId = targetTenantId || claims.tenantId
+        const { error } = await admin.from('tenant_members').insert({
+          tenant_id: memberTenantId,
+          user_id: newUserId,
+          role: targetRole,
+          primary_clinician_id: primaryClinicianId,
+          auditor_scope: targetRole === 'compliance_auditor' ? 'tenant' : null,
+          licence_number: typeof body.licenceNumber === 'string' ? body.licenceNumber : null,
+          licence_expiry: typeof body.licenceExpiry === 'string' ? body.licenceExpiry : null,
+          licence_verified: false,
+          status: 'invited',
+          invited_by: claims.sub,
+          partner_org: isCommercialStakeholder ? partnerOrg : null,
+        })
+        if (error) {
+          await admin.auth.admin.deleteUser(newUserId)
+          return badRequest(cors)
+        }
+        await admin.from('audit_log').insert({
+          tenant_id: memberTenantId,
+          actor_id: claims.sub,
+          actor_role: claims.appRole,
+          action: isCommercialStakeholder ? 'PROVISION_COMMERCIAL_STAKEHOLDER' : 'PROVISION_USER',
+          mutation_type: 'create',
+          resource_type: 'TenantMember',
+          resource_id: newUserId,
+          reason: isCommercialStakeholder ? `PARTNER_ORG:${partnerOrg}` : 'GRANT_MATRIX',
+        })
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, userId: newUserId, role: targetRole, temporaryPassword }),
+        { status: 201, headers: { ...cors, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    if (action === 'update_status') {
+      const targetUserId = typeof body.userId === 'string' ? body.userId : ''
+      const status = typeof body.status === 'string' ? body.status : ''
+      const tenantId =
+        claims.appRole === 'super_admin'
+          ? typeof body.tenantId === 'string'
+            ? body.tenantId
+            : null
+          : claims.tenantId
+      if (!targetUserId || !tenantId || !['active', 'suspended', 'deactivated'].includes(status)) {
+        await auditDeny(tenantId)
+        return forbidden(cors)
+      }
+      const { data, error } = await callerDb.rpc('deactivate_tenant_member', {
+        p_tenant_id: tenantId,
+        p_target_user_id: targetUserId,
+        p_new_status: status,
+        p_reason: typeof body.reason === 'string' ? body.reason : '',
+      })
+      if (error || data?.success !== true) {
+        return forbidden(cors)
+      }
+      return new Response(JSON.stringify({ success: true, result: data }), {
+        headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
-    if (body.action !== 'create_user') return genericForbidden(cors)
-    const targetRole = body.role as CadRole
-    const email = typeof body.email === 'string' ? body.email.trim() : ''
-    if (!email || !targetRole || targetRole === 'super_admin') return genericForbidden(cors)
-
-    const requestedTenant = typeof body.tenantId === 'string' ? body.tenantId : null
-    const scope =
-      claims.appRole === 'writing_clinician' && targetRole === 'patient'
-        ? 'own_patients'
-        : claims.appRole === 'super_admin'
-          ? 'platform'
-          : 'tenant'
-    if (!(await permitted(admin, claims.appRole, targetRole, scope))) return genericForbidden(cors)
-
-    const targetTenantId =
-      scope === 'platform'
-        ? requestedTenant || claims.tenantId || PLATFORM_TENANT_ID
-        : claims.tenantId
-    if (
-      !targetTenantId ||
-      (scope !== 'platform' && requestedTenant && requestedTenant !== claims.tenantId)
-    ) {
-      return genericForbidden(cors)
-    }
-
-    const primaryClinicianId =
-      typeof body.primaryClinicianId === 'string' ? body.primaryClinicianId : null
-    if (targetRole === 'patient' && !primaryClinicianId) {
-      return new Response(
-        JSON.stringify({ error: 'bad_request', message: 'Patient linkage is required' }),
-        { status: 400, headers: cors },
-      )
-    }
-    if (scope === 'own_patients' && primaryClinicianId !== claims.sub) return genericForbidden(cors)
-
-    const temporaryPassword =
-      typeof body.password === 'string' && body.password.length >= 16
-        ? body.password
-        : securePassword()
-    const { data: created, error: createError } = await admin.auth.admin.createUser({
-      email,
-      password: temporaryPassword,
-      email_confirm: true,
-      user_metadata: {
-        full_name: typeof body.fullName === 'string' ? body.fullName : undefined,
-        force_password_change: true,
-      },
-      app_metadata: { tenant_id: targetTenantId },
-    })
-    if (createError || !created.user) {
-      return new Response(
-        JSON.stringify({ error: 'provisioning_failed', message: 'Provisioning failed' }),
-        { status: 400, headers: cors },
-      )
-    }
-
-    const { error: memberError } = await admin
-      .schema('iam')
-      .from('members')
-      .insert({
-        tenant_id: targetTenantId,
-        user_id: created.user.id,
-        role: targetRole,
-        primary_clinician_id: primaryClinicianId,
-        licence_number: typeof body.licenceNumber === 'string' ? body.licenceNumber : null,
-        licence_expiry: typeof body.licenceExpiry === 'string' ? body.licenceExpiry : null,
-        licence_verified: false,
-        status: 'invited',
-        invited_by: claims.sub,
+    if (action === 'update_role') {
+      const targetUserId = typeof body.userId === 'string' ? body.userId : ''
+      const newRole = body.newRole as CadRole
+      const tenantId =
+        claims.appRole === 'super_admin'
+          ? typeof body.tenantId === 'string'
+            ? body.tenantId
+            : null
+          : claims.tenantId
+      if (!targetUserId || !tenantId || !newRole) {
+        await auditDeny(tenantId)
+        return forbidden(cors)
+      }
+      const { data, error } = await callerDb.rpc('update_tenant_member_role', {
+        p_tenant_id: tenantId,
+        p_target_user_id: targetUserId,
+        p_new_role: newRole,
+        p_partner_org: typeof body.partnerOrg === 'string' ? body.partnerOrg : null,
+        p_reason: typeof body.reason === 'string' ? body.reason : '',
       })
-    if (memberError) {
-      await admin.auth.admin.deleteUser(created.user.id)
-      return new Response(
-        JSON.stringify({ error: 'provisioning_failed', message: 'Provisioning failed' }),
-        { status: 400, headers: cors },
-      )
+      if (error || data?.success !== true) {
+        return forbidden(cors)
+      }
+      return new Response(JSON.stringify({ success: true, result: data }), {
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      })
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        userId: created.user.id,
-        tenantId: targetTenantId,
-        role: targetRole,
-        temporaryPassword,
-      }),
-      { status: 201, headers: { ...cors, 'Content-Type': 'application/json' } },
-    )
+    await auditDeny(claims.tenantId || PLATFORM_TENANT_ID)
+    return forbidden(cors)
   } catch {
     return new Response(JSON.stringify({ error: 'internal_error', message: 'Request failed' }), {
       status: 500,
-      headers: cors,
+      headers: { ...cors, 'Content-Type': 'application/json' },
     })
   }
 })

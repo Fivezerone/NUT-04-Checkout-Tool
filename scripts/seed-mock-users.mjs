@@ -2,19 +2,15 @@
 /**
  * scripts/seed-mock-users.mjs
  *
- * Seed Mock Users for CAD & Extension Local Testing (Phase 7)
+ * Seed de-identified mock identities for CAD & extension local testing.
  *
  * Rules:
  * 1. Uses reserved RFC 2606 / RFC 6761 `.test` top-level domain.
  * 2. Generates high-entropy random passwords and writes to git-ignored `.mock-credentials.json`.
- * 3. Creates:
- *    - 1 mock clinic: Nairobi Metabolic Care Clinic
- *    - 1 clinic admin: admin@clinic.test
- *    - 1 writing clinician: dr.mwangi@clinic.test (KMPDC A.4921 verified)
- *    - 1 viewing dietician: dietician.wanjiku@clinic.test (KNDI D.1082 verified)
- *    - 2 patients with assigned health modes:
- *      * patient1@clinic.test (Cardio-Metabolic / Diabetes, assigned to Dr. Mwangi)
- *      * patient2@clinic.test (Hypertension Care, assigned to Dr. Mwangi)
+ * 3. Creates only de-identified role fixtures: one fixture tenant, tenant
+ *    accounts, a commercial stakeholder, and DHA/ODPC platform auditors.
+ *    No names, clinical data, care links, or condition-labelled fields are
+ *    written to the database, credentials file, or logs.
  * 4. Safety Gate: Aborts immediately if run against any non-local/production project.
  */
 
@@ -95,12 +91,12 @@ async function seed() {
   console.log('===========================================================')
   console.log(`Connecting to: ${SUPABASE_URL}`)
 
-  // 1. Ensure Mock Clinic Tenant
-  console.log('\n1. Ensuring Mock Clinic Tenant...')
+  // 1. Ensure the single neutral fixture tenant.
+  console.log('\n1. Ensuring fixture tenant...')
   const { error: tenantErr } = await supabaseAdmin.from('tenants').upsert({
     id: MOCK_CLINIC_ID,
-    name: 'Nairobi Metabolic Care Clinic',
-    slug: 'nairobi-metabolic',
+    name: 'Fixture Clinic',
+    slug: 'fixture-clinic',
     status: 'active',
     config: {
       rule_pack: 'ke_standard',
@@ -112,66 +108,75 @@ async function seed() {
   if (tenantErr) {
     throw new Error(`Failed to create mock tenant: ${tenantErr.message}`)
   }
-  console.log(
-    '   ✓ Tenant ready: Nairobi Metabolic Care Clinic (11111111-2222-3333-4444-555555555555)',
-  )
+  console.log('   ✓ Fixture tenant ready: 11111111-2222-3333-4444-555555555555')
 
-  // Mock User Definitions
+  // This is intentionally the complete identity fixture contract. Keep the
+  // generated passwords local and git-ignored; do not add profile or clinical
+  // data here. `licenceVerified` is retained only to exercise the clinical
+  // role gate in local authorization tests.
   const mockDefinitions = [
     {
-      key: 'clinic_admin',
-      email: 'admin@clinic.test',
-      fullName: 'Alice Mumo (Clinic Admin)',
+      key: 'tenant_admin',
+      email: 'tenant.admin@clinic.test',
       role: 'tenant_admin',
-      password: generateSecurePassword('Admin'),
-      licenceNumber: null,
-      licenceVerified: false,
+      password: generateSecurePassword('TenantAdmin'),
     },
     {
-      key: 'clinician',
-      email: 'dr.mwangi@clinic.test',
-      fullName: 'Dr. Joseph Mwangi',
+      key: 'writing_clinician',
+      email: 'clinician.one@clinic.test',
       role: 'writing_clinician',
-      password: generateSecurePassword('Doc'),
-      licenceNumber: 'KMPDC-A.4921',
+      password: generateSecurePassword('Clinician'),
       licenceVerified: true,
     },
     {
-      key: 'dietician',
-      email: 'dietician.wanjiku@clinic.test',
-      fullName: 'Grace Wanjiku (Dietician)',
+      key: 'viewing_dietician',
+      email: 'dietician.one@clinic.test',
       role: 'viewing_dietician',
-      password: generateSecurePassword('Diet'),
-      licenceNumber: 'KNDI-D.1082',
+      password: generateSecurePassword('Dietician'),
       licenceVerified: true,
     },
     {
-      key: 'patient_diabetes',
-      email: 'patient1@clinic.test',
-      fullName: 'David Kiprono',
+      key: 'patient_alpha',
+      email: 'patient.alpha@clinic.test',
       role: 'patient',
-      password: generateSecurePassword('Pat1'),
-      condition: 'diabetes',
-      metric: 'Refined Sugars & Carbohydrates',
-      licenceNumber: null,
-      licenceVerified: false,
+      password: generateSecurePassword('PatientAlpha'),
     },
     {
-      key: 'patient_hypertension',
-      email: 'patient2@clinic.test',
-      fullName: 'Sarah Achieng',
+      key: 'patient_beta',
+      email: 'patient.beta@clinic.test',
       role: 'patient',
-      password: generateSecurePassword('Pat2'),
-      condition: 'hypertension',
-      metric: 'Sodium & Saturated Fat',
-      licenceNumber: null,
-      licenceVerified: false,
+      password: generateSecurePassword('PatientBeta'),
+    },
+    {
+      key: 'commercial_stakeholder',
+      email: 'partner.stakeholder@clinic.test',
+      role: 'commercial_stakeholder',
+      password: generateSecurePassword('Stakeholder'),
+      partnerOrg: 'fixture-partner',
+    },
+    {
+      key: 'regulator_dha',
+      email: 'regulator.dha@platform.test',
+      role: 'compliance_auditor',
+      scope: 'platform',
+      regulatorBody: 'DHA',
+      mandateRef: 'fixture-dha-mandate',
+      password: generateSecurePassword('DHA'),
+    },
+    {
+      key: 'regulator_odpc',
+      email: 'regulator.odpc@platform.test',
+      role: 'compliance_auditor',
+      scope: 'platform',
+      regulatorBody: 'ODPC',
+      mandateRef: 'fixture-odpc-mandate',
+      password: generateSecurePassword('ODPC'),
     },
   ]
 
   const createdRecords = {}
 
-  console.log('\n2. Provisioning Mock Accounts in Supabase Auth & Public Tables...')
+  console.log('\n2. Provisioning de-identified fixture accounts...')
 
   for (const def of mockDefinitions) {
     let authUser = null
@@ -186,13 +191,8 @@ async function seed() {
         existing.id,
         {
           password: def.password,
-          user_metadata: { full_name: def.fullName },
-          app_metadata: {
-            role: def.role,
-            tenant_id: MOCK_CLINIC_ID,
-            cad_provisioned: true,
-            status: 'active',
-          },
+          user_metadata: {},
+          app_metadata: { cad_fixture: true },
         },
       )
       if (updErr) throw updErr
@@ -204,97 +204,58 @@ async function seed() {
         email: def.email,
         password: def.password,
         email_confirm: true,
-        user_metadata: { full_name: def.fullName },
-        app_metadata: {
-          role: def.role,
-          tenant_id: MOCK_CLINIC_ID,
-          cad_provisioned: true,
-          status: 'active',
-        },
+        user_metadata: {},
+        app_metadata: { cad_fixture: true },
       })
       if (crtErr) throw crtErr
       authUser = created.user
       console.log(`   + Created auth user: ${def.email}`)
     }
 
-    // Sync public.users
-    await supabaseAdmin.from('users').upsert({
-      id: authUser.id,
-      email: def.email,
-      full_name: def.fullName,
-      tenant_id: MOCK_CLINIC_ID,
-      role: def.role,
-      condition: def.condition || 'general',
-      metric: def.metric || 'Target Nutrients',
-      onboarding_completed: true,
-      updated_at: new Date().toISOString(),
-    })
-
-    // Sync public.tenant_members
-    await supabaseAdmin.from('tenant_members').upsert({
-      tenant_id: MOCK_CLINIC_ID,
-      user_id: authUser.id,
-      role: def.role,
-      status: 'active',
-      licence_number: def.licenceNumber,
-      licence_verified: def.licenceVerified,
-      licence_expiry: def.licenceVerified ? '2028-12-31' : null,
-      updated_at: new Date().toISOString(),
-    })
-
-    // If patient, pre-grant 2.0 care consent
-    if (def.role === 'patient') {
-      await supabaseAdmin.from('consents').upsert({
-        patient_id: authUser.id,
-        tenant_id: MOCK_CLINIC_ID,
-        consent_version: '2.0',
-        terms_accepted: true,
-        privacy_accepted: true,
-        clinical_sharing_accepted: true,
-        user_agent: 'Mock Seed Script (RFC 2606)',
-        ip_hash: 'mock_seed_local_ip',
-        consented_at: new Date().toISOString(),
+    if (def.scope === 'platform') {
+      const { error: platformErr } = await supabaseAdmin.rpc('create_platform_member', {
+        p_user_id: authUser.id,
+        p_role: def.role,
+        p_regulator_body: def.regulatorBody,
+        p_mandate_ref: def.mandateRef,
+        p_created_by: null,
       })
-    }
+      if (platformErr)
+        throw new Error(`Failed to provision platform fixture: ${platformErr.message}`)
+    } else {
+      const { error: userErr } = await supabaseAdmin.from('users').upsert({
+        id: authUser.id,
+        email: def.email,
+        tenant_id: MOCK_CLINIC_ID,
+        updated_at: new Date().toISOString(),
+      })
+      if (userErr) throw new Error(`Failed to provision fixture user: ${userErr.message}`)
 
-    // Audit log
-    await supabaseAdmin.from('audit_log').insert({
-      tenant_id: MOCK_CLINIC_ID,
-      actor_id: authUser.id,
-      action: 'MOCK_USER_SEEDED',
-      entity: 'users',
-      entity_id: authUser.id,
-      payload: { email: def.email, role: def.role },
-    })
+      const { error: memberErr } = await supabaseAdmin.from('tenant_members').upsert(
+        {
+          tenant_id: MOCK_CLINIC_ID,
+          user_id: authUser.id,
+          role: def.role,
+          status: 'active',
+          licence_verified: Boolean(def.licenceVerified),
+          partner_org: def.partnerOrg || null,
+        },
+        { onConflict: 'tenant_id,user_id' },
+      )
+      if (memberErr) throw new Error(`Failed to provision tenant fixture: ${memberErr.message}`)
+    }
 
     createdRecords[def.key] = {
       id: authUser.id,
       email: def.email,
       password: def.password,
       role: def.role,
-      name: def.fullName,
-      condition: def.condition || null,
-      metric: def.metric || null,
-      licenceNumber: def.licenceNumber,
-      clinic: 'Nairobi Metabolic Care Clinic',
+      tenantId: def.scope === 'platform' ? null : MOCK_CLINIC_ID,
+      scope: def.scope || 'tenant',
     }
   }
 
-  // 3. Link Patients to Dr. Mwangi
-  console.log('\n3. Establishing Patient Care Links to Primary Clinician...')
-  const docId = createdRecords.clinician.id
-  for (const patKey of ['patient_diabetes', 'patient_hypertension']) {
-    const pat = createdRecords[patKey]
-    await supabaseAdmin.from('patient_links').upsert({
-      tenant_id: MOCK_CLINIC_ID,
-      clinician_id: docId,
-      patient_id: pat.id,
-      status: 'active',
-    })
-    console.log(`   ✓ Linked patient ${pat.email} -> Dr. Mwangi (${docId})`)
-  }
-
-  // 4. Save credentials to git-ignored .mock-credentials.json
+  // 3. Save the synthetic credentials to the git-ignored local file.
   const credsPath = resolve(REPO_ROOT, '.mock-credentials.json')
   const payload = {
     generatedAt: new Date().toISOString(),
@@ -304,9 +265,9 @@ async function seed() {
   }
 
   writeFileSync(credsPath, JSON.stringify(payload, null, 2), 'utf8')
-  console.log(`\n4. Saved credentials to ${credsPath} (git-ignored)`)
+  console.log(`\n3. Saved credentials to ${credsPath} (git-ignored)`)
 
-  // 5. Output Summary Table
+  // 4. Output the local-only credentials summary.
   console.log('\n=============================================================================')
   console.log('  CAD MOCK TEST CREDENTIALS (LOCAL ONLY)')
   console.log('=============================================================================')

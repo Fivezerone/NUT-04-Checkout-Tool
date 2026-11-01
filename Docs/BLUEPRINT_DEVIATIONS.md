@@ -9,4 +9,5 @@
 | D-005 | 3 | Commercial stakeholders are bound to exactly one tenant selected by the super administrator. | D1 assumption O1 keeps the tenant wall and k≥5 suppression intact. | Kibet confirmation still required before any multi-tenant partner feature. |
 | D-006 | 3 | Platform auditors have cross-tenant audit metadata/proofs only, not clinical content. | Blueprint §4.5 narrows D3’s general wording and takes precedence. | Implement in Phase 5. |
 | D-007 | 2 | The Phase 2 rollback is intentionally a safe no-op; rollback from the `app_role` contract is forward-only. | Reintroducing application data into Supabase's reserved `role` claim or deleting denylist rows can re-authorize still-valid tokens. A corrective forward migration preserves revocation and canonical claims. | Staff Engineering; documented in the rollback file. |
+| D-008 | 3 | Local mock identities are neutral, condition-free role fixtures; clinical consent and care-link fixtures are not seeded. | Kibet selected OQ-002 option 1. The identity seed must never place personal-style names, clinical values, condition-labelled keys or audit payloads in local fixture output. | Implemented in Phase 3. |
 

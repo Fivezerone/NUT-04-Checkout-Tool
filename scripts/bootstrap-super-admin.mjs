@@ -46,7 +46,7 @@ loadEnv()
 const SUPABASE_URL = process.env.SUPABASE_URL || 'http://127.0.0.1:54321'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-const PLATFORM_TENANT_ID = '00000000-0000-0000-0000-000000000000'
+const PLATFORM_AUDIT_CHAIN_ID = '00000000-0000-0000-0000-000000000000'
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'admin@nutriscore.co.ke'
 
 // ============================================================================
@@ -88,26 +88,9 @@ async function bootstrap() {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  // 1. Ensure Platform Tenant exists
-  const { error: tenantErr } = await supabase.from('tenants').upsert(
-    {
-      id: PLATFORM_TENANT_ID,
-      name: 'NutriScore Platform Administration',
-      slug: 'platform-admin',
-      status: 'active',
-      data_residency_region: 'ke-nairobi',
-      billing_email: SUPER_ADMIN_EMAIL,
-    },
-    { onConflict: 'id' },
-  )
-
-  if (tenantErr) {
-    console.error('❌ [bootstrap] Failed to ensure platform tenant:', tenantErr.message)
-    process.exit(1)
-  }
-  console.log(`✅ [bootstrap] Platform tenant verified: ${PLATFORM_TENANT_ID}`)
-
-  // 2. Check if Super Admin user already exists in Auth
+  // 1. Check if the super admin already exists in Auth. Platform accounts
+  // never get a synthetic tenant membership: iam.platform_members is their
+  // authoritative application identity.
   const { data: userList, error: listErr } = await supabase.auth.admin.listUsers()
   if (listErr) {
     console.error('❌ [bootstrap] Failed to list auth users:', listErr.message)
@@ -122,13 +105,10 @@ async function bootstrap() {
     userId = existingUser.id
     console.log(`[bootstrap] Existing auth user found: ${userId}`)
 
-    // Identity metadata contains only routing data. iam.platform_members is the
-    // application-role source of truth at the Phase 3 lifecycle boundary.
+    // iam.platform_members is the application-role source of truth. Do not
+    // duplicate application roles or tenant IDs in Auth metadata.
     const { error: updateErr } = await supabase.auth.admin.updateUserById(userId, {
-      app_metadata: {
-        tenant_id: PLATFORM_TENANT_ID,
-        account_status: 'active',
-      },
+      app_metadata: { cad_bootstrap: true },
       user_metadata: {
         full_name: 'Platform Super Administrator',
       },
@@ -148,10 +128,7 @@ async function bootstrap() {
       email: SUPER_ADMIN_EMAIL,
       password: initialPassword,
       email_confirm: true,
-      app_metadata: {
-        tenant_id: PLATFORM_TENANT_ID,
-        account_status: 'active',
-      },
+      app_metadata: { cad_bootstrap: true },
       user_metadata: {
         full_name: 'Platform Super Administrator',
         force_password_change: true,
@@ -168,57 +145,40 @@ async function bootstrap() {
     console.log(`🔑 [bootstrap] Initial Password: ${initialPassword}`)
   }
 
-  // 3. Upsert public.users record
-  const { error: userErr } = await supabase.from('users').upsert(
-    {
-      id: userId,
-      email: SUPER_ADMIN_EMAIL,
-      full_name: 'Platform Super Administrator',
-      tenant_id: PLATFORM_TENANT_ID,
-      role: 'super_admin',
-    },
-    { onConflict: 'id' },
-  )
-
-  if (userErr) {
-    console.warn('⚠️ [bootstrap] Failed to upsert public.users:', userErr.message)
-  }
-
-  // 4. Ensure tenant_members record exists
-  const { error: memberErr } = await supabase.from('tenant_members').upsert(
-    {
-      tenant_id: PLATFORM_TENANT_ID,
-      user_id: userId,
-      email: SUPER_ADMIN_EMAIL,
-      role: 'super_admin',
-      licence_verified: true,
-      status: 'active',
-    },
-    { onConflict: 'tenant_id,user_id' },
-  )
-
-  if (memberErr) {
-    console.error('❌ [bootstrap] Failed to upsert tenant_members:', memberErr.message)
+  // 2. Upsert the platform authority record. The Phase 3 RPC is restricted to
+  // service_role and is deliberately idempotent for safe local re-runs.
+  const { error: platformErr } = await supabase.rpc('create_platform_member', {
+    p_user_id: userId,
+    p_role: 'super_admin',
+    p_regulator_body: null,
+    p_mandate_ref: null,
+    p_created_by: userId,
+  })
+  if (platformErr) {
+    console.error('❌ [bootstrap] Failed to upsert iam.platform_members:', platformErr.message)
     process.exit(1)
   }
 
-  // 5. Insert audit log record
-  await supabase.from('audit_log').insert({
-    tenant_id: PLATFORM_TENANT_ID,
+  const { error: auditErr } = await supabase.from('audit_log').insert({
+    tenant_id: PLATFORM_AUDIT_CHAIN_ID,
     actor_id: userId,
     actor_role: 'super_admin',
     action: 'BOOTSTRAP_SUPER_ADMIN',
     mutation_type: 'create',
-    resource_type: 'TenantMember',
+    resource_type: 'PlatformMember',
     resource_id: userId,
     subject_ref: userId,
-    reason: 'Initial local platform administrator bootstrap',
+    reason: 'Local platform administrator bootstrap',
   })
+  if (auditErr) {
+    console.error('❌ [bootstrap] Failed to record bootstrap audit event:', auditErr.message)
+    process.exit(1)
+  }
 
   console.log('✅ [bootstrap] Platform Super Admin successfully bootstrapped.')
   console.log('   Email:', SUPER_ADMIN_EMAIL)
   console.log('   Role: super_admin')
-  console.log('   Tenant:', PLATFORM_TENANT_ID)
+  console.log('   Scope: platform')
 }
 
 if (process.argv[1]?.endsWith('bootstrap-super-admin.mjs')) {

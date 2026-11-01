@@ -35,12 +35,18 @@ describe('Phase 7 — Mock Scripts & CI Release Gate', () => {
     expect(purgeScriptSrc).toContain("mockUsers.length");
   });
 
-  test('mock scripts strictly use RFC 2606 .test domains', () => {
-    expect(seedScriptSrc).toContain("@clinic.test");
-    expect(seedScriptSrc).toContain("admin@clinic.test");
-    expect(seedScriptSrc).toContain("dr.mwangi@clinic.test");
-    expect(seedScriptSrc).toContain("patient1@clinic.test");
-    expect(seedScriptSrc).toContain("patient2@clinic.test");
+  test('mock scripts contain only neutral RFC 2606 fixture identities', () => {
+    expect(seedScriptSrc).toContain("tenant.admin@clinic.test");
+    expect(seedScriptSrc).toContain("clinician.one@clinic.test");
+    expect(seedScriptSrc).toContain("patient.alpha@clinic.test");
+    expect(seedScriptSrc).toContain("patient.beta@clinic.test");
+    expect(seedScriptSrc).toContain("partner.stakeholder@clinic.test");
+    expect(seedScriptSrc).toContain("regulator.dha@platform.test");
+    expect(seedScriptSrc).toContain("regulator.odpc@platform.test");
+    expect(seedScriptSrc).not.toContain("Alice Mumo");
+    expect(seedScriptSrc).not.toContain("Joseph Mwangi");
+    expect(seedScriptSrc).not.toContain("patient_diabetes");
+    expect(seedScriptSrc).not.toContain("patient_hypertension");
     expect(seedScriptSrc).not.toContain("@gmail.com");
     expect(seedScriptSrc).not.toContain("@nutriscore.co.ke"); // Super admin is bootstrap, not mock test
   });

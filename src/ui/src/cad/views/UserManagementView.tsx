@@ -20,13 +20,17 @@ const PROVISIONABLE_ROLES: Record<CadRole, CadRole[]> = {
 }
 
 export const UserManagementView: React.FC = () => {
-  const { claims, activeTenant } = useCadAuth()
+  const { claims, activeTenant, availableTenants } = useCadAuth()
   const [members, setMembers] = useState<TenantMember[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [showInviteModal, setShowInviteModal] = useState<boolean>(false)
   const [newEmail, setNewEmail] = useState<string>('')
   const [newRole, setNewRole] = useState<CadRole>('writing_clinician')
   const [newLicence, setNewLicence] = useState<string>('')
+  const [partnerOrg, setPartnerOrg] = useState<string>('')
+  const [regulatorBody, setRegulatorBody] = useState<'DHA' | 'ODPC'>('DHA')
+  const [mandateRef, setMandateRef] = useState<string>('')
+  const [targetTenantId, setTargetTenantId] = useState<string>('')
   const [submitting, setSubmitting] = useState<boolean>(false)
   const [provisionSuccess, setProvisionSuccess] = useState<{
     email: string
@@ -36,10 +40,25 @@ export const UserManagementView: React.FC = () => {
   const [copiedPwd, setCopiedPwd] = useState<boolean>(false)
 
   const permittedProvisionRoles = PROVISIONABLE_ROLES[claims.role]
+  // This is visibility only. The Edge Function asks iam.role_grants for every
+  // decision; no UI array is an authorization source.
+  const isPlatformAuditor = claims.role === 'super_admin' && newRole === 'compliance_auditor'
+  const tenantChoices = availableTenants.filter(
+    (tenant) => tenant.id !== '00000000-0000-0000-0000-000000000000',
+  )
+  const selectedTenantId = claims.role === 'super_admin' ? targetTenantId : claims.tenantId
 
   useEffect(() => {
     loadMembers()
   }, [claims.tenantId])
+
+  useEffect(() => {
+    if (claims.role !== 'super_admin') return
+    const preferredTenant = tenantChoices.some((tenant) => tenant.id === claims.tenantId)
+      ? claims.tenantId
+      : tenantChoices[0]?.id || ''
+    setTargetTenantId(preferredTenant)
+  }, [claims.role, claims.tenantId, availableTenants])
 
   const loadMembers = async () => {
     setLoading(true)
@@ -141,22 +160,15 @@ export const UserManagementView: React.FC = () => {
         body: {
           action: 'update_status',
           userId: memberUserId,
+          tenantId: claims.tenantId,
           status: newStatus,
           reason: `Clinic Admin transitioned member to ${newStatus}`,
         },
       })
 
-      if (error) {
-        // Fallback to direct RPC call if edge function not running locally
-        await cadSupabase.rpc('deactivate_tenant_member', {
-          p_tenant_id: claims.tenantId,
-          p_target_user_id: memberUserId,
-          p_new_status: newStatus,
-          p_reason: `Clinic Admin transitioned member to ${newStatus}`,
-        })
-      }
+      if (error || !data?.success) return
     } catch {
-      // Fallback update
+      return
     }
 
     setMembers((prev) =>
@@ -168,7 +180,7 @@ export const UserManagementView: React.FC = () => {
     e.preventDefault()
     if (!newEmail) return
 
-    if (!permittedProvisionRoles.includes(newRole)) {
+    if (!permittedProvisionRoles.includes(newRole) || (!isPlatformAuditor && !selectedTenantId)) {
       alert('Permission Denied')
       return
     }
@@ -180,14 +192,18 @@ export const UserManagementView: React.FC = () => {
           action: 'create_user',
           email: newEmail,
           role: newRole,
-          tenantId: claims.tenantId,
+          tenantId: isPlatformAuditor ? undefined : selectedTenantId,
           licenceNumber: newLicence || undefined,
+          partnerOrg: newRole === 'commercial_stakeholder' ? partnerOrg : undefined,
+          auditorScope: isPlatformAuditor ? 'platform' : undefined,
+          regulatorBody: isPlatformAuditor ? regulatorBody : undefined,
+          mandateRef: isPlatformAuditor ? mandateRef : undefined,
         },
       })
 
       if (!error && data?.success) {
         const newMember: TenantMember = {
-          tenant_id: claims.tenantId,
+          tenant_id: selectedTenantId,
           user_id: data.userId,
           email: newEmail,
           role: newRole,
@@ -203,31 +219,18 @@ export const UserManagementView: React.FC = () => {
           password: data.temporaryPassword,
         })
       } else {
-        // Fallback local member
-        const newMember: TenantMember = {
-          tenant_id: claims.tenantId,
-          user_id: 'usr-gen-' + Math.random().toString(36).slice(2, 8),
-          email: newEmail,
-          role: newRole,
-          licence_number: newLicence || undefined,
-          licence_verified: false,
-          status: 'active',
-          created_at: new Date().toISOString(),
-        }
-        setMembers((prev) => [newMember, ...prev])
-        setProvisionSuccess({
-          email: newEmail,
-          role: newRole,
-          password: 'TmpPass!' + Math.random().toString(36).slice(2, 10),
-        })
+        alert('Permission Denied')
       }
     } catch {
-      // Fallback
+      alert('Permission Denied')
     } finally {
       setSubmitting(false)
       setShowInviteModal(false)
       setNewEmail('')
       setNewLicence('')
+      setPartnerOrg('')
+      setMandateRef('')
+      setTargetTenantId(claims.role === 'super_admin' ? tenantChoices[0]?.id || '' : claims.tenantId)
     }
   }
 
@@ -351,13 +354,19 @@ export const UserManagementView: React.FC = () => {
                           <>
                             {member.status === 'active' ? (
                               <button
-                                onClick={() => handleStatusChange(member.user_id, member.role, 'deactivated')}
+                                onClick={() => handleStatusChange(
+                                  member.user_id,
+                                  member.role,
+                                  claims.role === 'tenant_admin' && member.role === 'commercial_stakeholder'
+                                    ? 'suspended'
+                                    : 'deactivated',
+                                )}
                                 className="ui-button ui-button-critical"
                               >
                                 <UserX size={14} />
-                                <span>Deactivate</span>
+                                <span>{claims.role === 'tenant_admin' && member.role === 'commercial_stakeholder' ? 'Suspend' : 'Deactivate'}</span>
                               </button>
-                            ) : (
+                            ) : !(claims.role === 'tenant_admin' && member.role === 'commercial_stakeholder') && (
                               <button
                                 onClick={() => handleStatusChange(member.user_id, member.role, 'active')}
                                 className="ui-button ui-button-secondary"
@@ -423,6 +432,23 @@ export const UserManagementView: React.FC = () => {
                 </select>
               </div>
 
+              {claims.role === 'super_admin' && !isPlatformAuditor && (
+                <div>
+                  <label className="ui-field-label">Tenant</label>
+                  <select
+                    required
+                    value={targetTenantId}
+                    onChange={(event) => setTargetTenantId(event.target.value)}
+                    className="ui-select mt-1"
+                  >
+                    <option value="" disabled>Select tenant</option>
+                    {tenantChoices.map((tenant) => (
+                      <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {(newRole === 'writing_clinician' || newRole === 'viewing_dietician') && (
                 <div>
                   <label className="ui-field-label">Medical or dietetic licence number</label>
@@ -434,6 +460,45 @@ export const UserManagementView: React.FC = () => {
                     className="ui-input mt-1"
                   />
                 </div>
+              )}
+
+              {newRole === 'commercial_stakeholder' && (
+                <div>
+                  <label className="ui-field-label">Commercial partner legal entity</label>
+                  <input
+                    type="text"
+                    required
+                    value={partnerOrg}
+                    onChange={(event) => setPartnerOrg(event.target.value)}
+                    className="ui-input mt-1"
+                  />
+                </div>
+              )}
+
+              {isPlatformAuditor && (
+                <>
+                  <div>
+                    <label className="ui-field-label">Regulator body</label>
+                    <select
+                      value={regulatorBody}
+                      onChange={(event) => setRegulatorBody(event.target.value as 'DHA' | 'ODPC')}
+                      className="ui-select mt-1"
+                    >
+                      <option value="DHA">Digital Health Agency (DHA)</option>
+                      <option value="ODPC">Office of the Data Protection Commissioner (ODPC)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="ui-field-label">Written mandate reference</label>
+                    <input
+                      type="text"
+                      required
+                      value={mandateRef}
+                      onChange={(event) => setMandateRef(event.target.value)}
+                      className="ui-input mt-1"
+                    />
+                  </div>
+                </>
               )}
 
               <div className="flex justify-end space-x-2 pt-2">

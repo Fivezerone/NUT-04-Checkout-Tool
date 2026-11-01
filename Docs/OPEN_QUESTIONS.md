@@ -32,3 +32,35 @@ is not changed.
 
 **Owner:** Resolved — Staff Engineering implements in Phase 2.
 
+## OQ-002 — Plaintext clinical-style mock fixture data (blocked)
+
+**Trigger:** Blueprint section 6.7.
+
+`scripts/seed-mock-users.mjs` currently stores real-person-style names and
+condition values in mock definitions, then writes them into the local
+`.mock-credentials.json` file. Examples include full names and condition text
+used for patient demo accounts. The source is not verified as synthetic, and
+the blueprint forbids plaintext PHI in fixtures, snapshots, and logs.
+
+No Phase 3 mock-seed change will be made until Kibet confirms one of these
+paths:
+
+1. The existing values are confirmed fully synthetic; they will be replaced
+   with neutral non-identifying fixture labels and condition-free test data
+   before adding the DHA, ODPC, and commercial partner mocks; or
+2. The fixture must be removed from the repository and regenerated from an
+   approved de-identified local-only specification.
+
+**Recommended:** option 1. Replace all current fixture names with neutral IDs,
+remove condition fields and condition-labelled keys, preserve only the role,
+tenant, and synthetic credential data needed by the test suite, and add the
+three required `.test` accounts.
+
+**Resolution:** Kibet selected option 1 on 1 November 2026. Replace every
+real-person-style mock name with a neutral fixture ID, remove condition fields
+and condition-labelled keys, retain only the role, tenant and synthetic
+credentials needed by tests, and add the DHA, ODPC and commercial stakeholder
+`.test` accounts.
+
+**Owner:** Resolved — Staff Engineering implements in Phase 3.
+

@@ -25,24 +25,25 @@ Every action executed under this SOP must strictly adhere to the principles of *
 
 ---
 
-## 2. Role Hierarchy & Authority Invariants
+## 2. Role Authority & Provisioning Invariants
 
-### 2.1 Role Rank Matrix
+### 2.1 Grant Matrix
 
-To prevent privilege escalation, user provisioning follows a strict inequality invariant:  
-$$\text{Rank}(\text{Caller}) > \text{Rank}(\text{Target Role})$$
+Provisioning is authorised only when the exact tuple
+`(caller.app_role, target.app_role, scope)` exists in `iam.role_grants`.
+Roles are not a hierarchy and no numeric rank may authorise an action.
 
-Nobody may create, elevate, or modify a user of equal or superior rank.
+| Caller | Target role | Scope | Additional invariant |
+|---|---|---|---|
+| `super_admin` | `tenant_admin` | `platform` | Chooses the target tenant. |
+| `super_admin` | `compliance_auditor` | `platform` | DHA or ODPC only; a written `mandate_ref` is required. |
+| `super_admin` | `commercial_stakeholder` | `platform` | Chooses exactly one tenant and supplies the partner legal entity (`partner_org`). |
+| `tenant_admin` | `writing_clinician`, `viewing_dietician`, `compliance_auditor`, `patient` | `tenant` | Target tenant equals the caller tenant. Clinic auditors have `auditor_scope = 'tenant'`. |
+| `writing_clinician` | `patient` | `own_patients` | Target has the caller as `primary_clinician_id`. |
 
-| Role Code | Rank | Scope Boundary | Permitted Actions |
-|---|:---:|---|---|
-| `super_admin` | 100 | Multi-Tenant Platform | Provision `tenant_admin`, `compliance_auditor`, clinics; view cross-tenant system metrics. Cannot create other `super_admin`s via API. |
-| `tenant_admin` | 80 | Clinic Boundary (`tenant_id`) | Provision clinic staff (`writing_clinician`, `viewing_dietician`, `compliance_auditor`), verify professional licences, suspend/deactivate clinic staff and patients. |
-| `compliance_auditor` | 70 | Clinic Boundary | Read-only inspection of audit logs, consent registers, and data access records. No provisioning authority. |
-| `writing_clinician` | 60 | Clinic Boundary | Provision patients bound to their care, prescribe and calibrate dietary targets/health modes, publish target bundles. |
-| `viewing_dietician` | 50 | Clinic Boundary | Consult patient profiles, inspect purchase logs, review compliance. Read-only clinical oversight. |
-| `commercial_stakeholder` | 40 | Clinic Boundary | Aggregate analytics, anonymized k-anonymity reports ($k \ge 5$). No individual clinical or identity access. |
-| `patient` | 10 | Self (`auth.uid()`) | Sign into extension/shopper dashboard with clinic credentials; view assigned targets, review/revoke data sharing consents. |
+`super_admin` is deliberately absent as a target: it is created only by the
+bootstrap script. A tenant administrator may suspend, but may not create,
+reactivate or role-change, a commercial stakeholder in the same tenant.
 
 ### 2.2 Core Provisioning Invariants
 
@@ -51,7 +52,9 @@ Nobody may create, elevate, or modify a user of equal or superior rank.
 3. **Mandatory Patient Linking:** Every patient account must be bound at creation to:
    - Exactly **one Clinic** (`tenant_id`).
    - Exactly **one Primary Writing Clinician** (`primary_clinician_id`).
-4. **Platform Admin Local Bootstrap Only:** Platform `super_admin` accounts can never be created through API endpoints or edge functions. They must be initialized via the local bootstrap script `scripts/bootstrap-super-admin.mjs` against non-production environments.
+4. **Platform Admin Local Bootstrap Only:** Platform `super_admin` accounts can never be created through API endpoints or edge functions. They must be initialized via the local bootstrap script `scripts/bootstrap-super-admin.mjs` against non-production environments and are stored in `iam.platform_members`, not a tenant membership.
+5. **Commercial Stakeholder Boundary:** A commercial stakeholder has exactly one tenant membership. Creation, reactivation and any role change into or out of that role require a `super_admin`; `partner_org` is mandatory.
+6. **Platform Auditor Boundary:** A platform-scoped auditor is stored in `iam.platform_members`, is limited by database check to `DHA` or `ODPC`, and may access audit metadata only. It has no clinical-table policy.
 
 ---
 
@@ -63,7 +66,7 @@ Nobody may create, elevate, or modify a user of equal or superior rank.
 - **Pre-flight Checks:**
   - Verified local database instance or non-production staging.
   - Script aborts immediately if targeting production (`supabase.co`) without explicit safety overrides.
-- **Audit Requirement:** The script records a `BOOTSTRAP_SUPER_ADMIN` entry with genesis sequence in `public.audit_log`.
+- **Audit Requirement:** The script records a `BOOTSTRAP_SUPER_ADMIN` event in the platform audit chain.
 
 ### 3.2 Clinic / Tenant Administrator (`tenant_admin`)
 - **Authority:** Platform Super Administrator.
@@ -94,10 +97,29 @@ Nobody may create, elevate, or modify a user of equal or superior rank.
 - **Workflow:**
   1. Clinician enters patient email / identifier and selects the primary clinician.
   2. Invokes Edge Function `admin-provision-user` (`role = 'patient'`, `primaryClinicianId = <clinician_id>`).
-  3. Edge Function sets `app_metadata.primary_clinician_id`, `app_metadata.tenant_id`, and `force_password_change = true`.
+  3. The service records the tenant membership and primary clinician; Auth metadata is not an authorization source.
   4. System generates a secure, high-entropy 16-character temporary password.
   5. Clinician delivers the clinic-issued credentials securely to the patient (printed care card or encrypted clinic message).
   6. **First Login Gate:** Patient opens the NutriScore extension, enters the clinic credentials, is immediately prompted to replace the temporary password, and must review and accept the Terms & Privacy Notice before any catalog sync or scoring begins.
+
+### 3.5 Commercial Stakeholder (`commercial_stakeholder`)
+- **Authority:** Platform Super Administrator only.
+- **Workflow:** The Super Admin selects one tenant, records the commercial
+  partner legal entity in `partner_org`, and invokes `admin-provision-user`.
+  The service records `PROVISION_COMMERCIAL_STAKEHOLDER`; the approving
+  administrator and partner organisation are captured in the audit event.
+- **Restriction:** Tenant administrators cannot create, reactivate or
+  role-change this account. They may suspend it only as a same-tenant leaver
+  safeguard.
+
+### 3.6 Platform Compliance Auditor (`compliance_auditor`, platform scope)
+- **Authority:** Platform Super Administrator only.
+- **Workflow:** The Super Admin selects either `DHA` or `ODPC`, supplies the
+  regulator's written `mandate_ref`, and provisions the account into
+  `iam.platform_members`. The service records `PROVISION_PLATFORM_AUDITOR`.
+- **Restriction:** A platform auditor has no tenant membership and may read
+  only cross-tenant audit metadata, checkpoints and inclusion proofs. Payload
+  decryption requires the separate two-person approval workflow.
 
 ---
 
@@ -105,10 +127,13 @@ Nobody may create, elevate, or modify a user of equal or superior rank.
 
 ### 4.1 Role Changes
 - An existing staff member transitioning between roles (e.g., resident dietician to licensed clinician):
-  - Must be initiated by an outranking administrator (`tenant_admin` or `super_admin`).
-  - Edge Function `admin-provision-user` (`action: 'update_role'`) enforces `callerRank > currentRank` and `callerRank > newRoleRank`.
+  - Must be initiated by a caller allowed by `iam.role_grants` for the exact
+    tenant and role transition.
+  - Any transition into or out of `commercial_stakeholder` requires a
+    `super_admin`; a transition into that role also requires `partner_org`.
   - **Mandatory Session Revocation:** Upon role change, all active sessions in `auth.sessions` and refresh tokens in `auth.refresh_tokens` are purged immediately to force token re-issuance with updated JWT claims.
-  - An audit record `UPDATE_ROLE` is stored capturing `before_snapshot` and `after_snapshot`.
+  - An audit record `UPDATE_ROLE` is stored without plaintext profile or
+    clinical snapshots.
 
 ### 4.2 Patient Care Team Re-assignment
 - When a patient transitions to another primary clinician within the clinic:
@@ -155,9 +180,10 @@ In compliance with clinical retention mandates (Kenya Health Act s.74, 20-year m
      ```sql
      DELETE FROM auth.refresh_tokens WHERE user_id = target_user_id;
      DELETE FROM auth.sessions WHERE user_id = target_user_id;
-     UPDATE auth.users SET banned_until = '3000-01-01' WHERE id = target_user_id;
+     UPDATE auth.users SET banned_until = '2099-01-01T00:00:00Z' WHERE id = target_user_id;
      ```
-  5. The `custom_access_token_hook` automatically strips all privileges from any subsequent token request, setting role to `'suspended'`.
+  5. The `custom_access_token_hook` refuses any subsequent token request. The
+     shared denylist also rejects already-issued tokens immediately.
   6. Extension or client requests fail immediately with `401 / 403`, preventing any further target retrieval or catalog synchronization.
   7. Audit event `MEMBER_STATUS_DEACTIVATED` is committed to the append-only ledger.
 
