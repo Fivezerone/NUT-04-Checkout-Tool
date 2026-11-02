@@ -1,0 +1,112 @@
+# NutriScore CAD Blueprint — Stage B Envoy Gateway & Kubernetes Gateway API Manifests
+# Reference: Blueprint §2.4 (Envoy Gateway configuration)
+# Status: Prepared, never deployed (Phase 10 Cutover Readiness)
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public
+  namespace: edge
+  labels:
+    app.kubernetes.io/name: nutriscore-edge-gateway
+spec:
+  gatewayClassName: eg
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: api.nutriscore.co.ke
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: api-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              ns-route: 'true'
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: edge-hardening
+  namespace: edge
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: public
+  tls:
+    minVersion: '1.3'
+    ciphers:
+      - ECDHE-ECDSA-AES256-GCM-SHA384
+      - ECDHE-RSA-AES256-GCM-SHA384
+      - ECDHE-ECDSA-CHACHA20-POLY1305
+  connection:
+    connectionLimit:
+      value: 5000
+  clientIPDetection:
+    xForwardedFor:
+      numTrustedHops: 1
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: jwt-clinical
+  namespace: clinical
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: clinical-api
+  jwt:
+    providers:
+      - name: keycloak
+        issuer: https://id.nutriscore.co.ke/realms/nutriscore
+        audiences:
+          - ns-clinical-api
+        remoteJWKS:
+          uri: https://id.nutriscore.co.ke/realms/nutriscore/protocol/openid-connect/certs
+        claimToHeaders:
+          - claim: tenant_id
+            header: x-ns-tenant
+          - claim: sub
+            header: x-ns-sub
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: clinical-roles
+        action: Allow
+        principal:
+          jwt:
+            provider: keycloak
+            claims:
+              - name: app_role
+                valueType: String
+                values:
+                  - writing_clinician
+                  - viewing_dietician
+                  - patient
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: per-tenant-limit
+  namespace: clinical
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: clinical-api
+  rateLimit:
+    type: Global
+    global:
+      rules:
+        - clientSelectors:
+            - headers:
+                - name: x-ns-tenant
+                  type: Distinct
+          limit:
+            requests: 600
+            unit: Minute

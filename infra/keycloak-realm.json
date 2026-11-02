@@ -1,0 +1,223 @@
+{
+  "id": "nutriscore",
+  "realm": "nutriscore",
+  "displayName": "NutriScore Healthcare Platform",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "passwordPolicy": "length(12) and notUsername and notEmail",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 28800,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "roles": {
+    "realm": [
+      {
+        "id": "role-super-admin",
+        "name": "super_admin",
+        "description": "Platform super administrator (Stage A & B source of truth)",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "id": "role-tenant-admin",
+        "name": "tenant_admin",
+        "description": "Clinic tenant administrator",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "id": "role-writing-clinician",
+        "name": "writing_clinician",
+        "description": "Licensed primary healthcare professional",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "id": "role-viewing-dietician",
+        "name": "viewing_dietician",
+        "description": "Allied healthcare viewing dietician",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "id": "role-compliance-auditor",
+        "name": "compliance_auditor",
+        "description": "Statutory regulatory compliance auditor (DHA/ODPC/Tenant)",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "id": "role-commercial-stakeholder",
+        "name": "commercial_stakeholder",
+        "description": "Partner grocery retailer commercial analyst",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "id": "role-patient",
+        "name": "patient",
+        "description": "Patient data subject",
+        "composite": false,
+        "clientRole": false
+      }
+    ]
+  },
+  "clientScopes": [
+    {
+      "id": "scope-ns-core",
+      "name": "ns-core",
+      "description": "Canonical NutriScore Access Claims (claims.schema.json v1)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "id": "mapper-tenant-id",
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "id": "mapper-app-role",
+          "name": "app_role",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "app_role",
+            "claim.name": "app_role",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "id": "mapper-lic-ok",
+          "name": "lic_ok",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "lic_ok",
+            "claim.name": "lic_ok",
+            "jsonType.label": "boolean",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "id": "mapper-auditor-scope",
+          "name": "auditor_scope",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "auditor_scope",
+            "claim.name": "auditor_scope",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "id": "mapper-claim-ver",
+          "name": "ver",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "ver",
+            "claim.value": "1",
+            "jsonType.label": "int",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "id": "mapper-sid",
+          "name": "sid",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usersessionmodel-note-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.session.note": "sessionId",
+            "claim.name": "sid",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "ns-clinical-api",
+      "name": "NutriScore Clinical Backend API",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "bearerOnly": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "ns-exchange-api",
+      "name": "NutriScore Exchange Service API",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "bearerOnly": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "ns-commercial-api",
+      "name": "NutriScore Commercial Overlay API",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "bearerOnly": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "cad-web-ui",
+      "name": "NutriScore Clinical Assessment Dashboard UI",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "https://cad.nutriscore.co.ke/*",
+        "http://localhost:5173/*"
+      ],
+      "defaultClientScopes": ["ns-core"]
+    }
+  ]
+}

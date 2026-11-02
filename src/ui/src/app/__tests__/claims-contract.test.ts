@@ -116,3 +116,60 @@ describe('single ban constant', () => {
   })
 })
 
+describe('Stage B Keycloak realm and protocol mappers validation', () => {
+  it('validates infra/keycloak-realm.json against canonical claims schema and roles', () => {
+    const realmJsonPath = resolve(ROOT, 'infra/keycloak-realm.json')
+    const realmData = JSON.parse(readFileSync(realmJsonPath, 'utf8'))
+
+    expect(realmData.realm).toBe('nutriscore')
+    expect(realmData.sslRequired).toBe('external')
+    expect(realmData.bruteForceProtected).toBe(true)
+
+    // Verify 7 canonical realm roles
+    const roleNames = realmData.roles.realm.map((r: any) => r.name)
+    const expectedRoles = [
+      'super_admin',
+      'tenant_admin',
+      'writing_clinician',
+      'viewing_dietician',
+      'compliance_auditor',
+      'commercial_stakeholder',
+      'patient',
+    ]
+    expect(roleNames).toEqual(expect.arrayContaining(expectedRoles))
+
+    // Verify ns-core client scope protocol mappers
+    const nsCoreScope = realmData.clientScopes.find((s: any) => s.name === 'ns-core')
+    expect(nsCoreScope).toBeDefined()
+
+    const mapperClaimNames = nsCoreScope.protocolMappers.map((m: any) => m.config['claim.name'])
+    expect(mapperClaimNames).toEqual(
+      expect.arrayContaining(['tenant_id', 'app_role', 'lic_ok', 'auditor_scope', 'ver', 'sid']),
+    )
+
+    // Ensure zero forbidden claims are mapped
+    expect(mapperClaimNames).not.toContain('email')
+    expect(mapperClaimNames).not.toContain('diagnosis')
+    expect(mapperClaimNames).not.toContain('health_mode')
+
+    // Verify synthesized claims from mapper output parse cleanly through canonicalizeClaims
+    const synthesizedClaims = {
+      sub: '33333333-3333-3333-3333-333333333333',
+      sid: 'kc-session-12345',
+      tenant_id: '11111111-1111-1111-1111-111111111111',
+      app_role: 'writing_clinician',
+      lic_ok: true,
+      ver: 1,
+    }
+    const parsed = canonicalizeClaims(synthesizedClaims)
+    expect(parsed).toEqual({
+      sub: '33333333-3333-3333-3333-333333333333',
+      sid: 'kc-session-12345',
+      tenantId: '11111111-1111-1111-1111-111111111111',
+      appRole: 'writing_clinician',
+      licOk: true,
+      ver: 1,
+    })
+  })
+})
+
