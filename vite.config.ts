@@ -18,6 +18,9 @@ function figmaAssetResolver() {
 export default defineConfig({
   root: 'src/ui',
   base: './',
+  server: {
+    port: 3000,
+  },
   // envDir must be set explicitly: when root='src/ui', Vite defaults envDir
   // to src/ui/ and won't find the .env at the project root.
   envDir: __dirname,

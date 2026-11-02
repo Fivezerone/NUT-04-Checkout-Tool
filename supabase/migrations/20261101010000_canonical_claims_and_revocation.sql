@@ -157,10 +157,10 @@ BEGIN
 
   -- `role` is deliberately not changed: Supabase owns it as the database-role
   -- selector. app_role below is the only application authorization claim.
+  -- email and phone are blanked rather than removed: GoTrue validates that both
+  -- keys are present in the hook's returned claims object (SQLSTATE 42501 if absent).
   issued_claims := issued_claims
-    - 'email'
     - 'name'
-    - 'phone'
     - 'national_id'
     - 'diagnosis'
     - 'health_mode'
@@ -168,10 +168,13 @@ BEGIN
     - 'account_status'
     - 'licence_verified';
 
+  issued_claims := jsonb_set(issued_claims, '{email}', '""', true);
+  issued_claims := jsonb_set(issued_claims, '{phone}', '""', true);
+
   issued_claims := jsonb_set(issued_claims, '{tenant_id}', to_jsonb(member_row.tenant_id), true);
   issued_claims := jsonb_set(issued_claims, '{app_role}', to_jsonb(member_row.role), true);
-  issued_claims := jsonb_set(issued_claims, '{lic_ok}', to_jsonb(member_row.licence_verified), true);
-  issued_claims := jsonb_set(issued_claims, '{ver}', '1'::jsonb, true);
+  issued_claims := jsonb_set(issued_claims, '{lic_ok}',   to_jsonb(member_row.licence_verified), true);
+  issued_claims := jsonb_set(issued_claims, '{ver}',      '1'::jsonb, true);
 
   IF member_row.role = 'compliance_auditor' THEN
     issued_claims := jsonb_set(issued_claims, '{auditor_scope}', to_jsonb(member_row.auditor_scope), true);
@@ -183,6 +186,12 @@ BEGIN
 END
 $$;
 ALTER FUNCTION public.custom_access_token_hook(jsonb) OWNER TO postgres;
+
+-- GoTrue (supabase_auth_admin) must have USAGE on public schema and EXECUTE on
+-- the hook function, otherwise every sign-in returns SQLSTATE 42501.
+-- See: https://supabase.com/docs/guides/auth/auth-hooks/custom-access-token-hook
+GRANT USAGE  ON SCHEMA public TO supabase_auth_admin;
+GRANT EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_auth_admin;
 
 -- Legacy policies and functions are replaced in the Phase 3 grant/lifecycle
 -- migration. These helpers make their accessors canonical immediately.

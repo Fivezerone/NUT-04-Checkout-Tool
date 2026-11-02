@@ -23,22 +23,22 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(__dirname, '..')
 
-// Simple .env loader
+// Simple .env loader with .env.local override
 function loadEnv() {
-  const envPath = resolve(REPO_ROOT, '.env')
-  if (existsSync(envPath)) {
-    const lines = readFileSync(envPath, 'utf8').split('\n')
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) continue
-      const idx = trimmed.indexOf('=')
-      if (idx > 0) {
-        const key = trimmed.slice(0, idx).trim()
-        const val = trimmed
-          .slice(idx + 1)
-          .trim()
-          .replace(/^["']|["']$/g, '')
-        if (!process.env[key]) {
+  for (const file of ['.env', '.env.local']) {
+    const envPath = resolve(REPO_ROOT, file)
+    if (existsSync(envPath)) {
+      const lines = readFileSync(envPath, 'utf8').split('\n')
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        const idx = trimmed.indexOf('=')
+        if (idx > 0) {
+          const key = trimmed.slice(0, idx).trim()
+          const val = trimmed
+            .slice(idx + 1)
+            .trim()
+            .replace(/^["']|["']$/g, '')
           process.env[key] = val
         }
       }
@@ -48,9 +48,16 @@ function loadEnv() {
 
 loadEnv()
 
-const SUPABASE_URL =
-  process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'http://127.0.0.1:54321'
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+const LOCAL_DEFAULT_URL = 'http://127.0.0.1:54321'
+const LOCAL_DEFAULT_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU'
+
+const SUPABASE_URL = process.env.SUPABASE_URL || LOCAL_DEFAULT_URL
+const SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY &&
+  !process.env.SUPABASE_SERVICE_ROLE_KEY.startsWith('sb_secret_')
+    ? process.env.SUPABASE_SERVICE_ROLE_KEY
+    : LOCAL_DEFAULT_KEY
 
 // ----------------------------------------------------------------------------
 // Safety Gate: Refuse any non-local or production environment
