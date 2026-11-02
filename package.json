@@ -24,6 +24,7 @@
     "migrate:quickmart": "node scripts/migrate-quickmart-supabase.mjs",
     "seed:mocks": "node scripts/seed-mock-users.mjs",
     "purge:mocks": "node scripts/purge-mocks.mjs",
+    "release:check": "node scripts/release-gate.mjs",
     "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && npm run check:rls && npm run check:cad-security && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
     "prepare": "git config core.hooksPath .githooks"
   },

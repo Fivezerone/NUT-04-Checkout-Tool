@@ -1,0 +1,20 @@
+{
+  "$schema": "./launch.schema.json",
+  "project": "NutriScore CAD Healthcare Platform",
+  "environment": "production",
+  "planned_launch_on": "2027-03-01T00:00:00Z",
+  "dpia": {
+    "version": "1.0.0-draft",
+    "document": "docs/compliance/dpia/DPIA-draft.md",
+    "submitted_on": null,
+    "odpc_reference": null,
+    "counsel_signoff": null,
+    "counsel_name": null,
+    "status": "PENDING_COUNSEL_REVIEW",
+    "notes": "DPIA draft prepared per Decision D5. Formal ODPC filing and counsel sign-off are required at least 60 days prior to planned launch date."
+  },
+  "compliance_officer": {
+    "role": "Data Protection Officer",
+    "contact": "dpo@nutriscore.test"
+  }
+}

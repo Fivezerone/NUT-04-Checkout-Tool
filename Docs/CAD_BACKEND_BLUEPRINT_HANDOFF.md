@@ -1,7 +1,7 @@
 # NutriScore CAD Backend Blueprint — Continuation Directive
 
-**Prepared:** 2 November 2026
-**Branch:** `feat/cad-backend-blueprint`
+**Prepared:** 2 November 2026  
+**Branch:** `feat/cad-backend-blueprint`  
 
 Use `Reports/NutriScore CAD — Multi-Tenant Healthcare Backend Blueprint.md` and
 `Reports/Agent Prompt — Implement the CAD Multi-Tenant Backend Blueprint.md` as
@@ -20,29 +20,28 @@ time, and never touch hosted Supabase (`nqcpudpkrkutpxuqpsfk`).
 | 5 | `3c320902`| WORM audit ledger, signed checkpoints, platform metadata view, offline & online verifier. |
 | 6 | `a9a67762`| Field-level AES-256-GCM encryption, KeyWrapper Stage A, blind indexes, keyed MACs, crypto-shredding, allowlisted projection. |
 | 7 | `0000dd7b`| Exchange service, DPoP proofs, Dietary Profile Token (DPT), k≥5 cohort gate, shopper aliases, revocation, and leak proofs. |
-| 8 | *(pending)* | Overlay-only commercial schema, reference SKUs curation, observed orders, demand analytics (k≥5), and DPT endpoints. |
+| 8 | `596513ad`| Overlay-only commercial schema, reference SKUs curation, observed orders, demand analytics (k≥5), and DPT endpoints. |
+| 9 | *(pending)* | Dry-run retention/rights workflows, DPIA draft, deliberately failing launch gate pending counsel. |
 
 Baseline tag: `pre-cad-backend-blueprint`. The application role is `app_role`;
 Supabase's Postgres `role` claim was intentionally not changed (OQ-001 option 2).
 
-## Phase 8 deliverables (committed in this phase)
+## Phase 9 deliverables (committed in this phase)
 
 | File | Purpose |
 |---|---|
-| `supabase/migrations/20261101070000_commercial_overlay_and_observed_orders.sql` | `commercial` schema: `skus`, `sku_mappings`, observed `orders`, `order_lines`, `v_orders_tracking`, `v_sku_demand` |
-| `supabase/rollbacks/20261101070000_commercial_overlay_and_observed_orders.rollback.sql` | Clean rollback |
-| `scripts/curate-commercial-skus.mjs` | Platform SKU curation job ingesting Carrefour Kenya, Naivas, and Quickmart Kenya |
-| `scripts/check-commercial-overlay.mjs` | Phase 8 CI guard: alias exclusion, k≥5 cohort gate, zero prohibited terms |
-| `scripts/check-rls-policies.mjs` | Updated: 29 relations verified |
-| `src/shared/commercial-catalogue.ts` | Shared catalogue nutritional evaluation against DPT constraints |
-| `supabase/functions/observed-orders/index.ts` | DPT-authenticated observed orders ingestion |
-| `supabase/functions/catalogue/index.ts` | DPT-authenticated catalogue filtering endpoint |
-| `src/extension/observed-orders-sync.js` | Extension client for syncing observed carts with DPT + DPoP |
-| `Docs/ROADMAP_POST_MVP.md` | Post-MVP storefront architecture & schema support |
-| `supabase/tests/cad_commercial_overlay.sql` | pgTAP test suite (15 tests, all pass) |
-| `src/ui/src/app/__tests__/cad-blueprint-phase8.test.ts` | Vitest test suite (12 tests, all pass) |
+| `supabase/migrations/20261101080000_compliance_retention_and_rights.sql` | Retention seeding per D5, lawful_basis backfill, `set_patient_restriction`, `rectify_clinical_record`, and fail-safe `execute_retention_purge` |
+| `supabase/rollbacks/20261101080000_compliance_retention_and_rights.rollback.sql` | Clean rollback for compliance functions |
+| `scripts/purge-retention.mjs` | Automated fail-safe retention purge engine (dry run by default, legal-hold safe, writes ledger entries) |
+| `src/shared/patient-export.ts` | Data-subject portability export bundle generator, SHA-256 canonical digest, Ed25519 signature, WORM audit event |
+| `docs/compliance/dpia/DPIA-draft.md` | Data Protection Impact Assessment (DPIA) draft under Kenya DPA 2019 / ODPC guidance with `[COUNSEL]` markers |
+| `compliance/launch.json` | Production release gate configuration recording DPIA state, ODPC filing reference, and 60-day launch schedule |
+| `scripts/release-gate.mjs` | Release gate verification script wired to `npm run release:check` (deliberately blocks production release pending counsel) |
+| `docs/compliance/BREACH_RUNBOOK.md` | Incident response & 72-hour statutory ODPC notification runbook for verifier failures, AUTHZ_DENY spikes, and break-glass anomalies |
+| `supabase/tests/cad_retention_and_rights.sql` | pgTAP test suite verifying fail-safe purge refusal, legal hold, patient restriction, rectification version bump, dry/active purge (18 tests, all pass) |
+| `src/ui/src/app/__tests__/cad-blueprint-phase9.test.ts` | Vitest test suite covering purge eligibility, release gate rules, signed export bundles, and audit verification (14 tests, all pass) |
 
-## Validation suites (Phase 8 gate — all green)
+## Validation suites (Phase 9 gate — all green)
 
 - Local Postgres tests (all pass):
   - `supabase/tests/cad_tenant_wall.sql`
@@ -53,32 +52,36 @@ Supabase's Postgres `role` claim was intentionally not changed (OQ-001 option 2)
   - `supabase/tests/cad_field_encryption_and_projection.sql`
   - `supabase/tests/cad_exchange_and_dpt.sql`
   - `supabase/tests/cad_commercial_overlay.sql` (15/15 pass)
+  - `supabase/tests/cad_retention_and_rights.sql` (18/18 pass)
 - Live verification scripts:
-  - `node scripts/verify-audit-chain.mjs` (all chains verified)
+  - `node scripts/verify-audit-chain.mjs` (all 6 chains verified)
   - `node scripts/verify-phase6-canary.mjs` (zero plaintext leaks)
   - `node scripts/check-leak-proofs.mjs` (5/5 steps pass)
   - `node scripts/check-commercial-overlay.mjs` (4/4 steps pass)
+  - `node scripts/purge-retention.mjs` (dry-run succeeds)
 - Application gates:
-  - `npm test -- --reporter=dot` (822 passed, 49 test files)
+  - `npm test -- --reporter=dot` (836 passed, 50 test files)
   - `npm run typecheck` (0 errors)
   - `npm run lint` (0 errors)
   - `npm run format:check` (clean)
   - `npm run check:rls` (29 relations verified)
   - `npm run check:cad-security` (clean)
+  - `npm run release:check` (fails as required by DoD #8 pending counsel sign-off)
   - `npm run build` (clean)
   - `git diff --check` (clean)
 
-## Commercial overlay invariants (D6 / A6 — strictly observed)
+## Compliance invariants (D5 — strictly observed)
 
-- **No inventory / stock:** `commercial.inventory` and `on_hand` logic are omitted per D6.
-- **Observed events only:** `commercial.orders` and `order_lines` record cart sync events from extension (`source = 'extension_observed'`), not transaction routing.
-- **Stakeholder alias redaction:** `v_orders_tracking` exposes no shopper alias.
-- **k ≥ 5 Demand aggregation:** `v_sku_demand` suppresses cells under 5 distinct shoppers.
-- **Prohibited terms CI check:** Zero occurrences of prohibited terms in commercial files.
+- **Fail-safe purge refusal:** Any record class without an explicit retention policy throws an immediate error; NULL retain_years is forbidden.
+- **Legal hold safeguard:** Active legal hold blocks purge execution across all tenants.
+- **Data subject rights:**
+  - Restriction sets `clinical.patients.restricted = true` and audits `RESTRICT_PROCESSING`.
+  - Rectification inserts a new immutable version with `supersedes_id`, audits `RECTIFY_CLINICAL_RECORD`.
+  - Portability export produces a verifiable Ed25519-signed bundle and audits `EXPORT_PATIENT_DATA`.
+- **Statutory release gate:** Fails if DPIA missing, counsel sign-off absent, or submission lead time is under 60 days before launch.
 
 ## Next phases
 
 | Phase | Required outcome | Required commit |
 |---|---|---|
-| 9 | Dry-run retention/rights workflows, DPIA draft, deliberately failing launch gate pending counsel. | `feat(p9): retention, rights workflows, DPIA draft and release gate` |
 | 10 | Prepared-only network, Keycloak, replication, cutover and hosted-checklist artifacts; deploy nothing. | `docs(p10): cutover artifacts, hosted checklist and final report` |
