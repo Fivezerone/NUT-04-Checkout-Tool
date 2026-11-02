@@ -36,6 +36,7 @@ const phaseOneTenantRelations = [
   'clinical.published_profiles',
   'clinical.patient_keys',
   'exchange.projection',
+  'exchange.alias_map',
   'public.users',
   'public.payments',
   'public.subscriptions',
