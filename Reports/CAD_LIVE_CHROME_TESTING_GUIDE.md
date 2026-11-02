@@ -2,7 +2,14 @@
 
 > **Scope:** CAD Multi-Tenant Healthcare Backend Blueprint — Phases 0–10
 > **Environment:** Local Supabase Docker stack only. **NEVER** target hosted Supabase (`nqcpudpkrkutpxuqpsfk`).
-> **Branch:** `feat/cad-backend-blueprint` (11 commits, all green)
+> **Branch:** `feat/cad-backend-blueprint` (13 commits, all green)
+
+> [!IMPORTANT]
+> **Sign-in is now unblocked.** Two bugs were found and fixed in commit `15b4faf1`:
+> 1. `supabase_auth_admin` lacked `GRANT USAGE ON SCHEMA public` — hook call failed with HTTP 500
+> 2. Hook stripped `email`/`phone` from JWT claims — GoTrue output schema validation rejected the token
+>
+> **Dev server is running at `http://localhost:3000/cad.html`** — proceed to Section 2 to verify sign-in end-to-end in Chrome.
 
 ---
 
