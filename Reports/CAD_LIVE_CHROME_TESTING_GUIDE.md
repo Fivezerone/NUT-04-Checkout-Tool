@@ -166,6 +166,8 @@ foreach ($suite in $suites) {
 | `ERROR: table or column not found in schema cache` | PostgREST schema cache out of date | Run: `docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres -c "NOTIFY pgrst, 'reload schema';"` |
 | `npm run typecheck` returned no console lines | Silence means 0 type errors | Script now prints `✓ TypeScript check passed: 0 errors` explicitly. |
 | `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` | Node.js Windows libuv handle issue on abrupt exit | Fixed: `purge-mocks.mjs` now lets event loop drain naturally. |
+| **"Invalid clinic credentials"** on CAD sign-in (clinician or patient) | Two bugs: (1) `supabase_auth_admin` lacked `USAGE` on schema `public` → hook call failed with `SQLSTATE 42501`; (2) hook stripped `email`/`phone` from claims but GoTrue output schema requires both keys | **FIXED in commit `15b4faf1`** — migration `20261101010000` now grants `USAGE ON SCHEMA public` and `EXECUTE ON FUNCTION custom_access_token_hook` to `supabase_auth_admin`, and blanks `email`/`phone` to `""` instead of removing them. Verify: sign-in returns HTTP 200 and JWT contains `session_id`. |
+| Hook HTTP 500 `permission denied for schema public (SQLSTATE 42501)` | `supabase_auth_admin` cannot call hook | Run: `docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres -c "GRANT USAGE ON SCHEMA public TO supabase_auth_admin; GRANT EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_auth_admin;"` |
 
 ---
 
@@ -241,18 +243,20 @@ npm run check:manifest
 | Claim | Expected value |
 |---|---|
 | `app_role` | e.g. `writing_clinician` |
-| `tenant_id` | `11111111-1111-1111-1111-111111111111` |
+| `tenant_id` | `11111111-2222-3333-4444-555555555555` (mock clinic) |
 | `lic_ok` | `true` |
-| `sid` | UUID (session ID) |
+| `session_id` | UUID string (Supabase session ID, used as `sid` by `canonicalizeClaims`) |
 | `ver` | `1` |
+| `email` | `""` (blanked — PII stripped, key must remain for GoTrue schema validation) |
+| `phone` | `""` (blanked — PII stripped, key must remain for GoTrue schema validation) |
 
 **Forbidden claims — all must be absent:**
 
 | Claim | Why Forbidden |
 |---|---|
-| `email` | PII — not permitted in clinical JWTs |
 | `diagnosis` | PHI — never in token |
 | `health_mode` | Condition inference vector |
+| `national_id` | PII — stripped by hook |
 | `callerRank` | Deprecated rank comparison scheme |
 
 ### 2.3 Session Denylist / Ban Test
