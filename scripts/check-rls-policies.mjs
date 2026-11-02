@@ -34,6 +34,8 @@ const phaseOneTenantRelations = [
   'clinical.emergency_grants',
   'clinical.retention_policies',
   'clinical.published_profiles',
+  'clinical.patient_keys',
+  'exchange.projection',
   'public.users',
   'public.payments',
   'public.subscriptions',

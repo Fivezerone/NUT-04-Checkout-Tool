@@ -71,12 +71,17 @@ feat(p4): treatment relationships, ABAC policies, break-glass and clinical core
   - `supabase/tests/cad_claims_and_revocation.sql`
   - `supabase/tests/cad_grant_matrix_lifecycle.sql`
   - `supabase/tests/cad_abac_and_clinical.sql`
+  - `supabase/tests/cad_worm_ledger.sql`
+  - `supabase/tests/cad_field_encryption_and_projection.sql`
+- Live verification scripts:
+  - `node scripts/verify-audit-chain.mjs` (All 6 chains verified)
+  - `node scripts/verify-phase6-canary.mjs` (Zero plaintext canary leaks, AAD binding, crypto-shred)
 - Application gates:
-  - `npm test -- --reporter=dot` (737 passed)
+  - `npm test -- --reporter=dot` (752 passed)
   - `npm run typecheck` (0 errors)
   - `npm run lint` (0 errors)
   - `npm run format:check` (clean)
-  - `npm run check:rls` (23 relations verified)
+  - `npm run check:rls` (25 relations verified)
   - `npm run check:cad-security` (clean)
   - `npm run build` (clean)
   - `git diff --check` (clean)
@@ -85,9 +90,9 @@ feat(p4): treatment relationships, ABAC policies, break-glass and clinical core
 
 | Phase | Required outcome | Required commit |
 |---|---|---|
-| 5 | Hash-chained signed WORM ledger, checkpoints, metadata-only platform view, anchor seam. Freeze, do not delete, legacy audit. | `feat(p5): hash-chained signed ledger with anchored checkpoints` |
-| 6 | KeyWrapper, encrypted fields/blind indexes/MACs, crypto-shred, allowlisted semantic projection/outbox. | `feat(p6): field-level encryption, crypto-shredding and semantic projection` |
+| 5 | Completed (commit `3c320902`). Hash-chained signed WORM ledger, checkpoints, metadata-only platform view, anchor seam. | `feat(p5): hash-chained signed ledger with anchored checkpoints` |
+| 6 | Completed. KeyWrapper, encrypted fields/blind indexes/MACs, crypto-shred, allowlisted semantic projection/outbox. | `feat(p6): field-level encryption, crypto-shredding and semantic projection` |
 | 7 | Exchange DPT with consent, k≥5 generalization, DPoP, aliases, revocation, leak proofs. | `feat(p7): exchange service, dietary profile token and leak proofs` |
-| 8 | Overlay-only commercial schema and observed orders. No inventory, payment, fulfilment, checkout, or storefront. | `feat(p8): overlay-only commercial schema, observed orders and DPT endpoints` |
+| 8 | Overlay-only commercial schema and observed orders. No inventory, payment, fulfilment, checkout, or storefront. | `feat(p8): overlay-only commercial schema, orders and DPT endpoints` |
 | 9 | Dry-run retention/rights workflows, DPIA draft, deliberately failing launch gate pending counsel. | `feat(p9): retention, rights workflows, DPIA draft and release gate` |
 | 10 | Prepared-only network, Keycloak, replication, cutover and hosted-checklist artifacts; deploy nothing. | `docs(p10): cutover artifacts, hosted checklist and final report` |
