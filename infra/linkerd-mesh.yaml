@@ -1,0 +1,80 @@
+# NutriScore CAD Blueprint — Stage B Linkerd Service Mesh Manifests
+# Reference: Blueprint §2.3 (Default-deny and mesh authorisation)
+# Status: Prepared, never deployed (Phase 10 Cutover Readiness)
+
+# 1. Commercial Service Linkerd Authorization
+apiVersion: policy.linkerd.io/v1beta3
+kind: Server
+metadata:
+  name: commercial-internal
+  namespace: commercial
+spec:
+  podSelector:
+    matchLabels:
+      app: commercial-svc
+  port: 9443
+  proxyProtocol: gRPC
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: MeshTLSAuthentication
+metadata:
+  name: exchange-only
+  namespace: commercial
+spec:
+  identities:
+    - 'exchange-svc.exchange.serviceaccount.identity.linkerd.cluster.local'
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: internal-from-exchange
+  namespace: commercial
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: commercial-internal
+  requiredAuthenticationRefs:
+    - group: policy.linkerd.io
+      kind: MeshTLSAuthentication
+      name: exchange-only
+---
+# 2. Audit Service Linkerd Authorization
+apiVersion: policy.linkerd.io/v1beta3
+kind: Server
+metadata:
+  name: audit-internal
+  namespace: audit
+spec:
+  podSelector:
+    matchLabels:
+      app: audit-svc
+  port: 8443
+  proxyProtocol: gRPC
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: MeshTLSAuthentication
+metadata:
+  name: internal-audit-clients
+  namespace: audit
+spec:
+  identities:
+    - 'clinical-svc.clinical.serviceaccount.identity.linkerd.cluster.local'
+    - 'exchange-svc.exchange.serviceaccount.identity.linkerd.cluster.local'
+    - 'commercial-svc.commercial.serviceaccount.identity.linkerd.cluster.local'
+    - 'provisioning-svc.platform.serviceaccount.identity.linkerd.cluster.local'
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: internal-audit-allow
+  namespace: audit
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: audit-internal
+  requiredAuthenticationRefs:
+    - group: policy.linkerd.io
+      kind: MeshTLSAuthentication
+      name: internal-audit-clients

@@ -9,24 +9,28 @@ import type { TenantMember, CadRole } from '../types'
 import { UserPlus, CheckCircle, AlertTriangle, UserX, Copy, Check } from 'lucide-react'
 import { PageHeader, StatusBadge } from '../components/Primitives'
 
-const ROLE_RANK: Record<CadRole, number> = {
-  super_admin: 100,
-  tenant_admin: 80,
-  compliance_auditor: 70,
-  writing_clinician: 60,
-  viewing_dietician: 50,
-  commercial_stakeholder: 40,
-  patient: 10,
+const PROVISIONABLE_ROLES: Record<CadRole, CadRole[]> = {
+  super_admin: ['tenant_admin', 'compliance_auditor', 'commercial_stakeholder'],
+  tenant_admin: ['writing_clinician', 'viewing_dietician', 'compliance_auditor', 'patient'],
+  writing_clinician: ['patient'],
+  viewing_dietician: [],
+  compliance_auditor: [],
+  commercial_stakeholder: [],
+  patient: [],
 }
 
 export const UserManagementView: React.FC = () => {
-  const { claims, activeTenant } = useCadAuth()
+  const { claims, activeTenant, availableTenants } = useCadAuth()
   const [members, setMembers] = useState<TenantMember[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [showInviteModal, setShowInviteModal] = useState<boolean>(false)
   const [newEmail, setNewEmail] = useState<string>('')
   const [newRole, setNewRole] = useState<CadRole>('writing_clinician')
   const [newLicence, setNewLicence] = useState<string>('')
+  const [partnerOrg, setPartnerOrg] = useState<string>('')
+  const [regulatorBody, setRegulatorBody] = useState<'DHA' | 'ODPC'>('DHA')
+  const [mandateRef, setMandateRef] = useState<string>('')
+  const [targetTenantId, setTargetTenantId] = useState<string>('')
   const [submitting, setSubmitting] = useState<boolean>(false)
   const [provisionSuccess, setProvisionSuccess] = useState<{
     email: string
@@ -35,11 +39,26 @@ export const UserManagementView: React.FC = () => {
   } | null>(null)
   const [copiedPwd, setCopiedPwd] = useState<boolean>(false)
 
-  const callerRank = ROLE_RANK[claims.role] ?? 0
+  const permittedProvisionRoles = PROVISIONABLE_ROLES[claims.role]
+  // This is visibility only. The Edge Function asks iam.role_grants for every
+  // decision; no UI array is an authorization source.
+  const isPlatformAuditor = claims.role === 'super_admin' && newRole === 'compliance_auditor'
+  const tenantChoices = availableTenants.filter(
+    (tenant) => tenant.id !== '00000000-0000-0000-0000-000000000000',
+  )
+  const selectedTenantId = claims.role === 'super_admin' ? targetTenantId : claims.tenantId
 
   useEffect(() => {
     loadMembers()
   }, [claims.tenantId])
+
+  useEffect(() => {
+    if (claims.role !== 'super_admin') return
+    const preferredTenant = tenantChoices.some((tenant) => tenant.id === claims.tenantId)
+      ? claims.tenantId
+      : tenantChoices[0]?.id || ''
+    setTargetTenantId(preferredTenant)
+  }, [claims.role, claims.tenantId, availableTenants])
 
   const loadMembers = async () => {
     setLoading(true)
@@ -135,34 +154,21 @@ export const UserManagementView: React.FC = () => {
     )
   }
 
-  const handleStatusChange = async (memberUserId: string, targetRole: CadRole, newStatus: 'active' | 'suspended' | 'deactivated') => {
-    const targetRank = ROLE_RANK[targetRole] ?? 0
-    if (callerRank <= targetRank) {
-      alert(`Cannot alter status of user with equal or higher role (${targetRole})`)
-      return
-    }
-
+  const handleStatusChange = async (memberUserId: string, _targetRole: CadRole, newStatus: 'active' | 'suspended' | 'deactivated') => {
     try {
       const { data, error } = await cadSupabase.functions.invoke('admin-provision-user', {
         body: {
           action: 'update_status',
           userId: memberUserId,
+          tenantId: claims.tenantId,
           status: newStatus,
           reason: `Clinic Admin transitioned member to ${newStatus}`,
         },
       })
 
-      if (error) {
-        // Fallback to direct RPC call if edge function not running locally
-        await cadSupabase.rpc('deactivate_tenant_member', {
-          p_tenant_id: claims.tenantId,
-          p_target_user_id: memberUserId,
-          p_new_status: newStatus,
-          p_reason: `Clinic Admin transitioned member to ${newStatus}`,
-        })
-      }
+      if (error || !data?.success) return
     } catch {
-      // Fallback update
+      return
     }
 
     setMembers((prev) =>
@@ -174,9 +180,8 @@ export const UserManagementView: React.FC = () => {
     e.preventDefault()
     if (!newEmail) return
 
-    const targetRank = ROLE_RANK[newRole] ?? 0
-    if (callerRank <= targetRank) {
-      alert(`Permission Denied: You cannot provision role '${newRole}', which is equal or superior to your role '${claims.role}'.`)
+    if (!permittedProvisionRoles.includes(newRole) || (!isPlatformAuditor && !selectedTenantId)) {
+      alert('Permission Denied')
       return
     }
 
@@ -187,14 +192,18 @@ export const UserManagementView: React.FC = () => {
           action: 'create_user',
           email: newEmail,
           role: newRole,
-          tenantId: claims.tenantId,
+          tenantId: isPlatformAuditor ? undefined : selectedTenantId,
           licenceNumber: newLicence || undefined,
+          partnerOrg: newRole === 'commercial_stakeholder' ? partnerOrg : undefined,
+          auditorScope: isPlatformAuditor ? 'platform' : undefined,
+          regulatorBody: isPlatformAuditor ? regulatorBody : undefined,
+          mandateRef: isPlatformAuditor ? mandateRef : undefined,
         },
       })
 
       if (!error && data?.success) {
         const newMember: TenantMember = {
-          tenant_id: claims.tenantId,
+          tenant_id: selectedTenantId,
           user_id: data.userId,
           email: newEmail,
           role: newRole,
@@ -210,31 +219,18 @@ export const UserManagementView: React.FC = () => {
           password: data.temporaryPassword,
         })
       } else {
-        // Fallback local member
-        const newMember: TenantMember = {
-          tenant_id: claims.tenantId,
-          user_id: 'usr-gen-' + Math.random().toString(36).slice(2, 8),
-          email: newEmail,
-          role: newRole,
-          licence_number: newLicence || undefined,
-          licence_verified: false,
-          status: 'active',
-          created_at: new Date().toISOString(),
-        }
-        setMembers((prev) => [newMember, ...prev])
-        setProvisionSuccess({
-          email: newEmail,
-          role: newRole,
-          password: 'TmpPass!' + Math.random().toString(36).slice(2, 10),
-        })
+        alert('Permission Denied')
       }
     } catch {
-      // Fallback
+      alert('Permission Denied')
     } finally {
       setSubmitting(false)
       setShowInviteModal(false)
       setNewEmail('')
       setNewLicence('')
+      setPartnerOrg('')
+      setMandateRef('')
+      setTargetTenantId(claims.role === 'super_admin' ? tenantChoices[0]?.id || '' : claims.tenantId)
     }
   }
 
@@ -244,7 +240,7 @@ export const UserManagementView: React.FC = () => {
         eyebrow="Tenant access"
         title="Clinical staff and licence verification"
         description={<>Clinic: <strong>{activeTenant?.name || claims.tenantId}</strong>. Writing clinicians must be verified before prescribing patient targets.</>}
-        actions={callerRank > ROLE_RANK.patient ? <button onClick={() => { setProvisionSuccess(null); setShowInviteModal(true) }} className="ui-button ui-button-primary"><UserPlus size={17} /> Provision member</button> : undefined}
+        actions={permittedProvisionRoles.length > 0 ? <button onClick={() => { setProvisionSuccess(null); setShowInviteModal(true) }} className="ui-button ui-button-primary"><UserPlus size={17} /> Provision member</button> : undefined}
       />
 
       {/* Provisioning Success Modal / Notification */}
@@ -311,8 +307,8 @@ export const UserManagementView: React.FC = () => {
                 </tr>
               ) : (
                 members.map((member) => {
-                  const targetRank = ROLE_RANK[member.role] ?? 0
-                  const canManage = callerRank > targetRank
+                  const canManage = claims.role === 'super_admin'
+                    || (claims.role === 'tenant_admin' && member.role !== 'super_admin')
 
                   return (
                     <tr key={member.user_id}>
@@ -358,13 +354,19 @@ export const UserManagementView: React.FC = () => {
                           <>
                             {member.status === 'active' ? (
                               <button
-                                onClick={() => handleStatusChange(member.user_id, member.role, 'deactivated')}
+                                onClick={() => handleStatusChange(
+                                  member.user_id,
+                                  member.role,
+                                  claims.role === 'tenant_admin' && member.role === 'commercial_stakeholder'
+                                    ? 'suspended'
+                                    : 'deactivated',
+                                )}
                                 className="ui-button ui-button-critical"
                               >
                                 <UserX size={14} />
-                                <span>Deactivate</span>
+                                <span>{claims.role === 'tenant_admin' && member.role === 'commercial_stakeholder' ? 'Suspend' : 'Deactivate'}</span>
                               </button>
-                            ) : (
+                            ) : !(claims.role === 'tenant_admin' && member.role === 'commercial_stakeholder') && (
                               <button
                                 onClick={() => handleStatusChange(member.user_id, member.role, 'active')}
                                 className="ui-button ui-button-secondary"
@@ -390,7 +392,7 @@ export const UserManagementView: React.FC = () => {
           <div className="ui-modal space-y-4" role="dialog" aria-modal="true" aria-labelledby="provision-dialog-title">
             <h2 id="provision-dialog-title" className="text-xl font-bold text-[color:var(--color-text-strong)]">Provision clinic staff member</h2>
             <p className="text-sm text-[color:var(--color-text-muted)]">
-              Only roles strictly below your authority ({claims.role}) can be provisioned.
+              Available roles are determined by the provisioning grant matrix.
             </p>
             <form onSubmit={handleInvite} className="space-y-4 text-sm">
               <div>
@@ -412,23 +414,40 @@ export const UserManagementView: React.FC = () => {
                   onChange={(e) => setNewRole(e.target.value as CadRole)}
                   className="ui-select mt-1"
                 >
-                  {callerRank > ROLE_RANK.writing_clinician && (
+                  {permittedProvisionRoles.includes('writing_clinician') && (
                     <option value="writing_clinician">Writing Clinician (Prescribe Targets)</option>
                   )}
-                  {callerRank > ROLE_RANK.viewing_dietician && (
+                  {permittedProvisionRoles.includes('viewing_dietician') && (
                     <option value="viewing_dietician">Viewing Dietician (Read & Consult)</option>
                   )}
-                  {callerRank > ROLE_RANK.compliance_auditor && (
+                  {permittedProvisionRoles.includes('compliance_auditor') && (
                     <option value="compliance_auditor">Compliance Auditor (Read-only)</option>
                   )}
-                  {callerRank > ROLE_RANK.commercial_stakeholder && (
+                  {permittedProvisionRoles.includes('commercial_stakeholder') && (
                     <option value="commercial_stakeholder">Commercial Stakeholder</option>
                   )}
-                  {callerRank > ROLE_RANK.tenant_admin && (
+                  {permittedProvisionRoles.includes('tenant_admin') && (
                     <option value="tenant_admin">Tenant Administrator</option>
                   )}
                 </select>
               </div>
+
+              {claims.role === 'super_admin' && !isPlatformAuditor && (
+                <div>
+                  <label className="ui-field-label">Tenant</label>
+                  <select
+                    required
+                    value={targetTenantId}
+                    onChange={(event) => setTargetTenantId(event.target.value)}
+                    className="ui-select mt-1"
+                  >
+                    <option value="" disabled>Select tenant</option>
+                    {tenantChoices.map((tenant) => (
+                      <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {(newRole === 'writing_clinician' || newRole === 'viewing_dietician') && (
                 <div>
@@ -441,6 +460,45 @@ export const UserManagementView: React.FC = () => {
                     className="ui-input mt-1"
                   />
                 </div>
+              )}
+
+              {newRole === 'commercial_stakeholder' && (
+                <div>
+                  <label className="ui-field-label">Commercial partner legal entity</label>
+                  <input
+                    type="text"
+                    required
+                    value={partnerOrg}
+                    onChange={(event) => setPartnerOrg(event.target.value)}
+                    className="ui-input mt-1"
+                  />
+                </div>
+              )}
+
+              {isPlatformAuditor && (
+                <>
+                  <div>
+                    <label className="ui-field-label">Regulator body</label>
+                    <select
+                      value={regulatorBody}
+                      onChange={(event) => setRegulatorBody(event.target.value as 'DHA' | 'ODPC')}
+                      className="ui-select mt-1"
+                    >
+                      <option value="DHA">Digital Health Agency (DHA)</option>
+                      <option value="ODPC">Office of the Data Protection Commissioner (ODPC)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="ui-field-label">Written mandate reference</label>
+                    <input
+                      type="text"
+                      required
+                      value={mandateRef}
+                      onChange={(event) => setMandateRef(event.target.value)}
+                      className="ui-input mt-1"
+                    />
+                  </div>
+                </>
               )}
 
               <div className="flex justify-end space-x-2 pt-2">

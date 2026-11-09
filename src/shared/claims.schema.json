@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nutriscore.co.ke/schemas/claims/v1",
+  "title": "NutriScore canonical access claims",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sub", "sid", "app_role", "lic_ok", "ver"],
+  "properties": {
+    "sub": { "type": "string", "format": "uuid" },
+    "sid": { "type": "string" },
+    "tenant_id": { "type": "string", "format": "uuid" },
+    "app_role": {
+      "type": "string",
+      "enum": [
+        "super_admin",
+        "tenant_admin",
+        "writing_clinician",
+        "viewing_dietician",
+        "compliance_auditor",
+        "commercial_stakeholder",
+        "patient"
+      ]
+    },
+    "lic_ok": { "type": "boolean" },
+    "auditor_scope": { "type": "string", "enum": ["tenant", "platform"] },
+    "acr": { "type": "string" },
+    "ver": { "type": "integer", "const": 1 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "app_role": { "const": "compliance_auditor" } } },
+      "then": { "required": ["auditor_scope"] },
+      "else": { "not": { "required": ["auditor_scope"] } }
+    }
+  ]
+}

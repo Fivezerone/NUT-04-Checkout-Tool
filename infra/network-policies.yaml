@@ -1,0 +1,230 @@
+# NutriScore CAD Blueprint — Stage B Kubernetes NetworkPolicies
+# Reference: Blueprint §2.3 (Default-deny and zone boundaries)
+# Status: Prepared, never deployed (Phase 10 Cutover Readiness)
+
+# 1. Commercial Zone NetworkPolicies
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: commercial
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: commercial-svc-ingress
+  namespace: commercial
+spec:
+  podSelector:
+    matchLabels:
+      app: commercial-svc
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: edge
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: exchange
+      ports:
+        - port: 8443
+          protocol: TCP
+        - port: 9443
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: commercial-svc-egress
+  namespace: commercial
+spec:
+  podSelector:
+    matchLabels:
+      app: commercial-svc
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: audit
+      ports:
+        - port: 8443
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 10.30.30.0/24 # commercial-db private subnet
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# 2. Clinical Zone NetworkPolicies
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clinical-default-deny
+  namespace: clinical
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clinical-svc-ingress
+  namespace: clinical
+spec:
+  podSelector:
+    matchLabels:
+      app: clinical-svc
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: edge
+      ports:
+        - port: 8443
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clinical-svc-egress
+  namespace: clinical
+spec:
+  podSelector:
+    matchLabels:
+      app: clinical-svc
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: audit
+      ports:
+        - port: 8443
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform # Keycloak & Vault
+      ports:
+        - port: 8443
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 10.10.10.0/24 # clinical-db private subnet
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# 3. Exchange Zone NetworkPolicies
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: exchange-default-deny
+  namespace: exchange
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: exchange-svc-ingress
+  namespace: exchange
+spec:
+  podSelector:
+    matchLabels:
+      app: exchange-svc
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: edge
+      ports:
+        - port: 8443
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: exchange-svc-egress
+  namespace: exchange
+spec:
+  podSelector:
+    matchLabels:
+      app: exchange-svc
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: commercial
+      ports:
+        - port: 9443
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: audit
+      ports:
+        - port: 8443
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform
+      ports:
+        - port: 8443
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 10.20.20.0/24 # exchange-db private subnet
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

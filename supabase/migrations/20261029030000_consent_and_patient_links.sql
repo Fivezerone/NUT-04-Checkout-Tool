@@ -38,11 +38,11 @@ CREATE POLICY consent_records_tenant_isolation ON public.consent_records
   FOR ALL TO authenticated
   USING (
     tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
-    OR (auth.jwt() ->> 'role') = 'super_admin'
+    OR (auth.jwt() ->> 'app_role') = 'super_admin'
   )
   WITH CHECK (
     tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
-    OR (auth.jwt() ->> 'role') = 'super_admin'
+    OR (auth.jwt() ->> 'app_role') = 'super_admin'
   );
 
 -- ============================================================================
@@ -74,11 +74,11 @@ CREATE POLICY patient_links_tenant_isolation ON public.patient_links
   FOR ALL TO authenticated
   USING (
     tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
-    OR (auth.jwt() ->> 'role') = 'super_admin'
+    OR (auth.jwt() ->> 'app_role') = 'super_admin'
   )
   WITH CHECK (
     tenant_id = (auth.jwt() ->> 'tenant_id')::uuid
-    OR (auth.jwt() ->> 'role') = 'super_admin'
+    OR (auth.jwt() ->> 'app_role') = 'super_admin'
   );
 
 -- ============================================================================
@@ -179,7 +179,7 @@ SET search_path = public, auth
 AS $$
 DECLARE
   v_actor_id uuid := auth.uid();
-  v_role text := coalesce(auth.jwt() ->> 'role', 'patient');
+  v_role text := coalesce(auth.jwt() ->> 'app_role', 'patient');
 BEGIN
   UPDATE public.consent_records
   SET status = 'revoked',
@@ -232,7 +232,7 @@ SET search_path = public, auth
 AS $$
 DECLARE
   v_actor_id uuid := auth.uid();
-  v_role text := coalesce(auth.jwt() ->> 'role', 'patient');
+  v_role text := coalesce(auth.jwt() ->> 'app_role', 'patient');
   v_anonymized_ref text;
 BEGIN
   -- Anonymized pseudonym token (crypto-shredded identifier)

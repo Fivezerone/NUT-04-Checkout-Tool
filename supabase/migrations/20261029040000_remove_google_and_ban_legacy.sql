@@ -51,7 +51,7 @@ BEGIN
 
     -- Ban the unprovisioned legacy users in auth.users
     UPDATE auth.users
-    SET banned_until = '3000-01-01 00:00:00+00'
+    SET banned_until = 'infinity'::timestamptz
     WHERE id = ANY(v_legacy_user_ids);
 
     -- Revoke all active sessions and refresh tokens

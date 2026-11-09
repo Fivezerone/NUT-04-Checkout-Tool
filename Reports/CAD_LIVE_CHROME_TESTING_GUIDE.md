@@ -1,647 +1,1229 @@
-# NutriScore Clinic Admin Dashboard (CAD) & Extension — Live Chrome Testing & Integration Guide
+# NUT-04 Checkout Tool — Live Chrome Environment Testing Guide
 
-**Document ID:** `CAD-TEST-GUIDE-V1`  
-**Target Environments:** Google Chrome (MV3 Extension + CAD Web Surface)  
-**System Version:** NutriScore Kenya 0.0.1 (Multi-Tenant Core)  
-**Compliance Context:** Kenya Data Protection Act 2019 (DPA ss. 40, 46) & Digital Health Act 2023 (DHA)  
+> **Scope:** CAD Multi-Tenant Healthcare Backend Blueprint — Phases 0–10
+> **Environment:** Local Supabase Docker stack only. **NEVER** target hosted Supabase (`nqcpudpkrkutpxuqpsfk`).
+> **Branch:** `feat/cad-backend-blueprint` (13 commits, all green)
 
----
-
-## 1. System Overview & Nomenclature
-
-To ensure clarity during testing and verification, distinguish strictly between the two dashboards:
-
-```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                       NUTRISCORE SYSTEM TOPOLOGY                               │
-├──────────────────────────────────────┬─────────────────────────────────────────┤
-│    PATIENT / CONSUMER SURFACE        │      CLINICAL / PROVIDER SURFACE        │
-│   (Chrome Extension MV3 Client)      │      (Clinic Admin Dashboard - CAD)     │
-├──────────────────────────────────────┼─────────────────────────────────────────┤
-│ • Entry: Popup, Options, Onboarding  │ • Entry: CAD Web Application (cad.html) │
-│ • Surface: Shopper Dashboard         │ • Surface: Clinic Admin Dashboard (CAD) │
-│ • Scope: Patient shopping analytics, │ • Scope: Multi-tenant clinic management,│
-│   cart grade, swap recommendations   │   cohort tracking, clinical targets     │
-│ • Storage: Local IndexedDB           │ • Storage: Supabase PostgreSQL (RLS,    │
-│   (NutriScoreDB, target_bundles)     │   audit_log, tenant_members, targets)   │
-│ • Identity: Consumer user JWT        │ • Identity: Provider JWT + custom claims│
-│   (sub, entitlement token)           │   (tenant_id, role, licence_verified)   │
-└──────────────────────────────────────┴─────────────────────────────────────────┘
-```
-
-### The Architectural Bridges
-
-1. **The Linking Bridge (Patient–Clinician Pairing)**:
-   - Clinicians in CAD issue single-use, 24-hour linking codes (`NS-XXXXXX`).
-   - Patients enter this code in the Chrome extension.
-   - Two-identifier confirmation binds the patient to the clinic and activates purpose-specific consent (`clinician_link`, `purchase_timeline`, `diary`).
-2. **The Target & Signed Bundle Distribution Bridge**:
-   - Writing clinicians prescribe clinical nutrition targets (e.g., Sodium $\le 2000\,\text{mg/day}$, Sugars $\le 25\,\text{g/day}$).
-   - The platform edge function (`publish-bundle`) compiles and signs an ES256 target bundle with anti-rollback protection (`bundle_version`).
-   - The extension downloads the signed bundle into IndexedDB (`target_bundles`), replacing generic thresholds with custom medical targets on retailer sites (Carrefour, Naivas, Quickmart).
-3. **The Consent & Crypto-Shredding Gate**:
-   - Consent revocation immediately cuts off clinician access in CAD (Test T26).
-   - Right to Erasure (DPA s.40 / Test T27) replaces patient references with irreversible tokens (`SHREDDED-...`) while maintaining the cryptographic SHA-256 audit chain.
+> [!IMPORTANT]
+> **Sign-in is now unblocked.** Two bugs were found and fixed in commit `15b4faf1`:
+> 1. `supabase_auth_admin` lacked `GRANT USAGE ON SCHEMA public` — hook call failed with HTTP 500
+> 2. Hook stripped `email`/`phone` from JWT claims — GoTrue output schema validation rejected the token
+>
+> **Dev server is running at `http://localhost:3000/cad.html`** — proceed to Section 2 to verify sign-in end-to-end in Chrome.
 
 ---
 
-## 2. Prerequisites & Building the Distribution
+## Quick Reference
 
-Ensure the project dependencies and build artifacts are clean and up to date before launching Chrome:
+| Service | URL |
+|---|---|
+| Local Supabase API | `http://localhost:54321` |
+| Supabase Studio | `http://localhost:54323` |
+| CAD UI (Vite dev) | `http://localhost:3000/cad.html` |
+| Postgres (direct) | `localhost:54322` (user: `postgres`) |
 
+**Docker container name:** `supabase_db_NUT-04_Checkout_Tool`
+
+---
+
+## Getting Started: Opening PowerShell & Environment Verification
+
+### Step 1 — Open PowerShell in the Project Root Directory
+
+**Option A — From File Explorer (Fastest):**
+1. Open Windows File Explorer and navigate to:
+   `c:\Users\USER\Documents\NUT-04 Checkout Tool`
+2. Click directly on the **address bar** at the top.
+3. Type `powershell` and press `Enter`.
+4. A PowerShell console will open with the working directory already set to the project root.
+
+**Option B — From Start Menu / Windows Terminal:**
+1. Press `Win + X` (or search for `PowerShell` in the Start Menu) and open **Windows PowerShell**.
+2. Navigate to the project root:
+   ```powershell
+   cd "c:\Users\USER\Documents\NUT-04 Checkout Tool"
+   ```
+3. Confirm your current location:
+   ```powershell
+   pwd
+   # Expected output: C:\Users\USER\Documents\NUT-04 Checkout Tool
+   ```
+
+---
+
+## Pre-Flight Checklist
+
+Run these commands one at a time in order. Confirm the expected output before proceeding to Section 1.
+
+### 1. Confirm Local Supabase Docker Containers Are Active
 ```powershell
-# 1. Verify and enforce Row-Level Security policies across all migrations
-npm run check:rls
+docker ps --filter "name=supabase" --format "table {{.Names}}`t{{.Status}}"
+```
+> **Expected:** `supabase_db_NUT-04_Checkout_Tool` (and associated services) show status `Up ...`. If stopped or missing, launch Docker Desktop and run `npx supabase start`.
 
-# 2. Stage synthetic pilot fixtures (KNH Nutrition Unit, clinicians, cohorts, targets)
-npm run stage:pilot
+### 2. Verify TypeScript Compilation
+```powershell
+npm run typecheck
+```
+> **Expected:**
+> ```text
+> ✓ TypeScript check passed: 0 errors
+> ```
+> *Note: If there are zero errors, the TypeScript compiler (`tsc --noEmit`) succeeds with code 0. If any type discrepancies existed, it would output specific file lines and syntax codes.*
 
-# 3. Verify the cryptographic audit log hash chain
-npm run verify:audit
+### 3. Run Automated Unit & Integration Tests
+```powershell
+npm test -- --reporter=dot
+```
+> **Expected:** `Test Files  50 passed (50) | Tests  837 passed (837)` with zero failures.
 
-# 4. Build the complete distribution (DB + UI + Extension)
+### 4. Code Quality & Formatting Gates
+```powershell
+npm run format:check
+npm run lint
+```
+> **Expected:** Prettier reports all files use Prettier style. ESLint reports `0 errors` (pre-existing lint warnings are non-blocking).
+
+### 5. Compile UI & Extension Build Artifacts
+```powershell
 npm run build
 ```
+> **Expected:** Executes `build:db`, `build:ui` (Vite production bundle into `dist/`), and `build:ext`. Completes cleanly with `✓ built in Xs`.
 
-This compiles:
-- `dist/manifest.json` — Manifest V3 configuration with scripting permissions.
-- `dist/cad.html` — The Clinic Admin Dashboard (CAD) web application.
-- `dist/popup.html`, `dist/options.html`, `dist/onboarding.html`, `dist/dashboard.html` — Extension patient surfaces.
-- `dist/background.js`, `dist/content.js`, `dist/db.js` — Service worker and content scripts.
-
----
-
-## 3. Loading the Extension in Google Chrome
-
-1. Open **Google Chrome**.
-2. Navigate to `chrome://extensions/`.
-3. In the top-right corner, toggle **Developer mode** to **ON**.
-4. Click the **Load unpacked** button in the top-left toolbar.
-5. In the file picker, select the `dist` directory:
-   ```
-   C:\Users\USER\Documents\NUT-04 Checkout Tool\dist
-   ```
-6. Confirm that **NutriScore Kenya** appears in the extension grid with:
-   - Version: `0.0.1`
-   - Manifest: `Manifest V3`
-   - Permissions: `storage`, `unlimitedStorage`, `scripting`, `activeTab`
-   - Background service worker: `service worker (Active)`
-7. Click the Chrome **Extensions puzzle icon** in your toolbar and pin **NutriScore Kenya**.
-
----
-
-## 4. Launching the Clinic Admin Dashboard (CAD)
-
-You have two supported ways to open and interact with the CAD in Chrome:
-
-### Method A: Direct Chrome Extension URL (Self-Contained)
-Open a new tab in Chrome and enter the internal extension URL:
-```text
-chrome-extension://<YOUR_EXTENSION_ID>/cad.html
+### 6. Seed De-Identified Mock Identities
+```powershell
+node scripts/seed-mock-users.mjs
 ```
-*(Replace `<YOUR_EXTENSION_ID>` with the 32-character ID shown on `chrome://extensions/`)*.
+> **Expected:** Connects to `http://127.0.0.1:54321` and outputs:
+> ```text
+> =============================================================================
+>   CAD MOCK TEST CREDENTIALS (LOCAL ONLY)
+> =============================================================================
+> Role                   | Email                          | Password
+> -----------------------+--------------------------------+------------------------
+> tenant_admin           | tenant.admin@clinic.test       | [Generated password]
+> writing_clinician      | clinician.one@clinic.test      | [Generated password]
+> viewing_dietician      | dietician.one@clinic.test      | [Generated password]
+> patient                | patient.alpha@clinic.test      | [Generated password]
+> patient                | patient.beta@clinic.test       | [Generated password]
+> commercial_stakeholder | partner.stakeholder@clinic.test | [Generated password]
+> compliance_auditor     | regulator.dha@platform.test    | [Generated password]
+> compliance_auditor     | regulator.odpc@platform.test   | [Generated password]
+> =============================================================================
+> ```
+> Credentials are automatically written to `.mock-credentials.json` (git-ignored) for convenient reference during manual Chrome UI testing.
 
-### Method B: Local Live Server (Hot Reloading)
-In your terminal, start the Vite development server:
+### 7. Launch the CAD UI Web Server
+Open a **new, dedicated PowerShell window** in the project directory (leave it running in the background) and execute:
 ```powershell
 npm run dev
 ```
-Open Chrome and navigate to:
-```text
-http://localhost:5173/cad.html
-```
+> **Expected:** Vite starts the local development server:
+> ```text
+>   VITE v6.4.4  ready in 450 ms
+>
+>   ➜  Local:   http://localhost:3000/
+>   ➜  Network: use --host to expose
+> ```
+> *Keep this window running.* Now navigating to `http://localhost:3000/cad.html` in Chrome will load the Clinic Admin Dashboard.
 
 ---
 
-## 5. Step-by-Step Live Testing Walkthrough
+## PowerShell Database Execution Pattern (pgTAP & SQL Queries)
 
-Follow these test flows sequentially to verify the entire multi-tenant clinical workflow.
-
-### Flow 1: Authentication, Multi-Tenant Switching & MFA Challenge
-1. Open CAD (`cad.html`).
-2. You will see the **Clinic Admin Dashboard Sign-In** portal:
-   - Enter email: `dr.omondi@knh.or.ke`
-   - Enter password: `Password123!`
-   - Click **Sign In to CAD**.
-3. **MFA Challenge**:
-   - Because `writing_clinician` is a privileged healthcare role, CAD immediately prompts for the **Two-Factor Authentication (MFA)** step.
-   - Enter 6-digit TOTP code (e.g., `123456`) and click **Verify & Enter Dashboard**.
-4. **Tenant Header & Role Display**:
-   - Notice the top navigation bar displays:
-     - Tenant: `Kenyatta National Hospital — Clinical Nutrition Unit`
-     - Role Badge: `Writing Clinician` (Emerald border)
-     - Security Badge: `MFA Active`
-5. **Super Admin Tenant Switcher Test**:
-   - Sign out and log in with a Super Admin account (`admin@nutriscore.co.ke`).
-   - Notice the tenant dropdown appears in the header, allowing switching across clinics (KNH, Nairobi Hospital, Aga Khan).
-
----
-
-### Flow 2: Cohort Analytics & Small-Cell Privacy Suppression (Test T13)
-1. In CAD, click the **Cohorts & Overview** tab.
-2. Observe the active patient cohorts:
-   - **Type 2 Diabetes** ($n = 48$) $\to$ Full compliance statistics and nutrient averages rendered.
-   - **Essential Hypertension** ($n = 35$) $\to$ Full compliance statistics rendered.
-   - **Stage 3 Renal** ($n = 14$) $\to$ Full compliance statistics rendered.
-   - **Rare Paediatric Inborn Metabolic Cohort** ($n = 3$):
-3. **Small-Cell Suppression Test**:
-   - When viewed under a `commercial_stakeholder` role, any cohort with fewer than $k = 5$ patients automatically masks values:
-     - Count displays as: `Suppressed (k < 5)`
-     - Average Sodium & Sugars: `NULL`
-     - Compliance rate: `Hidden for re-identification protection`
-   - Verify that patient counts $\ge 5$ remain visible.
-
----
-
-### Flow 3: Patient–Clinician Linking (The Extension Bridge)
-1. In CAD, click the **Linking & Consent** tab (`/consent`).
-2. Under the top banner, click **Generate Patient Link Code**.
-3. Observe the newly generated token:
-   - Format: `NS-XXXXXX` (e.g., `NS-849201`).
-   - Expiration notice: `Valid for 24 hours (Single Use)`.
-4. Click the **Copy** icon next to the code.
-5. In another tab or the extension popup:
-   - Click the NutriScore toolbar icon $\to$ Open **Options** (`options.html`) or **Onboarding**.
-   - Navigate to the **Clinic Integration** card.
-   - Paste the code `NS-849201` and provide patient date of birth / national ID for two-identifier confirmation.
-   - Click **Confirm Clinic Link**.
-6. Switch back to CAD:
-   - The link status dynamically updates from `pending` to `confirmed`.
-   - The **Consent Ledger** records active permissions for `clinician_link`, `purchase_timeline`, and `diary`.
-
----
-
-### Flow 4: Clinical Target Prescription & Co-Signature Verification (Test T25)
-1. In CAD, navigate to **Patient Targets** (`/targets`).
-2. Review the active clinical rules:
-   - **Sodium Rule**: $\le 2000\,\text{mg/day}$ (Severity: Critical, WHO Hypertension protocol).
-   - **Sugar Rule**: $\le 25\,\text{g/day}$ (Severity: Critical, Diabetes protocol).
-3. **Prescribe a New Renal Target**:
-   - Click **New Target Rule**.
-   - Nutrient: `PotassiumMG`
-   - Value: `2000` mg/day
-   - Severity: `Critical`
-   - Clinical Justification: `Stage 3 CKD hyperkalemia prevention protocol`
-4. **Co-Signature Gate**:
-   - Note the system requires a physician co-signature (`cosigned_by IS NOT NULL`) for Renal and Paediatric rules.
-   - Submit the target. The trigger validates the Platform Safety Envelope and sets the rule to `active`.
-5. **Signed Bundle Sync to Extension**:
-   - Edge function `publish-bundle` compiles active targets and signs them with ES256 (`TARGET_SIGNING_KEY`).
-   - On the patient side, the extension downloads the bundle into IndexedDB (`target_bundles`).
-   - Verify that when the patient shops on Carrefour or Naivas, products exceeding $2000\,\text{mg}$ sodium or missing potassium trigger medical alert badges instead of generic defaults.
-
----
-
-### Flow 5: Real-Time Consent Revocation & Right to Erasure (Tests T26 & T27)
-1. In CAD, open the **Linking & Consent** tab.
-2. Locate patient `PAT-0042` under the Consent Ledger:
-   - Click the red **Revoke** button next to `clinician_link`.
-3. **Verify Revocation (Test T26)**:
-   - Consent status switches to `revoked`.
-   - Navigating to patient-level details immediately displays:
-     > *"Consent has been explicitly revoked by the patient. Patient-level data is inaccessible."*
-4. **Trigger Right to Erasure / Crypto-Shredding (Test T27)**:
-   - Click the **Trash icon** next to a patient record.
-   - Confirm the DPA s.40 erasure confirmation prompt.
-   - Notice the patient reference is replaced with `SHREDDED-PAT-XXXX-YYYY`.
-   - Identifiable diary and target records are pseudonymized.
-   - The audit log records `patient_erasure_crypto_shredded` while sequence numbers (`seq`) and hash chains remain valid.
-
----
-
-### Flow 6: Verifying the Immutable Audit Log (Test T14)
-1. In CAD, click the **Immutable Audit Log** tab (`/audit`).
-2. Verify the live table:
-   - **Seq**: Sequential numbers (`#1`, `#2`, `#3`, `#4...`) with zero gaps.
-   - **Action**: `ONBOARD_TENANT`, `CREATE_TARGET`, `patient_link_confirmed`, `consent_revoked`.
-   - **Row Hash**: Canonical SHA-256 hash preview.
-3. Check the status badge at the top:
-   - Displays **"SHA-256 Hash Chain Verified"** with a green checkmark.
-4. Verify via terminal:
-   ```powershell
-   npm run verify:audit
-   ```
-   Output: `✅ [audit-verify] Hash chain intact! Verified entries. Head hash: ...`
-
----
-
-### Flow 7: Billing Lifecycle & M-Pesa Payment Simulation (Tests T1–T9)
-1. In CAD, click the **Billing & Plan** tab (`/billing`).
-2. Current plan shows **Clinic Annual** (`KES 48,000 / year`).
-3. Click **Renew Subscription via M-Pesa STK Push**:
-   - Phone number: `254712345678`
-   - Click **Send STK Push**.
-4. Test failure routing simulation:
-   - Simulate **User Cancelled (1032)** $\to$ Attempt status updates to `failed_cancelled`, optimistic flags rolled back.
-   - Simulate **Insufficient Funds (1)** $\to$ Attempt status updates to `failed_funds`, 7-day grace period banner appears (`past_due`).
-   - Simulate **Success (0)** $\to$ State immediately transitions to `active`, invoice marked paid, receipt generated, and audit event logged.
-
----
-
-## 6. Chrome DevTools Inspection Guide
-
-When testing live in Chrome, use DevTools to inspect each subsystem:
-
-| Subsystem | What to Inspect | DevTools Location |
-|---|---|---|
-| **Service Worker** | Ensure `background.js` is active and handles message passing | `chrome://extensions/` $\to$ Inspect views: **service worker** |
-| **IndexedDB** | Check stores: `product_cache`, `shopping_ledger`, `user_settings`, `target_bundles` | DevTools $\to$ **Application** $\to$ **Storage** $\to$ **IndexedDB** $\to$ `NutriScoreDB` |
-| **Signed Bundles** | Confirm bundle signature (`sig_es256_...`) and `bundle_version` increment | DevTools $\to$ **Application** $\to$ **IndexedDB** $\to$ `target_bundles` |
-| **JWT & Claims** | Inspect stored auth token with `tenant_id`, `role`, and `licence_verified` | DevTools $\to$ **Application** $\to$ **Local Storage** |
-| **Network Requests** | Monitor calls to Supabase REST / Edge Functions (`publish-bundle`, `reconcile-payment`) | DevTools $\to$ **Network** $\to$ Filter `Fetch/XHR` |
-
----
-
-## 7. Automated Test Suite Matrix
-
-To verify all invariant checks before or after live Chrome testing, run:
+On Windows PowerShell, the `<` redirection operator does not function as it does in POSIX shells. Always use the pipe pattern:
 
 ```powershell
-npm test
+Get-Content supabase\tests\<file>.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
 ```
 
-| Invariant Group | Test File | Scenarios Covered |
+- **`Get-Content <path>`**: Reads the file contents as a text stream.
+- **`|`**: Pipes the SQL script into Docker standard input.
+- **`docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres`**: Runs the script directly in the local container as database administrator.
+
+### Run All 9 pgTAP Test Suites in Sequence
+Run this loop in PowerShell whenever you want to perform a comprehensive database-level verification sweep:
+
+```powershell
+$suites = @(
+    "cad_tenant_wall.sql",
+    "cad_claims_and_revocation.sql",
+    "cad_grant_matrix_lifecycle.sql",
+    "cad_abac_and_clinical.sql",
+    "cad_worm_ledger.sql",
+    "cad_field_encryption_and_projection.sql",
+    "cad_exchange_and_dpt.sql",
+    "cad_commercial_overlay.sql",
+    "cad_retention_and_rights.sql"
+)
+
+foreach ($suite in $suites) {
+    Write-Host "`n=== Running $suite ===" -ForegroundColor Cyan
+    Get-Content "supabase\tests\$suite" | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+}
+```
+> **Expected:** Every suite prints clean `ok` assertions ending with `# All tests passed.` and zero `not ok` lines.
+
+### Quick Troubleshooting Reference
+
+| Symptom | Cause | Solution |
 |---|---|---|
-| **Phase 2: Multi-Tenant & RBAC** | `cad-phase2-multitenant.test.ts` | **T10** (Tenant isolation), **T11** (RLS policy gate), **T12** (Direct API 403 guard), **T13** (Small-cell suppression), **T14** (Immutable audit log), **T15** (Break-glass access) |
-| **Phase 3: Payments & Billing** | `cad-phase3-payments.test.ts` | **T1** (ResultCode 1032 cancellation), **T2** (ResultCode 1 insufficient funds), **T3** (ResultCode 1037 timeout query), **T4** (Duplicate callback idempotency), **T5** (Amount mismatch quarantine), **T6** (Unknown checkout request quarantine), **T7** (Bad signature rejection), **T8** (Grace period to suspension), **T9** (Still-processing retry backoff) |
-| **Phase 4: Targets & Bundles** | `cad-phase4-targets.test.ts` | **T16** (Bundle expiry fallback), **T17** (Anti-rollback protection), **T18** (Target revocation sync), **T20** (Missing nutrient completeness), **T21** (Salt-to-sodium derivation at 400mg/g), **T22** (Per-serving to per-100g conversion), **T23** (Atwater energy 8% check), **T25** (Renal potassium safety guard) |
-| **Phase 5: Consent & Erasure** | `cad-phase5-consent.test.ts` | **T26** (Consent revocation visibility cut-off), **T27** (Crypto-shredding right to erasure) |
-| **Phase 5: Health Modes & Engine** | `disease-engine-dynamic-rules.test.ts` | Dynamic rules evaluation across operators (`lte`, `gte`, `lt`, `gt`, `eq`), target IDs, clinical rationales, severities (`critical`, `high`, `warning`, `advisory`), backward compatibility for legacy condition presets |
-| **Phase 7: Mock Scripts & Safety** | `mock-scripts.test.ts` | Production refusal safety gate, RFC 2606 `.test` domain constraints, CI release gate `--check-clean` validation |
+| `REFUSING TO RUN: seed-mock-users.mjs may only be run against a LOCAL Supabase instance` | `process.env` loaded remote URL from `.env` | Ensure `.env.local` exists with `VITE_SUPABASE_URL=http://127.0.0.1:54321`. Script now loads `.env.local` automatically. |
+| `docker: command not found` or connection refused | Docker Desktop is closed | Launch Docker Desktop, wait for engine to initialize, run `npx supabase start`. |
+| `ERROR: table or column not found in schema cache` | PostgREST schema cache out of date | Run: `docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres -c "NOTIFY pgrst, 'reload schema';"` |
+| `npm run typecheck` returned no console lines | Silence means 0 type errors | Script now prints `✓ TypeScript check passed: 0 errors` explicitly. |
+| `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` | Node.js Windows libuv handle issue on abrupt exit | Fixed: `purge-mocks.mjs` now lets event loop drain naturally. |
+| **"Invalid clinic credentials"** on CAD sign-in (clinician or patient) | Two bugs: (1) `supabase_auth_admin` lacked `USAGE` on schema `public` → hook call failed with `SQLSTATE 42501`; (2) hook stripped `email`/`phone` from claims but GoTrue output schema requires both keys | **FIXED in commit `15b4faf1`** — migration `20261101010000` now grants `USAGE ON SCHEMA public` and `EXECUTE ON FUNCTION custom_access_token_hook` to `supabase_auth_admin`, and blanks `email`/`phone` to `""` instead of removing them. Verify: sign-in returns HTTP 200 and JWT contains `session_id`. |
+| Hook HTTP 500 `permission denied for schema public (SQLSTATE 42501)` | `supabase_auth_admin` cannot call hook | Run: `docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres -c "GRANT USAGE ON SCHEMA public TO supabase_auth_admin; GRANT EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_auth_admin;"` |
 
 ---
 
-## 8. Executing Section 5 — Auditing, Verifying & Handling Banned Legacy Accounts
+## Section 1 — Extension Loading & Manifest Verification
 
-Section 5 of the CAD-Only Identity Rollback establishes the protocol for legacy consumer accounts created before CAD authority was instituted. These accounts were marked `legacy_unprovisioned` and banned (`banned_until = '2099-01-01'`) in migration `20261029040000_remove_google_and_ban_legacy.sql`.
+**Goal:** Confirm the Manifest V3 extension loads cleanly with no forbidden permissions or global leaks.
 
-### Step 5.1: SQL Audit & Verification of Legacy Accounts
-1. Connect to the database using Supabase SQL Editor or `psql`:
-   ```sql
-   -- Inspect all banned legacy unprovisioned accounts
-   SELECT 
-     u.id, 
-     u.email, 
-     u.banned_until, 
-     u.raw_app_meta_data->>'cad_provisioned' AS cad_provisioned,
-     u.raw_app_meta_data->>'status' AS app_status,
-     tm.role AS cad_role,
-     tm.status AS tenant_status
-   FROM auth.users u
-   LEFT JOIN public.tenant_members tm ON tm.user_id = u.id
-   WHERE u.banned_until = '2099-01-01 00:00:00+00'::timestamptz
-      OR tm.id IS NULL;
-   ```
-2. **Verification Invariant:**
-   - Confirm that all legacy consumer accounts have:
-     - `banned_until = '2099-01-01 00:00:00+00'`
-     - `app_status = 'legacy_unprovisioned'`
-     - Zero matching rows in `public.tenant_members` (`cad_role IS NULL`).
-   - Confirm that zero identities remain with `provider = 'google'`:
-     ```sql
-     SELECT COUNT(*) FROM auth.identities WHERE provider = 'google';
-     -- Expected: 0
-     ```
+### 1.1 Load the Unpacked Extension
 
-### Step 5.2: Live Chrome Testing — Rejection of Banned Account Authentication
-1. Open Google Chrome with the unpacked extension loaded.
-2. Navigate to the extension onboarding page:
-   ```text
-   chrome-extension://<EXTENSION_ID>/onboarding.html
-   ```
-3. Attempt to sign in with a known legacy banned email (e.g. `legacy_google_user1@gmail.com` or `legacy_consumer_selfsignup@yahoo.com`):
-   - Enter email and any password.
-   - Click **Sign In with Clinic Credentials**.
-4. **Expected UI & Network Behavior:**
-   - **User Surface:** Displays generic security error message: `"Invalid login credentials"`.
-   - **DevTools Network Tab:** The POST to `/auth/v1/token?grant_type=password` returns HTTP 400:
-     ```json
-     {
-       "error": "invalid_grant",
-       "error_description": "User is banned"
-     }
-     ```
-   - **Security Invariant:** The client interface purposely sanitizes the error to `"Invalid login credentials"` to prevent account enumeration attacks while the backend strictly enforces the ban.
+1. Open Chrome → navigate to `chrome://extensions`
+2. Toggle **Developer mode** ON (top-right)
+3. Click **Load unpacked** → select `c:\Users\USER\Documents\NUT-04 Checkout Tool\dist\`
+4. The extension card should appear with the NUT-04 icon and **no error badge**
 
-### Step 5.3: Verifying Session Revocation & Storage Purge
-1. If an existing browser session previously held a token for a banned account:
-   - When the extension opens, `supabase.auth.getSession()` attempts token rehydration or refresh.
-   - The token refresh request is rejected with HTTP 400 (`User is banned`).
-   - The extension immediately triggers `signOutUser()`.
-2. Inspect Chrome DevTools $\to$ **Application** $\to$ **Storage** $\to$ **Local Storage**:
-   - Verify that `nutri_supabase_session` is cleared.
-   - Verify that `nutri_entitlement` is cleared.
-   - Verify that `patient_consent_accepted` is false or cleared.
-   - The user is redirected to `onboarding.html`.
+### 1.2 Manifest Permission Check
 
-### Step 5.4: Controlled 90-Day Purge Execution Protocol
-In compliance with Kenya Data Protection Act (DPA 2019) data retention standards, legacy rows are quarantined for 90 days before permanent deletion. After 90 days:
+In `chrome://extensions`, click **Details** → confirm:
+
+| Check | Expected |
+|---|---|
+| `identity` permission | **Absent** |
+| `storage` permission | Present (needed for settings) |
+| Background service worker | Registered and active |
+| Manifest version | `3` |
+
+Alternatively, read the manifest directly:
+
+```powershell
+Get-Content dist\manifest.json | ConvertFrom-Json | Select -ExpandProperty permissions
+```
+
+→ Must **not** contain `"identity"`.
+
+### 1.3 Service Worker Registration
+
+1. `chrome://extensions` → **Inspect views: service worker**
+2. Console must show zero errors on startup
+3. Network tab must show no outbound requests to hosted Supabase (`nqcpudpkrkutpxuqpsfk`)
+
+### 1.4 Popup / Dashboard Smoke Test
+
+1. Click the extension icon in the Chrome toolbar → popup must render
+2. Open `chrome://extensions` → **Inspect views: popup.html** → Console tab must be error-free
+
+### 1.5 Manifest Security Scan
+
+```powershell
+npm run check:manifest
+```
+
+**Expected:** 0 global variable leaks reported.
+
+---
+
+## Section 2 — Authentication & JWT Claims Contract
+
+**Goal:** Verify the canonical claims contract (Phase 2) is enforced end-to-end.
+
+### 2.1 Sign In via CAD UI
+
+1. Navigate to `http://localhost:3000/cad.html`
+2. Sign in with the mock `writing_clinician` account (seeded by `seed-mock-users.mjs`)
+
+### 2.2 Inspect the JWT in DevTools
+
+1. Open Chrome DevTools (`F12`) → **Network** tab
+2. Find the `/auth/v1/token` response
+3. Copy the `access_token` value
+4. Decode at `https://jwt.io` (offline: `node -e "console.log(JSON.parse(Buffer.from('<token>'.split('.')[1],'base64').toString()))"`)
+
+**Required claims — all must be present:**
+
+| Claim | Expected value |
+|---|---|
+| `app_role` | e.g. `writing_clinician` |
+| `tenant_id` | `11111111-2222-3333-4444-555555555555` (mock clinic) |
+| `lic_ok` | `true` |
+| `session_id` | UUID string (Supabase session ID, used as `sid` by `canonicalizeClaims`) |
+| `ver` | `1` |
+| `email` | `""` (blanked — PII stripped, key must remain for GoTrue schema validation) |
+| `phone` | `""` (blanked — PII stripped, key must remain for GoTrue schema validation) |
+
+**Forbidden claims — all must be absent:**
+
+| Claim | Why Forbidden |
+|---|---|
+| `diagnosis` | PHI — never in token |
+| `health_mode` | Condition inference vector |
+| `national_id` | PII — stripped by hook |
+| `callerRank` | Deprecated rank comparison scheme |
+
+### 2.3 Session Denylist / Ban Test
+
 ```sql
--- Hard purge executed only after 90-day retention review by Kibet / Compliance Officer:
-DELETE FROM auth.users 
-WHERE raw_app_meta_data->>'status' = 'legacy_unprovisioned'
-  AND banned_until = '2099-01-01 00:00:00+00'::timestamptz;
+-- In Supabase Studio SQL editor (local only)
+-- Ban a session by its `sid` claim value:
+INSERT INTO iam.session_denylist (sid, banned_until)
+VALUES ('<sid-from-jwt>', '2099-01-01T00:00:00Z');
 ```
+
+1. Make any authenticated API request from the UI
+2. **Expected:** HTTP 401 response
+3. Verify the single `BAN_UNTIL_ISO` constant is used — check that no numeric rank comparison appears:
+
+```powershell
+npm run check:cad-security
+```
+
+### 2.4 TOTP / AAL2 Step-Up
+
+1. Attempt a bundle-publish action from a `writing_clinician` session without TOTP
+2. **Expected:** Server returns `AAL2_REQUIRED` error
+3. Complete TOTP enrollment → retry → must succeed
 
 ---
 
-## 9. Executing Section 6 — Local Mock Environment Seeding, Chrome Live Testing & Purge Lifecycle
+## Section 3 — Multi-Tenant Wall (Forced Restrictive RLS)
 
-Section 6 defines the standardized local test personas using the RFC 2606 reserved `.test` domain.
+**Goal:** Confirm that Tenant 1 data is invisible to Tenant 2 sessions under all circumstances.
 
-### Step 6.1: Environment Pre-Flight & Safety Verification
-1. Ensure your local Supabase stack is running:
-   ```powershell
-   npx supabase status
-   ```
-   Confirm API URL is `http://127.0.0.1:54321`.
-2. Test the production refusal safety gate:
-   ```powershell
-   $env:SUPABASE_URL = "https://nqcpudpkrkutpxuqpsfk.supabase.co"
-   node scripts/seed-mock-users.mjs
-   ```
-   **Expected output:**
-   ```text
-   ❌ REFUSING TO RUN: seed-mock-users.mjs may only be run against a LOCAL Supabase instance.
-   Target URL was: https://nqcpudpkrkutpxuqpsfk.supabase.co
-   ```
-3. Remove the override to point back to local:
-   ```powershell
-   $env:SUPABASE_URL = "http://127.0.0.1:54321"
-   ```
+> [!IMPORTANT]
+> This is the most critical security invariant. A single cross-tenant row leak is a critical failure.
 
-### Step 6.2: Seeding the Mock Clinic & Personas
-1. Run the seed script:
-   ```powershell
-   npm run seed:mocks
-   ```
-2. Observe the terminal output:
-   - Creates Mock Tenant: `Nairobi Metabolic Care Clinic` (`11111111-2222-3333-4444-555555555555`).
-   - Creates 5 accounts in `auth.users`, `public.users`, and `public.tenant_members`.
-   - Links Patient 1 (`David Kiprono`) and Patient 2 (`Sarah Achieng`) to Dr. Joseph Mwangi (`dr.mwangi@clinic.test`).
-   - Grants Version 2.0 Care Consent for both patients.
-   - Generates `.mock-credentials.json` (git-ignored).
-3. Open `.mock-credentials.json` in your editor to read the generated secure passwords:
-   ```json
-   {
-     "users": {
-       "clinic_admin": { "email": "admin@clinic.test", "password": "Admin!..." },
-       "clinician": { "email": "dr.mwangi@clinic.test", "password": "Doc!..." },
-       "dietician": { "email": "dietician.wanjiku@clinic.test", "password": "Diet!..." },
-       "patient_diabetes": { "email": "patient1@clinic.test", "password": "Pat1!..." },
-       "patient_hypertension": { "email": "patient2@clinic.test", "password": "Pat2!..." }
-     }
-   }
-   ```
-
-### Step 6.3: Step-by-Step Live Chrome Testing by Persona
-
-#### Persona A: Clinic Admin (`admin@clinic.test`)
-1. Open CAD in Chrome: `http://localhost:5173/cad.html` (or `chrome-extension://<EXTENSION_ID>/cad.html`).
-2. Log in with `admin@clinic.test` and password from `.mock-credentials.json`.
-3. Enter MFA OTP: `123456`.
-4. **Verify Header:** Displays `Nairobi Metabolic Care Clinic`, Role: `Tenant Admin`.
-5. **Staff & Licences View (`/users`):**
-   - Verify clinician table lists:
-     - `Dr. Joseph Mwangi` (`writing_clinician`, KMPDC A.4921, Verified).
-     - `Grace Wanjiku` (`viewing_dietician`, KNDI D.1082, Verified).
-   - Click **Provision New User**:
-     - Attempt to provision a user with role `super_admin`.
-     - Verify: Invariant blocks this; only roles strictly below `tenant_admin` are permitted in the dropdown.
-6. **Health Modes View (`/modes`):**
-   - Click the **Health Modes** tab in the top navigation.
-   - Review catalog coverage metrics: `SugarsG (98%)`, `SodiumMG (96%)`, `TransFatG (45%)`.
-   - Click **Cardio-Metabolic (Type 2 Diabetes)** preset $\to$ Inspect rules:
-     - `SugarsG <= 22.5g` (Critical)
-     - `CarbohydratesG <= 60.0g` (High)
-     - `EnergyKcal <= 400 kcal` (Warning)
-
-#### Persona B: Writing Clinician (`dr.mwangi@clinic.test`)
-1. Sign out of CAD and sign in with `dr.mwangi@clinic.test`.
-2. Enter MFA OTP: `123456`.
-3. Header displays Role: `Writing Clinician`.
-4. **Patient Targets View (`/targets`):**
-   - Select patient `David Kiprono` (`patient1@clinic.test`).
-   - Click **Add Target Rule**:
-     - Nutrient: `SugarsG`
-     - Comparator: `lte`
-     - Threshold: `20.0` g / 100g
-     - Severity: `High`
-     - Clinical Rationale: `Restrict refined sugar < 20g/100g per KNDI clinical guidelines`
-     - Click **Save Rule**.
-5. **Linking & Consent View (`/consent`):**
-   - Verify that David Kiprono and Sarah Achieng display active care links with Consent Version `2.0`.
-
-#### Persona C: Viewing Dietician (`dietician.wanjiku@clinic.test`)
-1. Sign out and sign in with `dietician.wanjiku@clinic.test`.
-2. Verify role badge displays `Viewing Dietician`.
-3. Navigate to **Patient Targets**:
-   - Confirm patient targets and nutrient progress are visible in read-only mode.
-   - Confirm write/edit buttons (`Add Target Rule`, `Edit Rule`) are disabled or hidden, adhering to least-privilege RBAC.
-
-#### Persona D: Patient 1 — Type 2 Diabetes (`patient1@clinic.test`)
-1. Open Chrome extension onboarding:
-   ```text
-   chrome-extension://<EXTENSION_ID>/onboarding.html
-   ```
-2. Enter `patient1@clinic.test` and initial password from `.mock-credentials.json`.
-3. **First-Login Password Reset Gate:**
-   - Prompt displays: *"Temporary Password Detected — Set New Secure Password"*.
-   - Enter new password (e.g., `PatientCare2026!`).
-   - Click **Update Password & Continue**.
-4. **Care Consent Gate (Version 2.0):**
-   - Displays Kenya DPA 2019 / Digital Health Act 2023 compliant data-sharing agreement:
-     - Clinic: `Nairobi Metabolic Care Clinic`
-     - Attending Clinician: `Dr. Joseph Mwangi`
-     - Purpose: Clinical dietary monitoring and shopping nutrition guidance.
-   - Click **Accept & Begin Care Monitoring**.
-5. **Options Page ("My Care Profile"):**
-   - Navigate to `options.html`.
-   - Confirm top card displays **"My Care Profile"**:
-     - Mode: `Cardio-Metabolic (Type 2 Diabetes)`
-     - Clinician: `Dr. Joseph Mwangi`
-     - Rules: `Sugars <= 22.5g`, `Carbohydrates <= 60.0g`.
-     - Confirm condition picker is completely absent; condition is clinician-owned.
-6. **Live Grocery Shopping Badges Test:**
-   - In Chrome, navigate to **Naivas** (`naivas.online`) or **Carrefour Kenya** (`carrefour.ke`).
-   - Browse to a confectionery or soft drink product with Sugars $> 22.5\text{g}/100\text{g}$.
-   - Click the NutriScore badge on the product card.
-   - **Verify Flyout Warning:**
-     - Displays: `"Diabetes Risk: High sugar (>22.5g per 100g)"`.
-     - WCAG AA compliant alert text.
-     - Note: No "Basic Plan" banner or "Upgrade to Premium" prompt appears. Full analytics are unlocked under clinical care entitlement.
-
-#### Persona E: Patient 2 — Hypertension Care (`patient2@clinic.test`)
-1. Open Chrome in a second browser profile or incognito window.
-2. Sign in with `patient2@clinic.test`.
-3. Navigate to the **Shopper Dashboard** (`dashboard.html`):
-   - **Greeting Test:** Confirms dynamic greeting: `"Good morning/afternoon, Sarah"` (first name only, per privacy mandate).
-   - **Subtitle:** Confirms `"Shopper Dashboard — Shopping Analytics"`.
-   - **Clinical Metric Cards:** Highlights Sodium and Saturated Fat compliance.
-4. **Retailer Alert Test:**
-   - On Carrefour or Naivas, view a product with Sodium $> 600\text{mg}/100\text{g}$ (e.g. salted chips or seasoning).
-   - Click badge to view flyout:
-     - Warning: `"Hypertension Risk: High sodium (>600mg per 100g)"`.
-     - Badge displays `#C2410C` high-contrast orange indicator.
-
-### Step 6.4: Executing Mock Purge & CI Release Gate Check
-1. When local testing is complete, purge all mock data:
-   ```powershell
-   npm run purge:mocks
-   ```
-2. Verify terminal output:
-   - Deletes `consents`, `patient_links`, `targets`, `tenant_members`, and `users` for all `.test` accounts.
-   - Calls `auth.admin.deleteUser` for all 5 mock auth accounts.
-   - Deletes mock tenant `11111111-2222-3333-4444-555555555555`.
-   - Removes `.mock-credentials.json` from the filesystem.
-3. Run the CI release gate check:
-   ```powershell
-   npm run purge:mocks -- --check-clean
-   ```
-   **Expected output:**
-   ```text
-   [purge-mocks] Connecting to Supabase at: http://127.0.0.1:54321
-   [purge-mocks] Running CI Release Gate Check (--check-clean)...
-   ✅ CI RELEASE GATE PASSED: Zero mock users or mock tenant records found.
-   ```
-
----
-
-## 10. Executing Section 7 — Hosted Supabase Promotion & Production Staging Operational Runbook
-
-Section 7 details the manual operational sequence required to promote the CAD-Only Identity changes to the hosted Supabase environment (`nqcpudpkrkutpxuqpsfk`).
-
-> ⚠️ **CRITICAL OPERATING DIRECTIVE:**  
-> Never run `npm run seed:mocks` or local test scripts against the hosted project. Hosted deployment must strictly execute forward-only migrations and production-safe scripts.
-
-### Step 7.1: Hosted Project Pre-Flight Verification
-1. Verify Supabase CLI project link:
-   ```powershell
-   npx supabase projects list
-   ```
-   Confirm project reference: `nqcpudpkrkutpxuqpsfk` (`NUT-04 Nutriscore`).
-2. Verify current database migration version:
-   ```powershell
-   npx supabase migration list --project-ref nqcpudpkrkutpxuqpsfk
-   ```
-
-### Step 7.2: Sequential Migration Execution (Forward-Only & Idempotent)
-Execute database migrations in exact numerical order against the hosted instance:
-
-```powershell
-npx supabase db push --project-ref nqcpudpkrkutpxuqpsfk
-```
-
-Verify that the 4 new rollback migrations apply in sequence:
-1. `supabase/migrations/20261029040000_remove_google_and_ban_legacy.sql`:
-   - Deletes Google OAuth identities from `auth.identities`.
-   - Marks legacy unprovisioned users and sets `banned_until = '2099-01-01'`.
-   - *Reversal note: Set `banned_until = null` for specific accounts if needed.*
-2. `supabase/migrations/20261029050000_rbac_provisioning_lifecycle.sql`:
-   - Configures `tenant_members` lifecycle state machine (`invited` $\to$ `active` $\to$ `suspended` $\to$ `deactivated`).
-   - Updates `custom_access_token_hook` to inject `tenant_id`, `role`, and `status` into JWT claims.
-   - Deploys `deactivate_tenant_member` RPC with global session revocation.
-3. `supabase/migrations/20261029055000_patient_consent_gate.sql`:
-   - Creates `public.consents` table with strict RLS policies.
-   - Deploys `check_patient_consent` RPC.
-4. `supabase/migrations/20261029060000_clinician_health_modes.sql`:
-   - Creates `tracked_nutrients` catalog registry with completeness metrics.
-   - Creates `health_modes` and `health_mode_rules` tables with RLS.
-
-### Step 7.3: Edge Function Compilation & Deployment
-Deploy the privileged `admin-provision-user` Edge Function:
-
-```powershell
-npx supabase functions deploy admin-provision-user --project-ref nqcpudpkrkutpxuqpsfk
-```
-
-**Verification:**
-1. Check function status:
-   ```powershell
-   npx supabase functions list --project-ref nqcpudpkrkutpxuqpsfk
-   ```
-2. Verify that `verify_jwt = true` is enforced in `supabase/config.toml` so anon callers cannot reach it.
-3. Verify that `SUPABASE_SERVICE_ROLE_KEY` is available in the Edge Function environment secrets.
-
-### Step 7.4: Supabase Auth Console Hardening
-Log in to the [Supabase Web Management Console](https://supabase.com/dashboard/project/nqcpudpkrkutpxuqpsfk):
-
-1. **Disable Google OAuth:**
-   - Navigate to **Authentication** $\to$ **Providers** $\to$ **Google**.
-   - Toggle **Enable Google provider** to **OFF**.
-   - Click **Save**.
-2. **Disable Public Sign-Ups:**
-   - Navigate to **Authentication** $\to$ **Configuration** $\to$ **Sign Up**.
-   - Toggle **Allow new users to sign up** to **OFF** (`enable_signup = false`).
-   - Toggle **Allow anonymous sign-ins** to **OFF** (`enable_anonymous_sign_ins = false`).
-   - Click **Save**.
-3. **Verify Security Invariant:**
-   - Try creating an account via `curl -X POST 'https://nqcpudpkrkutpxuqpsfk.supabase.co/auth/v1/signup' ...`
-   - Confirm response: `{"code": 403, "msg": "Signups not allowed for this instance"}`.
-
-### Step 7.5: Bootstrapping the Platform Super Administrator
-1. Run the bootstrap script targeting the hosted project by providing explicit service-role credentials:
-   ```powershell
-   $env:SUPABASE_URL = "https://nqcpudpkrkutpxuqpsfk.supabase.co"
-   $env:SUPABASE_SERVICE_ROLE_KEY = "<PROD_SERVICE_ROLE_KEY>"
-   $env:SUPER_ADMIN_EMAIL = "admin@nutriscore.co.ke"
-   node scripts/bootstrap-super-admin.mjs
-   ```
-2. Observe terminal confirmation:
-   - Platform Tenant `00000000-0000-0000-0000-000000000000` verified.
-   - Super admin user `admin@nutriscore.co.ke` provisioned with `role = 'super_admin'`.
-   - Initial temporary master password output.
-3. **Immediate Operational Action:**
-   - Open CAD (`cad.html`).
-   - Log in as `admin@nutriscore.co.ke` with the master password.
-   - Navigate to Security Settings and pair TOTP authenticator app (Google Authenticator / 1Password).
-   - Verify MFA status badge turns green (`MFA Active`).
-
-### Step 7.6: Row Level Security (RLS) Policy Audit
-Verify that all 16 tenant-scoped tables have active RLS policies:
+### 3.1 RLS Coverage Verification
 
 ```powershell
 npm run check:rls
 ```
 
-**Expected verification output:**
-```text
-[check-rls] Found 16 tenant-scoped table(s): tenants, tenant_members, audit_log, subscriptions, invoices, payment_attempts, targets, target_bundles, consumption_diary, consent_records, patient_links, consents, health_modes, health_mode_rules, users, payments
-✅ [check-rls] All tenant-scoped tables have RLS enabled and policies defined.
+**Expected:** 29 tenant-scoped relations confirmed covered. Zero exceptions.
+
+### 3.2 Cross-Tenant Query — Must Return Zero Rows
+
+Open Supabase Studio → **SQL Editor**:
+
+```sql
+-- Set JWT claims for Tenant 1 session
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', gen_random_uuid()::text,
+  'tenant_id', '11111111-1111-1111-1111-111111111111',
+  'app_role', 'writing_clinician'
+)::text, true);
+
+SET ROLE authenticated;
+
+-- Attempt to read Tenant 2 patients — MUST return 0 rows
+SELECT COUNT(*) FROM clinical.patients
+WHERE tenant_id = '22222222-2222-2222-2222-222222222222';
 ```
 
-### Step 7.7: Production Release Gate Clearance
-Run the CI release gate check against the hosted database to guarantee zero mock `.test` accounts exist:
+**Expected:** `count = 0`
+
+### 3.3 pgTAP Tenant Wall Suite
 
 ```powershell
+Get-Content supabase/tests/cad_tenant_wall.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+```
+
+**Expected:** All tests pass (no `not ok` lines).
+
+### 3.4 Cross-Tenant Clinical Record Attempt
+
+```sql
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'tenant_id', '11111111-1111-1111-1111-111111111111',
+  'app_role', 'writing_clinician'
+)::text, true);
+
+-- Attempt to read Tenant 2 clinical records
+SELECT * FROM clinical.clinical_records cr
+JOIN clinical.patients p ON cr.patient_id = p.id
+WHERE p.tenant_id = '22222222-2222-2222-2222-222222222222';
+```
+
+**Expected:** 0 rows (RLS silently filters).
+
+---
+
+## Section 4 — ABAC Policy & Role Enforcement
+
+**Goal:** Verify each role's access matrix (Phase 4) is correctly enforced.
+
+### 4.1 pgTAP ABAC Suite
+
+```powershell
+Get-Content supabase/tests/cad_abac_and_clinical.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+```
+
+**Expected:** All tests pass.
+
+### 4.2 Role-by-Role Access Matrix
+
+For each role below, sign in via CAD UI and verify the listed behavior.
+
+#### `writing_clinician`
+
+| Action | Expected |
+|---|---|
+| Read own patients | ✅ |
+| Write clinical record for own patient | ✅ |
+| Read another clinician's patient | ❌ 0 rows |
+| Access `commercial.orders` | ❌ Permission denied |
+
+#### `viewing_dietician`
+
+| Action | Expected |
+|---|---|
+| Read assigned patients | ✅ |
+| Write clinical record | ❌ RLS / permission denied |
+| Read DPT nutritional thresholds | ✅ |
+
+#### `tenant_admin`
+
+| Action | Expected |
+|---|---|
+| Provision new tenant member | ✅ |
+| Write clinical record | ❌ |
+| Read `audit.ledger` (own tenant) | ✅ metadata only |
+
+#### `compliance_auditor` (tenant scope)
+
+```sql
+SELECT set_config('request.jwt.claims', json_build_object(
+  'tenant_id', '11111111-1111-1111-1111-111111111111',
+  'app_role', 'compliance_auditor',
+  'audit_scope', 'tenant'
+)::text, true);
+SET ROLE authenticated;
+
+-- Must read own chain only
+SELECT COUNT(*) FROM audit.ledger WHERE tenant_id = '11111111-1111-1111-1111-111111111111';
+-- Must NOT read cross-tenant
+SELECT COUNT(*) FROM audit.ledger WHERE tenant_id = '22222222-2222-2222-2222-222222222222';
+```
+
+**Expected:** First query > 0, second query = 0.
+
+#### `compliance_auditor` (platform scope)
+
+```sql
+SELECT set_config('request.jwt.claims', json_build_object(
+  'app_role', 'compliance_auditor',
+  'audit_scope', 'platform'
+)::text, true);
+SET ROLE authenticated;
+
+SELECT COUNT(*) FROM audit.v_ledger_platform;
+```
+
+**Expected:** Row count spanning multiple tenants.
+
+#### `commercial_stakeholder`
+
+| View | Expected |
+|---|---|
+| `v_orders_tracking` | ✅ (no `shopper_alias` column) |
+| `v_sku_demand` | ✅ (suppressed below k=5) |
+| `clinical.patients` | ❌ 0 rows |
+
+#### `patient`
+
+```sql
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', '<patient-user-id>',
+  'tenant_id', '11111111-1111-1111-1111-111111111111',
+  'app_role', 'patient'
+)::text, true);
+SET ROLE authenticated;
+
+SELECT COUNT(*) FROM clinical.patients;          -- must be exactly 1 (own row)
+SELECT COUNT(*) FROM clinical.clinical_records;  -- must be own records only
+```
+
+### 4.3 Grant Matrix pgTAP Suite
+
+```powershell
+Get-Content supabase/tests/cad_grant_matrix_lifecycle.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+```
+
+**Expected:** All tests pass.
+
+---
+
+## Section 5 — Clinical Data Flows & Field-Level Encryption
+
+**Goal:** Verify Phase 6 field encryption — PHI is stored as `bytea`, never plaintext.
+
+### 5.1 Create a Patient Record (via UI)
+
+1. Sign in as `writing_clinician`
+2. Create a new patient through the CAD UI form
+3. Submit and note the patient UUID from the response
+
+### 5.2 Verify Encrypted Storage in Studio
+
+Open Supabase Studio → **Table Editor** → `clinical.patients`:
+
+| Column | Expected type | Expected value |
+|---|---|---|
+| `full_name_enc` | `bytea` | Binary blob (not a readable name) |
+| `dob_enc` | `bytea` | Binary blob |
+
+> [!CAUTION]
+> If `full_name_enc` shows a plaintext name string, field encryption is broken. Stop testing and investigate Phase 6 migration.
+
+### 5.3 Phase 6 Canary — Zero Plaintext Leaks
+
+```powershell
+node scripts/verify-phase6-canary.mjs
+```
+
+**Expected:** `0 plaintext PHI fields found in pg_dump output`.
+
+### 5.4 Cross-Row Ciphertext Isolation (AAD Binding)
+
+```sql
+-- Get two patient rows from different patients
+SELECT id, full_name_enc FROM clinical.patients LIMIT 2;
+```
+
+The ciphertext blobs are bound to their row's `patient_id` via Additional Authenticated Data (AAD). Swapping ciphertext between rows will cause decryption to fail — this is tested in the pgTAP suite:
+
+```powershell
+Get-Content supabase/tests/cad_field_encryption_and_projection.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+```
+
+**Expected:** All tests pass, including AAD tamper detection.
+
+### 5.5 Crypto-Shredding Test
+
+```sql
+-- Record patient ID before shredding
+-- Then trigger crypto-shred (DEK deletion):
+SELECT clinical.crypto_shred_patient('<patient-uuid>');
+```
+
+After shredding:
+
+```sql
+-- Key must be deleted
+SELECT COUNT(*) FROM clinical.patient_dek_registry
+WHERE patient_id = '<patient-uuid>';
+-- → 0
+
+-- Ciphertext row must still exist (but unreadable)
+SELECT COUNT(*) FROM clinical.patients WHERE id = '<patient-uuid>';
+-- → 1 (row preserved, ciphertext permanently unreadable)
+```
+
+> [!NOTE]
+> Crypto-shredding is irreversible. Use a test patient created specifically for this check.
+
+---
+
+## Section 6 — Break-Glass Workflow
+
+**Goal:** Verify Phase 4 emergency access grants are logged immediately and expire correctly.
+
+### 6.1 Access Denied Without Grant
+
+```sql
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', '<clinician-without-assignment>',
+  'tenant_id', '11111111-1111-1111-1111-111111111111',
+  'app_role', 'writing_clinician'
+)::text, true);
+
+-- Attempt to read a patient not assigned to this clinician
+SELECT * FROM clinical.patients WHERE id = '<restricted-patient-uuid>';
+```
+
+**Expected:** 0 rows returned (RLS enforced).
+
+### 6.2 Create Emergency Grant
+
+```sql
+-- As the treating clinician (or tenant_admin):
+INSERT INTO clinical.break_glass_grants (
+  clinician_id, patient_id, tenant_id,
+  granted_by, reason, expires_at
+) VALUES (
+  '<clinician-uuid>',
+  '<restricted-patient-uuid>',
+  '11111111-1111-1111-1111-111111111111',
+  '<admin-uuid>',
+  'Emergency: patient presented unconscious',
+  NOW() + INTERVAL '24 hours'
+);
+```
+
+### 6.3 Access Succeeds Within Grant Window
+
+Re-run the query from 6.1 — **Expected:** Patient row is returned.
+
+### 6.4 Audit Ledger Entry Appears Immediately
+
+```sql
+SELECT action, actor_id, patient_id, created_at
+FROM audit.ledger
+WHERE action = 'BREAK_GLASS_ACCESS'
+  AND patient_id = '<restricted-patient-uuid>'
+ORDER BY created_at DESC
+LIMIT 1;
+```
+
+**Expected:** Row exists with `created_at` within the last 60 seconds.
+
+### 6.5 Grant Expiry
+
+```sql
+-- Simulate expiry by back-dating the grant
+UPDATE clinical.break_glass_grants
+SET expires_at = NOW() - INTERVAL '1 second'
+WHERE patient_id = '<restricted-patient-uuid>';
+```
+
+Re-run the patient query — **Expected:** 0 rows (grant expired).
+
+---
+
+## Section 7 — WORM Audit Ledger
+
+**Goal:** Verify Phase 5 hash-chained signed ledger is tamper-evident and trigger-protected.
+
+### 7.1 Verify All Audit Chains
+
+```powershell
+node scripts/verify-audit-chain.mjs
+```
+
+**Expected:** All 6 audit chains verified. Zero hash mismatches.
+
+### 7.2 Tamper Attempt — UPDATE Must Fail
+
+Open Supabase Studio → SQL Editor:
+
+```sql
+-- Attempt to tamper with an existing ledger entry
+UPDATE audit.ledger SET action = 'HACKED_ACTION' WHERE seq = 1;
+```
+
+**Expected:** `ERROR: audit ledger is append-only (WORM protection)` (trigger fires, update rejected).
+
+### 7.3 Tamper Attempt — DELETE Must Fail
+
+```sql
+DELETE FROM audit.ledger WHERE seq = 1;
+```
+
+**Expected:** `ERROR: audit ledger rows cannot be deleted` (trigger fires, delete rejected).
+
+### 7.4 Merkle Checkpoint Verification
+
+```sql
+SELECT id, chain_id, checkpoint_at, merkle_root, seq_start, seq_end
+FROM audit.checkpoints
+ORDER BY checkpoint_at DESC
+LIMIT 5;
+```
+
+**Expected:** Rows exist with non-null `merkle_root` values.
+
+### 7.5 pgTAP WORM Ledger Suite
+
+```powershell
+Get-Content supabase/tests/cad_worm_ledger.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+```
+
+**Expected:** All tests pass.
+
+### 7.6 Platform Auditor View Restriction
+
+```sql
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'app_role', 'compliance_auditor',
+  'audit_scope', 'tenant'  -- NOT platform
+)::text, true);
+
+SELECT COUNT(*) FROM audit.v_ledger_platform;
+```
+
+**Expected:** 0 rows or permission denied (tenant-scope auditor cannot read cross-tenant view).
+
+---
+
+## Section 8 — Exchange Service & Dietary Profile Token (DPT)
+
+**Goal:** Verify Phase 7 DPT exchange issues privacy-preserving tokens with no condition names or PHI.
+
+### 8.1 DPoP Key Pair Is Memory-Only
+
+1. Sign in as `patient` role in CAD UI
+2. Navigate to "Shop with my plan" (DPT exchange flow)
+3. Open DevTools → **Application** tab → **Storage**:
+   - `localStorage` → must contain **no** DPoP private key material
+   - `IndexedDB` → must contain **no** DPoP private key material
+4. DevTools → **Memory** tab → Take heap snapshot → Search for `dpop` → Key material exists in heap only (ephemeral)
+
+### 8.2 DPT Token Claims Verification
+
+1. DevTools → **Network** tab → find `exchange-token` Edge Function call
+2. Copy `access_token` from response → decode:
+
+```powershell
+node -e "
+const token = '<paste-token-here>';
+const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+console.log(JSON.stringify(payload, null, 2));
+"
+```
+
+**Required claims (allowlist only):**
+
+| Claim | Description |
+|---|---|
+| `carbs_g_100g_max` | Carbohydrate threshold |
+| `sugars_g_100g_max` | Sugar threshold |
+| `sodium_mg_100g_max` | Sodium threshold |
+| `satfat_g_100g_max` | Saturated fat threshold |
+| `energy_kcal_100g_max` | Energy threshold |
+| `fibre_g_100g_min` | Fibre minimum |
+
+**Forbidden content — must be absent:**
+
+```powershell
+# Grep decoded token for condition names
+node -e "
+const token = '<paste-token-here>';
+const payload = Buffer.from(token.split('.')[1], 'base64').toString();
+['diabetic_friendly','renal_safe','low_potassium','diagnosis','health_mode'].forEach(k => {
+  if (payload.includes(k)) console.error('FAIL: found forbidden key:', k);
+  else console.log('OK: absent:', k);
+});
+"
+```
+
+**Expected:** All 5 checks print `OK: absent:`.
+
+### 8.3 DPoP Proof Replay Rejection
+
+Submit the same DPoP-signed request twice using the same `jti`:
+
+```powershell
+# Use the exchange endpoint directly
+$dpopProof = "<your-dpop-proof-with-same-jti>"
+$headers = @{ "DPoP" = $dpopProof; "Authorization" = "Bearer <access-token>" }
+
+Invoke-RestMethod -Uri "http://localhost:54321/functions/v1/exchange-token" -Headers $headers
+# First call → 200 OK
+
+Invoke-RestMethod -Uri "http://localhost:54321/functions/v1/exchange-token" -Headers $headers
+# Second call → must be 401 DPOP_REPLAY or 400
+```
+
+**Expected:** Second call rejected.
+
+### 8.4 Leak Proof Verification
+
+```powershell
+node scripts/check-leak-proofs.mjs
+```
+
+**Expected:** `5/5 steps pass`.
+
+### 8.5 pgTAP Exchange & DPT Suite
+
+```powershell
+Get-Content supabase/tests/cad_exchange_and_dpt.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+```
+
+**Expected:** All tests pass.
+
+---
+
+## Section 9 — Commercial Overlay & Extension Scoring
+
+**Goal:** Verify Phase 8 scoring overlay renders correctly on retailer pages with no PHI leakage.
+
+### 9.1 Load a Supported Grocery Site
+
+1. In Chrome (with extension loaded), navigate to one of:
+   - `https://www.naivas.online/` (Naivas Kenya)
+   - `https://www.carrefour.ke/` (Carrefour Kenya)
+   - `https://www.quickmart.co.ke/` (Quickmart Kenya)
+2. Browse to a product category page
+3. **Expected:** NUT-04 scoring overlay badges appear on product cards
+
+### 9.2 Zero PHI to Retailer — Network Verification
+
+1. DevTools → **Network** tab → filter by the retailer's domain
+2. Inspect all outbound requests from the extension content script
+3. **Expected:** No requests contain:
+   - Patient name, DOB, or any `clinical.*` data
+   - DPT raw nutritional thresholds (only scoring result transmitted, not the threshold values)
+   - Any `tenant_id` or `patient_id` values
+
+### 9.3 Observed Order Sync
+
+After adding an item to a retailer cart:
+
+```sql
+SELECT source, epoch, idempotency_key, shopper_alias
+FROM commercial.orders
+WHERE source = 'extension_observed'
+ORDER BY epoch DESC
+LIMIT 5;
+```
+
+**Expected:** Row exists with `source = 'extension_observed'` and `shopper_alias` as an opaque `bytea` (not a real name).
+
+### 9.4 `v_orders_tracking` — No `shopper_alias` Column
+
+```sql
+SELECT column_name FROM information_schema.columns
+WHERE table_schema = 'commercial'
+  AND table_name = 'v_orders_tracking';
+```
+
+**Expected:** `shopper_alias` is **NOT** in the result set.
+
+### 9.5 `v_sku_demand` k-Anonymity Suppression
+
+```sql
+-- This view suppresses any SKU with fewer than 5 distinct shoppers
+SELECT * FROM commercial.v_sku_demand LIMIT 10;
+```
+
+Verify the underlying HAVING clause:
+
+```sql
+SELECT pg_get_viewdef('commercial.v_sku_demand'::regclass, true);
+```
+
+**Expected:** Output contains `HAVING count(DISTINCT shopper_alias) >= 5`.
+
+### 9.6 Commercial Overlay Script Verification
+
+```powershell
+node scripts/check-commercial-overlay.mjs
+```
+
+**Expected:** `4/4 steps pass`.
+
+### 9.7 pgTAP Commercial Overlay Suite
+
+```powershell
+Get-Content supabase/tests/cad_commercial_overlay.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+```
+
+**Expected:** 15/15 tests pass.
+
+---
+
+## Section 10 — Consent & DPT Revocation
+
+**Goal:** Verify that withdrawing consent immediately invalidates active DPTs.
+
+### 10.1 Withdraw Dietary Profile Sharing Consent
+
+```sql
+-- Update patient consent record
+UPDATE clinical.patient_consents
+SET dietary_profile_sharing = false,
+    updated_at = NOW()
+WHERE patient_id = '<test-patient-uuid>';
+```
+
+### 10.2 Verify DPT Revocation Record
+
+```sql
+SELECT token_id, revoked_at, reason
+FROM exchange.token_revocations
+WHERE patient_id = '<test-patient-uuid>'
+ORDER BY revoked_at DESC;
+```
+
+**Expected:** At least one row with `reason = 'CONSENT_WITHDRAWN'`.
+
+### 10.3 Revoked DPT Must Be Rejected
+
+Attempt to use the previously-issued DPT at the observed orders endpoint:
+
+```powershell
+$revokedToken = "<old-dpt-access-token>"
+Invoke-RestMethod `
+  -Uri "http://localhost:54321/functions/v1/observed-orders" `
+  -Headers @{ Authorization = "Bearer $revokedToken" }
+```
+
+**Expected:** HTTP 401 with body containing `TOKEN_REVOKED`.
+
+### 10.4 Revocation Audit Event
+
+```sql
+SELECT action, actor_id, patient_id, created_at
+FROM audit.ledger
+WHERE action = 'DPT_REVOKED'
+  AND patient_id = '<test-patient-uuid>'
+ORDER BY created_at DESC LIMIT 1;
+```
+
+**Expected:** Row exists within the last 60 seconds.
+
+### 10.5 pgTAP Claims & Revocation Suite
+
+```powershell
+Get-Content supabase/tests/cad_claims_and_revocation.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+```
+
+**Expected:** All tests pass.
+
+---
+
+## Section 11 — Data Subject Rights Workflows
+
+**Goal:** Verify Phase 9 patient export, restriction, and rectification workflows (GDPR/DPA compliant).
+
+### 11.1 Patient Data Export (Right to Portability)
+
+```powershell
+# Export and verify signature
+node -e "
+const { exportPatientData } = require('./dist/shared/patient-export.js');
+exportPatientData('<test-patient-uuid>').then(bundle => {
+  console.log('SHA-256 digest:', bundle.digest);
+  console.log('Ed25519 signature present:', !!bundle.signature);
+  console.log('Export size (bytes):', JSON.stringify(bundle).length);
+});
+"
+```
+
+**Expected:** Bundle contains `digest` (SHA-256 hex), `signature` (Ed25519 base64), and patient data.
+
+Alternatively, test via the UI export button in the CAD dashboard for the patient role.
+
+### 11.2 Processing Restriction (Right to Restrict)
+
+```sql
+SELECT clinical.set_patient_restriction('<test-patient-uuid>', true, 'User requested restriction');
+```
+
+Verify:
+
+```sql
+SELECT restricted, restriction_reason
+FROM clinical.patients
+WHERE id = '<test-patient-uuid>';
+```
+
+**Expected:** `restricted = true`.
+
+Check audit ledger:
+
+```sql
+SELECT action FROM audit.ledger
+WHERE action = 'RESTRICT_PROCESSING' AND patient_id = '<test-patient-uuid>'
+ORDER BY created_at DESC LIMIT 1;
+```
+
+**Expected:** Row exists.
+
+### 11.3 Record Rectification (Right to Rectification)
+
+```sql
+-- Rectify an existing clinical record (creates v2, preserves v1)
+SELECT clinical.rectify_clinical_record(
+  '<existing-record-uuid>',
+  '<corrected-body-enc-bytea>',
+  'Correction: initial transcription error'
+);
+```
+
+Verify version chain:
+
+```sql
+-- Original record preserved
+SELECT id, supersedes_id, version FROM clinical.clinical_records
+WHERE id = '<existing-record-uuid>';
+-- → supersedes_id = NULL, version = 1
+
+-- New record supersedes original
+SELECT id, supersedes_id, version FROM clinical.clinical_records
+WHERE supersedes_id = '<existing-record-uuid>';
+-- → supersedes_id = '<existing-record-uuid>', version = 2
+```
+
+**Expected:** Two rows — original untouched, new version with `supersedes_id` pointing to original.
+
+---
+
+## Section 12 — Retention Purge Engine
+
+**Goal:** Verify Phase 9 retention purge respects legal holds and logs all decisions.
+
+### 12.1 Dry-Run Purge (Safe)
+
+```powershell
+node scripts/purge-retention.mjs --dry-run
+```
+
+**Expected:**
+- Script exits 0
+- `RETENTION_PURGE_PLAN` event appears in `audit.ledger`
+- No rows actually deleted
+
+### 12.2 Fail-Safe: Missing `retain_years` Blocks Purge
+
+```sql
+-- Attempt purge on a class without retain_years configured
+-- (clinical_records class has NULL retain_years by design as a safety net)
+SELECT purge_class FROM retention.purge_config WHERE retain_years IS NULL;
+```
+
+Run purge targeting that class:
+
+```powershell
+node scripts/purge-retention.mjs --class=clinical_records
+```
+
+**Expected:** Script throws `FAIL_SAFE: retain_years is NULL for class clinical_records`.
+
+### 12.3 Legal Hold Blocks Purge
+
+```sql
+-- Set legal hold on a patient
+UPDATE clinical.patients SET legal_hold = true WHERE id = '<test-patient-uuid>';
+```
+
+```powershell
+node scripts/purge-retention.mjs --patient=<test-patient-uuid>
+```
+
+**Expected:** Output contains `BLOCKED: legal_hold active for patient <uuid>`. No rows deleted.
+
+### 12.4 pgTAP Retention & Rights Suite
+
+```powershell
+Get-Content supabase/tests/cad_retention_and_rights.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+```
+
+**Expected:** 18/18 tests pass.
+
+---
+
+## Section 13 — Release Gate & Compliance Artifacts
+
+**Goal:** Verify Phase 10 compliance artifacts are present and release gate correctly blocks launch.
+
+### 13.1 Release Gate — Expected Exit Code 1
+
+```powershell
+npm run release:check
+```
+
+**Expected:** Exit code 1 with messages indicating:
+- DPIA not yet signed off by DPO/counsel
+- `compliance/launch.json` has null/pending values
+- Release is intentionally blocked until legal sign-off
+
+> [!NOTE]
+> Exit code 1 here is the **correct behavior** — the gate is designed to block until all compliance fields in `launch.json` are filled by an authorized human reviewer.
+
+### 13.2 DPIA Document Check
+
+```powershell
+Test-Path "docs\compliance\dpia\DPIA-draft.md"
+Get-Content "docs\compliance\dpia\DPIA-draft.md" | Select-Object -First 30
+```
+
+**Expected:** File exists and contains structured DPIA sections (Processing Activities, Risk Assessment, Mitigations, Residual Risk).
+
+### 13.3 Launch Manifest Inspection
+
+```powershell
+Get-Content "compliance\launch.json" | ConvertFrom-Json
+```
+
+**Expected:** JSON object with fields like `dpia_approved`, `counsel_sign_off`, `dpo_review` — all `null` or `false` (pending). This is correct for pre-launch state.
+
+### 13.4 Breach Runbook Presence
+
+```powershell
+Test-Path "docs\compliance\BREACH_RUNBOOK.md"
+```
+
+**Expected:** `True`.
+
+### 13.5 Hosted Supabase Checklist
+
+```powershell
+Test-Path "Reports\HOSTED_SUPABASE_CHECKLIST.md"
+Get-Content "Reports\HOSTED_SUPABASE_CHECKLIST.md" | Measure-Object -Line
+```
+
+**Expected:** File exists with > 50 lines of checklist items.
+
+---
+
+## Section 14 — End-to-End Security Scan
+
+**Goal:** Run all automated security gates together as a final sweep.
+
+### 14.1 Full Security Gate Suite
+
+```powershell
+# Gate 1: RLS coverage (29 relations)
+npm run check:rls
+
+# Gate 2: CAD security invariants
+npm run check:cad-security
+
+# Gate 3: Extension manifest (no global leaks)
+npm run check:manifest
+
+# Gate 4: No secrets tracked in repo
+node scripts/check-no-secrets-tracked.mjs
+
+# Gate 5: All audit chains valid
+node scripts/verify-audit-chain.mjs
+
+# Gate 6: Phase 6 zero plaintext PHI
+node scripts/verify-phase6-canary.mjs
+
+# Gate 7: Leak proofs (5/5)
+node scripts/check-leak-proofs.mjs
+
+# Gate 8: Commercial overlay (4/4)
+node scripts/check-commercial-overlay.mjs
+
+# Gate 9: Purge mock users (should be 0 remaining after purge)
+node scripts/purge-mocks.mjs
 node scripts/purge-mocks.mjs --check-clean
 ```
 
-**Expected output:**
-```text
-[purge-mocks] Connecting to Supabase at: https://nqcpudpkrkutpxuqpsfk.supabase.co
-[purge-mocks] Running CI Release Gate Check (--check-clean)...
-✅ CI RELEASE GATE PASSED: Zero mock users or mock tenant records found.
+### 14.2 Expected Results Summary
+
+| Gate | Command | Expected |
+|---|---|---|
+| RLS | `check:rls` | 29 relations covered |
+| Security | `check:cad-security` | 0 errors |
+| Manifest | `check:manifest` | 0 global leaks |
+| Secrets | `check-no-secrets-tracked.mjs` | 0 secrets |
+| Audit chains | `verify-audit-chain.mjs` | 6/6 valid |
+| Phase 6 PHI | `verify-phase6-canary.mjs` | 0 plaintext |
+| Leak proofs | `check-leak-proofs.mjs` | 5/5 pass |
+| Commercial | `check-commercial-overlay.mjs` | 4/4 pass |
+| Mock cleanup | `purge-mocks.mjs --check-clean` | 0 mock users |
+
+### 14.3 Full pgTAP Suite — All Nine Files
+
+Run all pgTAP suites in sequence to confirm every DB-layer invariant:
+
+```powershell
+$suites = @(
+  "cad_tenant_wall.sql",
+  "cad_claims_and_revocation.sql",
+  "cad_grant_matrix_lifecycle.sql",
+  "cad_abac_and_clinical.sql",
+  "cad_worm_ledger.sql",
+  "cad_field_encryption_and_projection.sql",
+  "cad_exchange_and_dpt.sql",
+  "cad_commercial_overlay.sql",
+  "cad_retention_and_rights.sql"
+)
+
+foreach ($suite in $suites) {
+  Write-Host "`n=== Running $suite ===" -ForegroundColor Cyan
+  Get-Content "supabase/tests/$suite" | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+}
+```
+
+**Expected:** Zero `not ok` lines across all nine suites.
+
+---
+
+## Section 15 — Post-Test Cleanup
+
+> [!CAUTION]
+> Run this section after completing all tests. Do **not** skip the mock purge — mock accounts must not persist in any environment.
+
+```powershell
+# 1. Purge all mock test users
+node scripts/purge-mocks.mjs
+
+# 2. Confirm zero mock users remain
+node scripts/purge-mocks.mjs --check-clean
+
+# 3. Unload the extension (optional, but recommended)
+# chrome://extensions → Remove the NUT-04 extension card
+
+# 4. Confirm no plaintext PHI introduced during testing
+node scripts/verify-phase6-canary.mjs
 ```
 
 ---
 
-## 11. Summary Checklist for QA & Deployment Verification
+## Appendix A — Key File Reference
 
-- [ ] Extension loaded unpacked from `dist/` without manifest errors.
-- [ ] CAD accessed via `chrome-extension://<id>/cad.html` or `http://localhost:5173/cad.html`.
-- [ ] Privileged roles challenge for MFA before accessing clinical views.
-- [ ] Legacy unprovisioned accounts are rejected with sanitized `"Invalid login credentials"` error.
-- [ ] Mock users seeded cleanly via `npm run seed:mocks` and `.mock-credentials.json` remains git-ignored.
-- [ ] Patient 1 forces password reset on first login and passes Version 2.0 Consent Gate.
-- [ ] Options page reflects read-only "My Care Profile" with clinician name and prescribed rules.
-- [ ] Retailer badges on Naivas, Carrefour, and Quickmart render medical warning alerts without premium upgrade prompts.
-- [ ] `npm run purge:mocks` purges all `.test` records and `--check-clean` passes.
-- [ ] Hosted Supabase migrations 20261029040000 through 20261029060000 applied in numerical sequence.
-- [ ] Google OAuth and public signup toggled OFF in Supabase Auth Console.
-- [ ] `admin-provision-user` Edge Function deployed with `verify_jwt = true`.
-- [ ] Platform Super Admin bootstrapped and MFA enrolled.
-- [ ] All 16 tenant-scoped tables pass RLS audit (`npm run check:rls`).
-- [ ] All 450 unit and integration tests pass cleanly (`npm test`).
+| File | Purpose |
+|---|---|
+| [`scripts/seed-mock-users.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/seed-mock-users.mjs) | Seeds one account per role for testing |
+| [`scripts/purge-mocks.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/purge-mocks.mjs) | Removes all mock accounts; `--check-clean` asserts zero |
+| [`scripts/verify-audit-chain.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/verify-audit-chain.mjs) | Verifies hash-chain integrity across all 6 audit chains |
+| [`scripts/verify-phase6-canary.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/verify-phase6-canary.mjs) | Scans pg_dump for plaintext PHI fields |
+| [`scripts/check-leak-proofs.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/check-leak-proofs.mjs) | 5-step DPT privacy leak proof |
+| [`scripts/check-commercial-overlay.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/check-commercial-overlay.mjs) | Commercial overlay invariants (4 steps) |
+| [`scripts/purge-retention.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/purge-retention.mjs) | Retention purge engine (supports `--dry-run`) |
+| [`scripts/release-gate.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/release-gate.mjs) | Compliance release gate (blocks until counsel sign-off) |
+| [`src/shared/patient-export.ts`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/src/shared/patient-export.ts) | Patient data export with SHA-256 + Ed25519 signature |
+| [`compliance/launch.json`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/compliance/launch.json) | Compliance launch manifest (DPO/counsel fields) |
+| [`docs/compliance/dpia/DPIA-draft.md`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/docs/compliance/dpia/DPIA-draft.md) | DPIA draft document |
+| [`docs/compliance/BREACH_RUNBOOK.md`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/docs/compliance/BREACH_RUNBOOK.md) | Data breach response runbook |
+| [`Reports/CAD_BACKEND_FINAL_REPORT.md`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/Reports/CAD_BACKEND_FINAL_REPORT.md) | Full implementation report (Phases 0–10) |
 
+---
 
+## Appendix B — Critical Security Invariants Checklist
+
+These are the hard invariants that must hold at all times. Each is tested in this guide.
+
+- [ ] **S1** Cross-tenant query returns exactly 0 rows (Sections 3.2, 3.4)
+- [ ] **S2** No `callerRank` or numeric rank comparisons anywhere (Section 2.3 via `check:cad-security`)
+- [ ] **S3** Single `BAN_UNTIL_ISO` constant used for all bans (Section 2.3)
+- [ ] **S4** DPT contains no condition names (`diabetic_friendly`, `renal_safe`, `low_potassium`) (Section 8.2)
+- [ ] **S5** `v_orders_tracking` has no `shopper_alias` column (Section 9.4)
+- [ ] **S6** `v_sku_demand` suppresses below k=5 distinct shoppers (Section 9.5)
+- [ ] **S7** WORM ledger rejects UPDATE and DELETE (Sections 7.2, 7.3)
+- [ ] **S8** Crypto-shredded patient data is permanently unreadable (Section 5.5)
+- [ ] **S9** Break-glass access is immediately recorded in `audit.ledger` (Section 6.4)
+- [ ] **S10** DPoP proof replay is rejected (Section 8.3)
+- [ ] **S11** No DPoP key material persists to IndexedDB or localStorage (Section 8.1)
+- [ ] **S12** Extension transmits no PHI to retailer domains (Section 9.2)
+- [ ] **S13** Revoked DPT returns `TOKEN_REVOKED` 401 (Section 10.3)
+- [ ] **S14** Legal hold blocks retention purge (Section 12.3)
+- [ ] **S15** Release gate blocks launch without counsel sign-off (Section 13.1)
+
+---
+
+## Appendix C — Test Tenant UUIDs
+
+| Tenant | UUID |
+|---|---|
+| Test Tenant 1 | `11111111-1111-1111-1111-111111111111` |
+| Test Tenant 2 | `22222222-2222-2222-2222-222222222222` |
+
+---
+
+*Generated for NUT-04 Checkout Tool — CAD Backend Blueprint v1.0 — Branch `feat/cad-backend-blueprint`*
+*Last updated: 2026-11-03*

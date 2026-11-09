@@ -14,13 +14,14 @@ const ROOT = process.cwd().replace(/[/\\]src[/\\]ui$/, '')
 const MIGRATIONS_DIR = join(ROOT, 'supabase', 'migrations')
 
 describe('T10: Cross-Tenant Isolation & JWT Claim Tamper Protection', () => {
-  it('extractClaims extracts tenant_id, role, and licence_verified from valid Bearer JWT', () => {
+  it('extractClaims maps Supabase claim aliases to the canonical contract', () => {
     const payload = {
       sub: 'user-clinician-123',
       tenant_id: '11111111-1111-1111-1111-111111111111',
-      role: 'writing_clinician',
-      licence_verified: true,
-      email: 'dr.omondi@knh.or.ke',
+      app_role: 'writing_clinician',
+      lic_ok: true,
+      session_id: 'session-clinician-123',
+      ver: 1,
     }
     const token = 'header.' + btoa(JSON.stringify(payload)) + '.signature'
     const req = new Request('https://admin.nutriscore.co.ke/api/targets', {
@@ -29,10 +30,11 @@ describe('T10: Cross-Tenant Isolation & JWT Claim Tamper Protection', () => {
 
     const claims = extractClaims(req)
     expect(claims).not.toBeNull()
-    expect(claims?.userId).toBe('user-clinician-123')
+    expect(claims?.sub).toBe('user-clinician-123')
     expect(claims?.tenantId).toBe('11111111-1111-1111-1111-111111111111')
-    expect(claims?.role).toBe('writing_clinician')
-    expect(claims?.licenceVerified).toBe(true)
+    expect(claims?.appRole).toBe('writing_clinician')
+    expect(claims?.licOk).toBe(true)
+    expect(claims?.sid).toBe('session-clinician-123')
   })
 
   it('rejects tampered or malformed Authorization header with 401 unauthorized', () => {
@@ -77,7 +79,10 @@ describe('T12: RBAC Role Matrix & Direct API Breach Guard', () => {
     const dieticianPayload = {
       sub: 'user-dietician-456',
       tenant_id: '11111111-1111-1111-1111-111111111111',
-      role: 'viewing_dietician',
+      app_role: 'viewing_dietician',
+      sid: 'session-dietician-456',
+      lic_ok: false,
+      ver: 1,
     }
     const token = 'header.' + btoa(JSON.stringify(dieticianPayload)) + '.sig'
     const req = new Request('https://admin.nutriscore.co.ke/api/targets', {
@@ -91,7 +96,7 @@ describe('T12: RBAC Role Matrix & Direct API Breach Guard', () => {
       expect(res.errorResponse.status).toBe(403)
       const body = await res.errorResponse.json()
       expect(body.error).toBe('forbidden')
-      expect(body.message).toContain("Role 'viewing_dietician' is not authorized")
+      expect(body.message).toBe('Forbidden')
     }
   })
 
@@ -99,8 +104,10 @@ describe('T12: RBAC Role Matrix & Direct API Breach Guard', () => {
     const unverifiedClinician = {
       sub: 'user-clinician-789',
       tenant_id: '11111111-1111-1111-1111-111111111111',
-      role: 'writing_clinician',
-      licence_verified: false,
+      app_role: 'writing_clinician',
+      sid: 'session-clinician-789',
+      lic_ok: false,
+      ver: 1,
     }
     const token = 'header.' + btoa(JSON.stringify(unverifiedClinician)) + '.sig'
     const req = new Request('https://admin.nutriscore.co.ke/api/targets/critical', {
@@ -113,7 +120,7 @@ describe('T12: RBAC Role Matrix & Direct API Breach Guard', () => {
     if ('errorResponse' in res) {
       expect(res.errorResponse.status).toBe(403)
       const body = await res.errorResponse.json()
-      expect(body.error).toBe('licence_unverified')
+      expect(body.error).toBe('forbidden')
     }
   })
 
@@ -121,8 +128,10 @@ describe('T12: RBAC Role Matrix & Direct API Breach Guard', () => {
     const verifiedClinician = {
       sub: 'user-clinician-001',
       tenant_id: '11111111-1111-1111-1111-111111111111',
-      role: 'writing_clinician',
-      licence_verified: true,
+      app_role: 'writing_clinician',
+      sid: 'session-clinician-001',
+      lic_ok: true,
+      ver: 1,
     }
     const token = 'header.' + btoa(JSON.stringify(verifiedClinician)) + '.sig'
     const req = new Request('https://admin.nutriscore.co.ke/api/targets', {
@@ -165,7 +174,10 @@ describe('T13: Small-Cell Privacy Suppression (Commercial Stakeholder Guard)', (
   it('commercial_stakeholder role cannot access patient-level target records', () => {
     const commercialUser = {
       sub: 'usr-commercial-99',
-      role: 'commercial_stakeholder',
+      app_role: 'commercial_stakeholder',
+      sid: 'session-commercial-99',
+      lic_ok: false,
+      ver: 1,
     }
     const token = 'header.' + btoa(JSON.stringify(commercialUser)) + '.sig'
     const req = new Request('https://admin.nutriscore.co.ke/api/patient-records', {
@@ -234,49 +246,45 @@ describe('T15: Break-Glass Escalation Invariants', () => {
 })
 
 describe('Phase 2: RBAC Provisioning & Lifecycle Invariants', () => {
-  const ROLE_HIERARCHY: Record<string, number> = {
-    super_admin: 100,
-    tenant_admin: 80,
-    compliance_auditor: 70,
-    writing_clinician: 60,
-    viewing_dietician: 50,
-    commercial_stakeholder: 40,
-    patient: 10,
+  const grants = new Set([
+    'super_admin:tenant_admin:platform',
+    'super_admin:compliance_auditor:platform',
+    'super_admin:commercial_stakeholder:platform',
+    'tenant_admin:writing_clinician:tenant',
+    'tenant_admin:viewing_dietician:tenant',
+    'tenant_admin:compliance_auditor:tenant',
+    'tenant_admin:patient:tenant',
+    'writing_clinician:patient:own_patients',
+  ])
+
+  const canProvisionRole = (callerRole: string, targetRole: string, scope: string): boolean => {
+    return grants.has(`${callerRole}:${targetRole}:${scope}`)
   }
 
-  const canProvisionRole = (callerRole: string, targetRole: string): boolean => {
-    if (targetRole === 'super_admin') return false // super_admin can never be provisioned via API
-    if (callerRole === 'writing_clinician' && targetRole !== 'patient') return false
-    const callerRank = ROLE_HIERARCHY[callerRole] ?? 0
-    const targetRank = ROLE_HIERARCHY[targetRole] ?? 0
-    return callerRank > targetRank
-  }
-
-  it('super_admin can provision tenant_admin, clinicians, and patients, but not super_admin', () => {
-    expect(canProvisionRole('super_admin', 'tenant_admin')).toBe(true)
-    expect(canProvisionRole('super_admin', 'writing_clinician')).toBe(true)
-    expect(canProvisionRole('super_admin', 'patient')).toBe(true)
-    expect(canProvisionRole('super_admin', 'super_admin')).toBe(false) // cannot create equal or superior
+  it('super_admin provisions only platform-granted tenant, regulator, and partner roles', () => {
+    expect(canProvisionRole('super_admin', 'tenant_admin', 'platform')).toBe(true)
+    expect(canProvisionRole('super_admin', 'compliance_auditor', 'platform')).toBe(true)
+    expect(canProvisionRole('super_admin', 'commercial_stakeholder', 'platform')).toBe(true)
+    expect(canProvisionRole('super_admin', 'super_admin', 'platform')).toBe(false)
   })
 
-  it('tenant_admin can provision writing_clinician, viewing_dietician, and patient, but NOT tenant_admin or super_admin', () => {
-    expect(canProvisionRole('tenant_admin', 'writing_clinician')).toBe(true)
-    expect(canProvisionRole('tenant_admin', 'viewing_dietician')).toBe(true)
-    expect(canProvisionRole('tenant_admin', 'patient')).toBe(true)
-    expect(canProvisionRole('tenant_admin', 'tenant_admin')).toBe(false) // equal rank prohibited
-    expect(canProvisionRole('tenant_admin', 'super_admin')).toBe(false) // privilege escalation prohibited
+  it('tenant_admin provisions only clinic roles and cannot provision a stakeholder', () => {
+    expect(canProvisionRole('tenant_admin', 'writing_clinician', 'tenant')).toBe(true)
+    expect(canProvisionRole('tenant_admin', 'viewing_dietician', 'tenant')).toBe(true)
+    expect(canProvisionRole('tenant_admin', 'patient', 'tenant')).toBe(true)
+    expect(canProvisionRole('tenant_admin', 'commercial_stakeholder', 'tenant')).toBe(false)
   })
 
   it('writing_clinician can only provision patients within their clinic', () => {
-    expect(canProvisionRole('writing_clinician', 'patient')).toBe(true)
-    expect(canProvisionRole('writing_clinician', 'viewing_dietician')).toBe(false)
-    expect(canProvisionRole('writing_clinician', 'writing_clinician')).toBe(false)
-    expect(canProvisionRole('writing_clinician', 'tenant_admin')).toBe(false)
+    expect(canProvisionRole('writing_clinician', 'patient', 'own_patients')).toBe(true)
+    expect(canProvisionRole('writing_clinician', 'viewing_dietician', 'tenant')).toBe(false)
+    expect(canProvisionRole('writing_clinician', 'writing_clinician', 'tenant')).toBe(false)
+    expect(canProvisionRole('writing_clinician', 'tenant_admin', 'tenant')).toBe(false)
   })
 
   it('patient cannot provision any user role', () => {
-    expect(canProvisionRole('patient', 'patient')).toBe(false)
-    expect(canProvisionRole('patient', 'writing_clinician')).toBe(false)
+    expect(canProvisionRole('patient', 'patient', 'tenant')).toBe(false)
+    expect(canProvisionRole('patient', 'writing_clinician', 'tenant')).toBe(false)
   })
 
   it('patient provisioning requires primary_clinician_id and tenant boundary matching', () => {
