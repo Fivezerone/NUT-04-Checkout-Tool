@@ -2,24 +2,22 @@
 
 Prepared for Kibet · NUT-04 · 31 October 2026
 
-Copy-ready prompt for the coding agent. Before you run it, export the blueprint doc as Markdown to `docs/blueprint/CAD_BACKEND_BLUEPRINT.md` in the repo. The prompt treats that file as the source of truth.
-
 ## 1. Role, authority and operating rules
 
-You are a Staff Security and Platform Engineer in the NUT-04 repository (NutriScore Checkout Tool: Manifest V3 Chrome extension, React/Vite UI, Supabase backend). Implement the **NutriScore CAD — Multi-Tenant Healthcare Backend Blueprint** end to end, applying the engineer decisions D1–D6 in section 2 and the amendments A1–A7 in section 3.
+You are a Staff Security and Platform Engineer in the NUT-04 repository (NutriScore Checkout Tool: Manifest V3 Chrome extension, React/Vite UI, Supabase backend). Implement the **NutriScore CAD — Multi-Tenant Healthcare Backend Blueprint** (NUT-04 Checkout Tool\Reports\NutriScore CAD — Multi-Tenant Healthcare Backend Blueprint)end to end, applying the engineer decisions D1–D6 in section 2 and the amendments A1–A7 in section 3.
 
 **Order of authority when sources conflict**
 
 1. The blueprint, plus amendments A1–A7 (they are part of it).
 2. Decisions D1–D6.
-3. `docs/IDENTITY_PROVISIONING_SOP.md` and `docs/CAD_ROLLBACK_FINAL_REPORT.md`, for existing behaviour.
+3. `NUT-04 Checkout Tool\Reports\IDENTITY_PROVISIONING_SOP.md` and `NUT-04 Checkout Tool\Reports\/CAD_ROLLBACK_FINAL_REPORT.md`, for existing behaviour.
 4. The current code.
 
 Where the blueprint and a decision differ, the blueprint wins; D1–D6 already say how. Record every deviation and every judgement call in `docs/BLUEPRINT_DEVIATIONS.md` with its reason. If the blueprint file is missing, stop and ask. Do not reconstruct it from memory.
 
 **Operating rules**
 
-1. Branch `feat/cad-backend-blueprint` from `feat/cad-only-identity` (or the main branch if that has merged). Tag the starting commit `pre-cad-backend-blueprint`.
+1. Branch `feat/cad-backend-blueprint` the main branch. Tag the starting commit `pre-cad-backend-blueprint`.
 2. One commit per phase (section 4), using the given message. Each phase ends with `npm test`, `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run check:rls` and `npm run build` all green. The passing-test count never drops below the 446 at the rollback baseline.
 3. **Never touch the hosted Supabase project** (`nqcpudpkrkutpxuqpsfk`). Local stack only. Anything that must run on hosted goes into the operational checklist (phase 10), never into a script you run.
 4. No hard deletes of clinical or audit data. No plaintext PHI in logs, snapshots, fixtures or error messages. No secrets in the repo; local keys come from `.env.local` (gitignored).
@@ -117,7 +115,7 @@ Implement DDL, policies, functions and flows exactly as the blueprint gives them
 
 ### Phase 0 — Inventory and gap analysis (read-only)
 
-- Produce `docs/BLUEPRINT_GAP_ANALYSIS.md`: every shipped object (tables, functions, triggers, policies, Edge Functions, scripts, UI routes, extension and mobile modules) mapped to its blueprint counterpart, with an action of keep, move, wrap, replace or retire. Start from blueprint 5.3.
+- Produce `NUT-04 Checkout Tool\Reports\BLUEPRINT_GAP_ANALYSIS.md`: every shipped object (tables, functions, triggers, policies, Edge Functions, scripts, UI routes, extension and mobile modules) mapped to its blueprint counterpart, with an action of keep, move, wrap, replace or retire. Start from blueprint 5.3.
 - Record the claim names the hook emits today; which UI and extension code reads each table directly (this decides what needs a compatibility view); whether the mobile companion app is in the repo; and the current RLS state of every table.
 - Commit: `docs(p0): blueprint gap analysis and migration map`. Report only if a section 6 trigger fires.
 
@@ -208,9 +206,9 @@ Implement DDL, policies, functions and flows exactly as the blueprint gives them
 Prepared, never deployed.
 
 - `infra/`: the blueprint Phase 2 manifests (Gateway, ClientTrafficPolicy, SecurityPolicy, BackendTrafficPolicy, NetworkPolicy, and the Linkerd Server, MeshTLSAuthentication and AuthorizationPolicy), the logical-replication publication DDL, and the Keycloak realm export and mapper config validated against `claims.schema.json`.
-- `docs/CUTOVER_RUNBOOK.md`: split-by-schema procedure, the identity switch (config-only for clients), validation steps and rollback per wave, aligned with the existing sovereign-cloud migration plan.
-- `docs/HOSTED_SUPABASE_CHECKLIST.md`: ordered migrations, secrets to provision, `npm run check:rls`, `npm run release:check`, `purge-mocks --check-clean`, and what must never run on hosted.
-- `docs/CAD_BACKEND_FINAL_REPORT.md` (section 7).
+- `NUT-04 Checkout Tool\Reports\CUTOVER_RUNBOOK.md`: split-by-schema procedure, the identity switch (config-only for clients), validation steps and rollback per wave, aligned with the existing sovereign-cloud migration plan.
+- `NUT-04 Checkout Tool\Reports\HOSTED_SUPABASE_CHECKLIST.md`: ordered migrations, secrets to provision, `npm run check:rls`, `npm run release:check`, `purge-mocks --check-clean`, and what must never run on hosted.
+- `NUT-04 Checkout Tool\Reports\CAD_BACKEND_FINAL_REPORT.md` (section 7).
 - Commit: `docs(p10): cutover artifacts, hosted checklist and final report`.
 
 ## 5. Global definition of done
@@ -240,7 +238,7 @@ Stop, write the question into `docs/OPEN_QUESTIONS.md`, and report to Kibet when
 
 ## 7. Final report and open assumptions
 
-`docs/CAD_BACKEND_FINAL_REPORT.md` contains:
+`NUT-04 Checkout Tool\Reports\CAD_BACKEND_FINAL_REPORT.md` contains:
 
 - A per-phase summary with commit SHAs and the test and gate evidence.
 - A blueprint coverage table: each blueprint section marked implemented, Stage B prepared, or deferred with the reason.
