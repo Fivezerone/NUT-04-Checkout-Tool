@@ -8,6 +8,7 @@ export default [
   {
     ignores: [
       'dist/**',
+      'dist-ui/**',
       'node_modules/**',
       'coverage/**',
       'android/**',

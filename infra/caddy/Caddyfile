@@ -1,28 +1,14 @@
 # infra/caddy/Caddyfile
 # NUT-04 Checkout Tool — API Gateway (Caddy)
-# Stage A scaffold — full routing implemented in Stage C.
-#
-# Decision 1: CAD hosted separately from extension on its own origin.
-# Decision 8: Docker-exclusive runtime.
-#
-# TODO (Stage C): implement:
-#   - HTTPS termination with mkcert (dev) / Let's Encrypt (prod)
-#   - /api/* → PostgREST reverse proxy
-#   - /auth/* → Keycloak reverse proxy
-#   - /cad/* → CAD container reverse proxy
-#   - CSP headers per docs/ui-ux-overhaul-report.md §security
 
-http://:8080 {
+(gateway_routes) {
+    # Health probes for Docker Compose healthcheck
     respond /healthz 200
     respond /health 200
-}
 
-:8443 {
-    tls internal
-
-    # Health probe used by Docker Compose healthcheck
-    respond /healthz 200
-    respond /health 200
+    # Clean redirects for CAD entrypoints
+    redir /cad /cad/ permanent
+    redir /cad.html /cad/ permanent
 
     # API → PostgREST
     handle /api/* {
@@ -35,7 +21,7 @@ http://:8080 {
         reverse_proxy keycloak:8080
     }
 
-    # CAD → Clinic Admin Dashboard container
+    # CAD → Clinic Admin Dashboard Nginx container
     handle /cad/* {
         uri strip_prefix /cad
         reverse_proxy cad:8080
@@ -45,3 +31,11 @@ http://:8080 {
     respond 404
 }
 
+http://:8080 {
+    import gateway_routes
+}
+
+:8443 {
+    tls internal
+    import gateway_routes
+}

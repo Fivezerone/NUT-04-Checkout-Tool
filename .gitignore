@@ -1,5 +1,6 @@
-node_modules/
+﻿node_modules/
 dist/
+dist-ui/
 .env
 .env.*
 !.env.example
@@ -34,7 +35,8 @@ local.properties
 *.apk
 *.aab
 
-# Docker secrets � never commit real values
+# Docker secrets — never commit real values
 .secrets/*
 !.secrets/README.md
+
 

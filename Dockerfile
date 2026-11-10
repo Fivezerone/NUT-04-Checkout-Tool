@@ -23,10 +23,9 @@ RUN npm ci --ignore-scripts --prefer-offline
 COPY --chown=appuser:appgroup . .
 RUN npm run build
 
-# Create deterministic zip
-RUN cd dist && zip -r -X -9 ../dist/nutriscore-extension.zip . -x "*.zip" || true
+# Create deterministic zip of the unpacked extension
+RUN cd dist/extension && zip -r -X -9 ../nutriscore-extension.zip . -x "*.zip" || true
 
 # extension-artifact target (spec §2 item 2)
 FROM scratch AS extension-artifact
-COPY --from=builder /app/dist/ /
-
+COPY --from=builder /app/dist/extension/ /

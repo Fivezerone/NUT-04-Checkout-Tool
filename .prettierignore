@@ -1,4 +1,5 @@
 dist/
+dist-ui/
 node_modules/
 coverage/
 src/extension/
