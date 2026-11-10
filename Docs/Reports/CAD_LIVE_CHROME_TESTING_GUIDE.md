@@ -1,1229 +1,705 @@
-# NUT-04 Checkout Tool — Live Chrome Environment Testing Guide
+# NUT-04 Checkout Tool — Live Chrome Environment Testing & Verification Guide
 
-> **Scope:** CAD Multi-Tenant Healthcare Backend Blueprint — Phases 0–10
-> **Environment:** Local Supabase Docker stack only. **NEVER** target hosted Supabase (`nqcpudpkrkutpxuqpsfk`).
-> **Branch:** `feat/cad-backend-blueprint` (13 commits, all green)
+> **Scope:** Full-System Verification of Dockerized Architecture (Stages A, B, and C)  
+> **Environment:** Dockerized Microservices Stack behind Caddy API Gateway (`http://localhost:8080` / `https://localhost:8443`). Decommissioned Supabase (ADR-0001).  
+> **Branch:** `refactor/decay-cleanup-docker-ui`  
+> **Security Baseline:** Host-Isolation Policy (Rule R4), Zero Hardcoded PII/Credentials (Rule R5 & Stage B), 3-Tier Design System & Clinical UI (Stage C).
+
+---
+
+## Executive Summary & System State
+
+This guide specifies the definitive manual and semi-automated verification procedures for testing the **NUT-04 Checkout Tool** Chrome extension and **Clinic Admin Dashboard (CAD)** in a live Google Chrome environment.
+
+### Architectural Evolution
+1. **Stage A (Decommissioning & Dockerization):** Supabase GoTrue, Supabase Studio, and local Supabase Docker containers have been completely purged (ADR-0001). The backend is replaced by an enterprise-grade, containerized microservices stack: **PostgreSQL 16 (Bookworm)**, **Keycloak 26.2.5 (Quarkus)** for OIDC authentication, **PostgREST 12.2.3** for direct database REST exposure with row-level security (RLS), **Node.js API service** for ported edge services, and an **Nginx unprivileged** container hosting the CAD application, all reverse-proxied behind **Caddy 2.9.1**.
+2. **Stage B (Hardcoded Data Elimination):** Zero real clinician names, patient identifiers, hospital titles (such as Kenyatta National Hospital or Aga Khan University Hospital), or real phone numbers exist in the codebase. All testing uses synthetic, dynamically provisioned tenant data and standard `.test` domain identities.
+3. **Stage C (UI/UX Overhaul & Clinical Shell):** 3-tier CSS custom property token architecture (`--t-color-...`), WCAG 2.1 AA accessible primitives (`GradeBadge`, `KpiCard`, `TargetMeter`, `ConfirmDialog`, `ConditionChip`), 4-timeframe timeline model (`today`, `week`, `month`, `3months`) with a strict 90-day retention cutoff, zero-truncation tables, and typed-phrase crypto-shredding (`SHRED`).
 
 > [!IMPORTANT]
-> **Sign-in is now unblocked.** Two bugs were found and fixed in commit `15b4faf1`:
-> 1. `supabase_auth_admin` lacked `GRANT USAGE ON SCHEMA public` — hook call failed with HTTP 500
-> 2. Hook stripped `email`/`phone` from JWT claims — GoTrue output schema validation rejected the token
->
-> **Dev server is running at `http://localhost:3000/cad.html`** — proceed to Section 2 to verify sign-in end-to-end in Chrome.
+> **Strict Host Isolation (Rule R4):**  
+> Under no circumstances should build, test, lint, database, or package management commands execute directly on the host operating system. The host machine runs **only** `git` and `docker`. All verification actions are executed through the cross-platform orchestration wrappers:
+> - **Windows PowerShell:** `.\bin\nut.ps1 <verb>` or `docker compose exec toolchain ...`
+> - **POSIX / Bash:** `./bin/nut <verb>` or `docker compose exec toolchain ...`
 
 ---
 
-## Quick Reference
+## Quick Reference Table
 
-| Service | URL |
-|---|---|
-| Local Supabase API | `http://localhost:54321` |
-| Supabase Studio | `http://localhost:54323` |
-| CAD UI (Vite dev) | `http://localhost:3000/cad.html` |
-| Postgres (direct) | `localhost:54322` (user: `postgres`) |
-
-**Docker container name:** `supabase_db_NUT-04_Checkout_Tool`
+| Service / Component | Container / Process | Ingress URL / Access Point | Credentials / Authentication |
+|---|---|---|---|
+| **API Gateway (HTTP)** | `gateway` (Caddy 2.9.1) | `http://localhost:8080` | None (Public ingress & routing) |
+| **API Gateway (HTTPS/TLS)** | `gateway` (Caddy 2.9.1) | `https://localhost:8443` | TLS self-signed / internal CA |
+| **CAD Web Application** | `cad` (Nginx unprivileged) | `http://localhost:8080/cad/` (or `http://localhost:8080/cad.html`) | Authenticated via Keycloak OIDC |
+| **Keycloak OIDC Realm** | `keycloak` (Quarkus 26.2.5) | `http://localhost:8080/auth/` (Realm: `nutriscore`) | Realm import: `infra/keycloak-realm.json` |
+| **Keycloak Admin Console** | `keycloak` (Quarkus 26.2.5) | `http://localhost:8080/auth/admin` | `admin` / `.secrets/kc_admin_password` |
+| **PostgREST REST API** | `postgrest` (v12.2.3) | `http://localhost:8080/api/` (proxied to `postgrest:3000`) | Bearer JWT with `app_role` claim |
+| **Node.js API Service** | `api` (Node 22 slim) | `http://localhost:8080/api/v1/` (proxied to `api:4000`) | Bearer JWT / Internal service tokens |
+| **Mailpit (Dev Mail)** | `mailpit` (v1.22.3) | `http://localhost:8025/` | None (inspect outgoing OTPs & alerts) |
+| **PostgreSQL Database** | `postgres` (16-bookworm) | Internal port `postgres:5432` | User: `nutriscore_app`, DB: `nutriscore` |
+| **Toolchain Runner** | `toolchain` (Node 22 slim) | Container execution context | Non-root `node` user in `/app` |
+| **Chrome Extension** | Unpacked Manifest V3 | `chrome://extensions` → `./dist/extension` | Local isolated client |
 
 ---
 
-## Getting Started: Opening PowerShell & Environment Verification
+## Getting Started: Opening PowerShell & Host Isolation Guardrails
 
-### Step 1 — Open PowerShell in the Project Root Directory
-
-**Option A — From File Explorer (Fastest):**
+### Step 1 — Open PowerShell in the Repository Root
 1. Open Windows File Explorer and navigate to:
    `c:\Users\USER\Documents\NUT-04 Checkout Tool`
-2. Click directly on the **address bar** at the top.
-3. Type `powershell` and press `Enter`.
-4. A PowerShell console will open with the working directory already set to the project root.
-
-**Option B — From Start Menu / Windows Terminal:**
-1. Press `Win + X` (or search for `PowerShell` in the Start Menu) and open **Windows PowerShell**.
-2. Navigate to the project root:
-   ```powershell
-   cd "c:\Users\USER\Documents\NUT-04 Checkout Tool"
-   ```
-3. Confirm your current location:
+2. Click the File Explorer address bar, type `powershell`, and press `Enter`.
+3. Verify your location and branch:
    ```powershell
    pwd
-   # Expected output: C:\Users\USER\Documents\NUT-04 Checkout Tool
+   # Expected: c:\Users\USER\Documents\NUT-04 Checkout Tool
+   git branch --show-current
+   # Expected: refactor/decay-cleanup-docker-ui
    ```
+
+### Step 2 — Wrapper Command Parity (`bin/nut.ps1` vs `bin/nut`)
+The `bin/nut.ps1` PowerShell script mirrors the POSIX `bin/nut` wrapper. The available verbs are:
+
+| Verb | PowerShell Invocation | Underlying Docker Command |
+|---|---|---|
+| `up` | `.\bin\nut.ps1 up` | `docker compose --profile dev up --build` |
+| `down` | `.\bin\nut.ps1 down` | `docker compose --profile dev down` |
+| `ci` | `.\bin\nut.ps1 ci` | `docker compose --profile ci run --rm ci` |
+| `extension`| `.\bin\nut.ps1 extension`| `docker buildx build --target extension-artifact --output type=local,dest=./dist/extension .` |
+| `e2e` | `.\bin\nut.ps1 e2e` | `docker compose --profile e2e run --rm e2e` |
+| `db-reset` | `.\bin\nut.ps1 db-reset` | Drops and re-applies migrations with `dbmate` |
+| `logs` | `.\bin\nut.ps1 logs` | `docker compose --profile dev logs -f` |
+| `shell` | `.\bin\nut.ps1 shell [svc]`| `docker compose --profile dev run --rm [svc] bash` |
 
 ---
 
 ## Pre-Flight Checklist
 
-Run these commands one at a time in order. Confirm the expected output before proceeding to Section 1.
+Execute these verification checks in order before launching the Chrome browser.
 
-### 1. Confirm Local Supabase Docker Containers Are Active
+### 1. Launch the Docker Stack
 ```powershell
-docker ps --filter "name=supabase" --format "table {{.Names}}`t{{.Status}}"
+.\bin\nut.ps1 up -d
 ```
-> **Expected:** `supabase_db_NUT-04_Checkout_Tool` (and associated services) show status `Up ...`. If stopped or missing, launch Docker Desktop and run `npx supabase start`.
+> **Expected:** Docker Compose builds and starts the full development profile in the background.
 
-### 2. Verify TypeScript Compilation
+Verify that all services reach healthy status:
 ```powershell
-npm run typecheck
+docker compose ps
 ```
-> **Expected:**
-> ```text
-> ✓ TypeScript check passed: 0 errors
-> ```
-> *Note: If there are zero errors, the TypeScript compiler (`tsc --noEmit`) succeeds with code 0. If any type discrepancies existed, it would output specific file lines and syntax codes.*
+> **Expected:** 8 services running and healthy:
+> - `postgres` (healthy)
+> - `migrate` (exited 0 / completed)
+> - `keycloak` (healthy)
+> - `postgrest` (running)
+> - `api` (healthy)
+> - `gateway` (healthy)
+> - `cad` (healthy)
+> - `mailpit` (healthy)
 
-### 3. Run Automated Unit & Integration Tests
+### 2. Run the Full Automated CI Suite via Docker (Host Isolation)
 ```powershell
-npm test -- --reporter=dot
+.\bin\nut.ps1 ci
 ```
-> **Expected:** `Test Files  50 passed (50) | Tests  837 passed (837)` with zero failures.
+> **Expected Output:**
+> - `[1/10] Secrets scan:` 0 tracked secrets detected.
+> - `[2/10] Hardcoded data check:` 0 violations in source code.
+> - `[3/10] Manifest check:` 0 global window leaks.
+> - `[4/10] CAD security check:` Invariants verified.
+> - `[5/10] Syntax check:` `content.js` passes Node syntax validation.
+> - `[6/10] Prettier format check:` All files conform to formatting standards.
+> - `[7/10] ESLint:` 0 errors.
+> - `[8/10] TypeScript compilation:` `✓ TypeScript check passed: 0 errors`.
+> - `[9/10] Vitest suite:` `45 passed (45) | 793 passed (793)`.
+> - `[10/10] Production build:` Successfully compiles `dist/` and `dist-ui/cad`.
 
-### 4. Code Quality & Formatting Gates
+### 3. Build the Deterministic Extension Artifact
 ```powershell
-npm run format:check
-npm run lint
+.\bin\nut.ps1 extension
 ```
-> **Expected:** Prettier reports all files use Prettier style. ESLint reports `0 errors` (pre-existing lint warnings are non-blocking).
+> **Expected:** Outputs unpacked extension to `./dist/extension` containing `manifest.json`, `content.js`, icons, and bundled scripts.
 
-### 5. Compile UI & Extension Build Artifacts
+### 4. Database Migration Verification (`dbmate`)
 ```powershell
-npm run build
+.\bin\nut.ps1 db-reset
 ```
-> **Expected:** Executes `build:db`, `build:ui` (Vite production bundle into `dist/`), and `build:ext`. Completes cleanly with `✓ built in Xs`.
-
-### 6. Seed De-Identified Mock Identities
-```powershell
-node scripts/seed-mock-users.mjs
-```
-> **Expected:** Connects to `http://127.0.0.1:54321` and outputs:
-> ```text
-> =============================================================================
->   CAD MOCK TEST CREDENTIALS (LOCAL ONLY)
-> =============================================================================
-> Role                   | Email                          | Password
-> -----------------------+--------------------------------+------------------------
-> tenant_admin           | tenant.admin@clinic.test       | [Generated password]
-> writing_clinician      | clinician.one@clinic.test      | [Generated password]
-> viewing_dietician      | dietician.one@clinic.test      | [Generated password]
-> patient                | patient.alpha@clinic.test      | [Generated password]
-> patient                | patient.beta@clinic.test       | [Generated password]
-> commercial_stakeholder | partner.stakeholder@clinic.test | [Generated password]
-> compliance_auditor     | regulator.dha@platform.test    | [Generated password]
-> compliance_auditor     | regulator.odpc@platform.test   | [Generated password]
-> =============================================================================
-> ```
-> Credentials are automatically written to `.mock-credentials.json` (git-ignored) for convenient reference during manual Chrome UI testing.
-
-### 7. Launch the CAD UI Web Server
-Open a **new, dedicated PowerShell window** in the project directory (leave it running in the background) and execute:
-```powershell
-npm run dev
-```
-> **Expected:** Vite starts the local development server:
-> ```text
->   VITE v6.4.4  ready in 450 ms
->
->   ➜  Local:   http://localhost:3000/
->   ➜  Network: use --host to expose
-> ```
-> *Keep this window running.* Now navigating to `http://localhost:3000/cad.html` in Chrome will load the Clinic Admin Dashboard.
+> **Expected:** Applies all versioned migrations from `db/migrations/0001_baseline.sql` cleanly against Postgres.
 
 ---
 
-## PowerShell Database Execution Pattern (pgTAP & SQL Queries)
+## Database Execution Pattern (PowerShell to Docker Postgres)
 
-On Windows PowerShell, the `<` redirection operator does not function as it does in POSIX shells. Always use the pipe pattern:
+Because direct host `psql` is forbidden by Rule R4, database queries and SQL test assertions are piped directly into the containerized Postgres service:
 
+### Windows PowerShell Pattern
 ```powershell
-Get-Content supabase\tests\<file>.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+# Interactive psql session inside container
+docker compose exec postgres psql -U nutriscore_app -d nutriscore
+
+# Single SQL command execution
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "SELECT current_database(), current_user;"
+
+# Piping an external SQL file
+Get-Content db\tests\<test_file>.sql | docker compose exec -T postgres psql -U nutriscore_app -d nutriscore
 ```
-
-- **`Get-Content <path>`**: Reads the file contents as a text stream.
-- **`|`**: Pipes the SQL script into Docker standard input.
-- **`docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres`**: Runs the script directly in the local container as database administrator.
-
-### Run All 9 pgTAP Test Suites in Sequence
-Run this loop in PowerShell whenever you want to perform a comprehensive database-level verification sweep:
-
-```powershell
-$suites = @(
-    "cad_tenant_wall.sql",
-    "cad_claims_and_revocation.sql",
-    "cad_grant_matrix_lifecycle.sql",
-    "cad_abac_and_clinical.sql",
-    "cad_worm_ledger.sql",
-    "cad_field_encryption_and_projection.sql",
-    "cad_exchange_and_dpt.sql",
-    "cad_commercial_overlay.sql",
-    "cad_retention_and_rights.sql"
-)
-
-foreach ($suite in $suites) {
-    Write-Host "`n=== Running $suite ===" -ForegroundColor Cyan
-    Get-Content "supabase\tests\$suite" | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-}
-```
-> **Expected:** Every suite prints clean `ok` assertions ending with `# All tests passed.` and zero `not ok` lines.
-
-### Quick Troubleshooting Reference
-
-| Symptom | Cause | Solution |
-|---|---|---|
-| `REFUSING TO RUN: seed-mock-users.mjs may only be run against a LOCAL Supabase instance` | `process.env` loaded remote URL from `.env` | Ensure `.env.local` exists with `VITE_SUPABASE_URL=http://127.0.0.1:54321`. Script now loads `.env.local` automatically. |
-| `docker: command not found` or connection refused | Docker Desktop is closed | Launch Docker Desktop, wait for engine to initialize, run `npx supabase start`. |
-| `ERROR: table or column not found in schema cache` | PostgREST schema cache out of date | Run: `docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres -c "NOTIFY pgrst, 'reload schema';"` |
-| `npm run typecheck` returned no console lines | Silence means 0 type errors | Script now prints `✓ TypeScript check passed: 0 errors` explicitly. |
-| `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` | Node.js Windows libuv handle issue on abrupt exit | Fixed: `purge-mocks.mjs` now lets event loop drain naturally. |
-| **"Invalid clinic credentials"** on CAD sign-in (clinician or patient) | Two bugs: (1) `supabase_auth_admin` lacked `USAGE` on schema `public` → hook call failed with `SQLSTATE 42501`; (2) hook stripped `email`/`phone` from claims but GoTrue output schema requires both keys | **FIXED in commit `15b4faf1`** — migration `20261101010000` now grants `USAGE ON SCHEMA public` and `EXECUTE ON FUNCTION custom_access_token_hook` to `supabase_auth_admin`, and blanks `email`/`phone` to `""` instead of removing them. Verify: sign-in returns HTTP 200 and JWT contains `session_id`. |
-| Hook HTTP 500 `permission denied for schema public (SQLSTATE 42501)` | `supabase_auth_admin` cannot call hook | Run: `docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres -c "GRANT USAGE ON SCHEMA public TO supabase_auth_admin; GRANT EXECUTE ON FUNCTION public.custom_access_token_hook(jsonb) TO supabase_auth_admin;"` |
 
 ---
 
 ## Section 1 — Extension Loading & Manifest Verification
 
-**Goal:** Confirm the Manifest V3 extension loads cleanly with no forbidden permissions or global leaks.
+**Goal:** Confirm the Manifest V3 extension loads cleanly in Chrome with no forbidden permissions or runtime leaks.
 
-### 1.1 Load the Unpacked Extension
+### 1.1 Load the Unpacked Extension in Chrome
+1. Launch Google Chrome.
+2. In the omnibox, navigate to: `chrome://extensions`
+3. Toggle the **Developer mode** switch (top-right corner) to **ON**.
+4. Click the **Load unpacked** button (top-left).
+5. In the file picker, select:
+   `c:\Users\USER\Documents\NUT-04 Checkout Tool\dist\extension`
+6. Verify that the **NUT-04 Checkout Tool** card appears with:
+   - Version `0.0.1` (or current semantic version)
+   - Active status with no red "Errors" button or badge.
 
-1. Open Chrome → navigate to `chrome://extensions`
-2. Toggle **Developer mode** ON (top-right)
-3. Click **Load unpacked** → select `c:\Users\USER\Documents\NUT-04 Checkout Tool\dist\`
-4. The extension card should appear with the NUT-04 icon and **no error badge**
+### 1.2 Manifest Permissions Audit
+Click **Details** on the extension card and inspect permissions:
 
-### 1.2 Manifest Permission Check
+| Permission | Expected State | Security Reason |
+|---|---|---|
+| `identity` | **ABSENT** | Banned: Chrome identity API must not leak Google account tokens. |
+| `storage` | **PRESENT** | Required for local client configuration and rule-pack caching. |
+| `activeTab` | **PRESENT** | Required for retail DOM inspection upon user activation. |
+| Background Service Worker | **Active (`service-worker.js`)** | Manages background alarm sync and rules. |
 
-In `chrome://extensions`, click **Details** → confirm:
-
-| Check | Expected |
-|---|---|
-| `identity` permission | **Absent** |
-| `storage` permission | Present (needed for settings) |
-| Background service worker | Registered and active |
-| Manifest version | `3` |
-
-Alternatively, read the manifest directly:
-
+Alternatively, verify via command:
 ```powershell
-Get-Content dist\manifest.json | ConvertFrom-Json | Select -ExpandProperty permissions
+docker compose exec toolchain node scripts/check-manifest-globals.mjs
 ```
+> **Expected:** `0 global variable leaks reported. Manifest V3 compliant.`
 
-→ Must **not** contain `"identity"`.
+### 1.3 Service Worker Inspection
+1. On `chrome://extensions`, locate the NUT-04 card.
+2. Click **Inspect views: service worker** to open DevTools for the extension background.
+3. In the DevTools **Console** tab, verify:
+   - Zero uncaught exceptions on startup.
+   - Initialized state messages.
+4. In the DevTools **Network** tab, verify:
+   - **Zero** requests to legacy endpoints or external tracking services.
 
-### 1.3 Service Worker Registration
-
-1. `chrome://extensions` → **Inspect views: service worker**
-2. Console must show zero errors on startup
-3. Network tab must show no outbound requests to hosted Supabase (`nqcpudpkrkutpxuqpsfk`)
-
-### 1.4 Popup / Dashboard Smoke Test
-
-1. Click the extension icon in the Chrome toolbar → popup must render
-2. Open `chrome://extensions` → **Inspect views: popup.html** → Console tab must be error-free
-
-### 1.5 Manifest Security Scan
-
-```powershell
-npm run check:manifest
-```
-
-**Expected:** 0 global variable leaks reported.
+### 1.4 Shopper Popup Smoke Test
+1. Click the NUT-04 icon in the Chrome toolbar to open `popup.html`.
+2. Inspect the UI layout:
+   - Header with **NutriScore** badge and version.
+   - **Health Focus Selection:** Displays mode selection pills using the Stage C `ConditionChip` component.
+   - **Accessible Targets:** All clickable chips and toggles satisfy minimum 44px touch targets.
+   - **Dark Mode Parity:** If OS is in dark mode, the popup renders high-contrast slate surfaces (`--t-color-surface-card`).
+3. Right-click the popup → **Inspect**:
+   - Console must be clean of errors and warnings.
 
 ---
 
-## Section 2 — Authentication & JWT Claims Contract
+## Section 2 — Keycloak OIDC Authentication & JWT Claims Contract
 
-**Goal:** Verify the canonical claims contract (Phase 2) is enforced end-to-end.
+**Goal:** Verify the enterprise OIDC authentication flow and ensure strict claims adherence (no PHI or raw PII in tokens).
 
-### 2.1 Sign In via CAD UI
+### 2.1 Sign In to the CAD Web Application
+1. Open Chrome and navigate to:
+   `http://localhost:8080/cad/` (or `http://localhost:8080/cad.html`)
+2. The browser is routed through the Caddy gateway to Keycloak's login interface.
+3. Sign in with the test clinician account:
+   - **Username / Email:** `clinician.one@clinic.test`
+   - **Password:** Preloaded via `infra/keycloak-realm.json` or `.secrets/`
 
-1. Navigate to `http://localhost:3000/cad.html`
-2. Sign in with the mock `writing_clinician` account (seeded by `seed-mock-users.mjs`)
+### 2.2 Inspect the JWT Token in Chrome DevTools
+1. Press `F12` to open DevTools → Navigate to the **Network** tab.
+2. Filter for `token` or look for the Keycloak OIDC token exchange response:
+   `POST http://localhost:8080/auth/realms/nutriscore/protocol/openid-connect/token`
+3. Copy the returned `access_token`.
+4. Inspect the payload claims using the toolchain container:
+   ```powershell
+   docker compose exec toolchain node -e "const token = '<PASTE_JWT_HERE>'; console.log(JSON.stringify(JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString()), null, 2));"
+   ```
 
-### 2.2 Inspect the JWT in DevTools
+### 2.3 Token Claims Verification Matrix
 
-1. Open Chrome DevTools (`F12`) → **Network** tab
-2. Find the `/auth/v1/token` response
-3. Copy the `access_token` value
-4. Decode at `https://jwt.io` (offline: `node -e "console.log(JSON.parse(Buffer.from('<token>'.split('.')[1],'base64').toString()))"`)
+| Claim | Expected Value | Classification / Rule |
+|---|---|---|
+| `app_role` | `writing_clinician` (or selected role) | **Mandatory:** Mapped from Keycloak realm role. |
+| `tenant_id` | `11111111-1111-1111-1111-111111111111` | **Mandatory:** Multi-tenant clinic scoping UUID. |
+| `lic_ok` | `true` | **Mandatory:** Professional regulatory license flag. |
+| `sid` | UUID string | **Mandatory:** Active session ID for revocation denylist. |
+| `ver` | `1` | **Mandatory:** Token claims schema version. |
+| `sub` | UUID string | **Mandatory:** Opaque user ID. |
+| `email` | Omitted or blanked `""` | **Privacy:** Raw email must not leak in transit. |
+| `diagnosis` | **MUST BE ABSENT** | **PHI Protection:** Diagnostic data must never appear in JWT. |
+| `health_mode`| **MUST BE ABSENT** | **Inference Vector:** Condition inferences strictly banned. |
+| `national_id`| **MUST BE ABSENT** | **PII Protection:** National identity numbers strictly banned. |
+| `callerRank` | **MUST BE ABSENT** | **Security:** Deprecated rank-comparison scheme forbidden. |
 
-**Required claims — all must be present:**
+### 2.4 Session Denylist & Immediate Revocation Test
+Test that revoking a session instantly denies access across the gateway and PostgREST.
 
-| Claim | Expected value |
-|---|---|
-| `app_role` | e.g. `writing_clinician` |
-| `tenant_id` | `11111111-2222-3333-4444-555555555555` (mock clinic) |
-| `lic_ok` | `true` |
-| `session_id` | UUID string (Supabase session ID, used as `sid` by `canonicalizeClaims`) |
-| `ver` | `1` |
-| `email` | `""` (blanked — PII stripped, key must remain for GoTrue schema validation) |
-| `phone` | `""` (blanked — PII stripped, key must remain for GoTrue schema validation) |
-
-**Forbidden claims — all must be absent:**
-
-| Claim | Why Forbidden |
-|---|---|
-| `diagnosis` | PHI — never in token |
-| `health_mode` | Condition inference vector |
-| `national_id` | PII — stripped by hook |
-| `callerRank` | Deprecated rank comparison scheme |
-
-### 2.3 Session Denylist / Ban Test
-
-```sql
--- In Supabase Studio SQL editor (local only)
--- Ban a session by its `sid` claim value:
-INSERT INTO iam.session_denylist (sid, banned_until)
-VALUES ('<sid-from-jwt>', '2099-01-01T00:00:00Z');
-```
-
-1. Make any authenticated API request from the UI
-2. **Expected:** HTTP 401 response
-3. Verify the single `BAN_UNTIL_ISO` constant is used — check that no numeric rank comparison appears:
-
-```powershell
-npm run check:cad-security
-```
-
-### 2.4 TOTP / AAL2 Step-Up
-
-1. Attempt a bundle-publish action from a `writing_clinician` session without TOTP
-2. **Expected:** Server returns `AAL2_REQUIRED` error
-3. Complete TOTP enrollment → retry → must succeed
+1. Obtain the current session ID (`sid`) from the decoded token.
+2. In PowerShell, insert the session into the denylist:
+   ```powershell
+   docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
+   INSERT INTO iam.session_denylist (sid, banned_until, reason)
+   VALUES ('<sid-from-jwt>', NOW() + INTERVAL '2 hours', 'Security verification test');"
+   ```
+3. In Chrome, refresh `http://localhost:8080/cad/` or trigger a data fetch.
+4. **Expected:** PostgREST and the CAD UI return `HTTP 401 Unauthorized` with immediate session invalidation.
 
 ---
 
-## Section 3 — Multi-Tenant Wall (Forced Restrictive RLS)
+## Section 3 — Multi-Tenant Isolation & Restrictive RLS
 
-**Goal:** Confirm that Tenant 1 data is invisible to Tenant 2 sessions under all circumstances.
+**Goal:** Confirm that Tenant 1 clinical records and patient data are strictly invisible to Tenant 2 sessions.
 
-> [!IMPORTANT]
-> This is the most critical security invariant. A single cross-tenant row leak is a critical failure.
+### 3.1 RLS Coverage Check
+Execute the RLS policy inspection script via the toolchain:
+```powershell
+docker compose exec toolchain node scripts/check-rls-policies.mjs
+```
+> **Expected:** All tenant-scoped relations are confirmed protected by forced restrictive RLS. Zero uncovered tables.
 
-### 3.1 RLS Coverage Verification
+### 3.2 SQL Cross-Tenant Isolation Test
+Simulate a request authenticated as a Tenant 1 clinician attempting to query Tenant 2 patients:
 
 ```powershell
-npm run check:rls
-```
-
-**Expected:** 29 tenant-scoped relations confirmed covered. Zero exceptions.
-
-### 3.2 Cross-Tenant Query — Must Return Zero Rows
-
-Open Supabase Studio → **SQL Editor**:
-
-```sql
--- Set JWT claims for Tenant 1 session
-SELECT set_config('request.jwt.claims', json_build_object(
-  'sub', gen_random_uuid()::text,
-  'tenant_id', '11111111-1111-1111-1111-111111111111',
-  'app_role', 'writing_clinician'
-)::text, true);
-
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
 SET ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{\"sub\":\"00000000-0000-0000-0000-000000000001\",\"tenant_id\":\"11111111-1111-1111-1111-111111111111\",\"app_role\":\"writing_clinician\",\"lic_ok\":true}', true);
 
--- Attempt to read Tenant 2 patients — MUST return 0 rows
-SELECT COUNT(*) FROM clinical.patients
+-- Attempt to read Tenant 2 patients
+SELECT COUNT(*) AS cross_tenant_leak_count
+FROM clinical.patients
 WHERE tenant_id = '22222222-2222-2222-2222-222222222222';
+"
 ```
-
-**Expected:** `count = 0`
-
-### 3.3 pgTAP Tenant Wall Suite
-
-```powershell
-Get-Content supabase/tests/cad_tenant_wall.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-```
-
-**Expected:** All tests pass (no `not ok` lines).
-
-### 3.4 Cross-Tenant Clinical Record Attempt
-
-```sql
-SET ROLE authenticated;
-SELECT set_config('request.jwt.claims', json_build_object(
-  'tenant_id', '11111111-1111-1111-1111-111111111111',
-  'app_role', 'writing_clinician'
-)::text, true);
-
--- Attempt to read Tenant 2 clinical records
-SELECT * FROM clinical.clinical_records cr
-JOIN clinical.patients p ON cr.patient_id = p.id
-WHERE p.tenant_id = '22222222-2222-2222-2222-222222222222';
-```
-
-**Expected:** 0 rows (RLS silently filters).
+> **Expected:** `cross_tenant_leak_count = 0`. RLS silently and completely excludes records outside Tenant 1.
 
 ---
 
 ## Section 4 — ABAC Policy & Role Enforcement
 
-**Goal:** Verify each role's access matrix (Phase 4) is correctly enforced.
+**Goal:** Verify that each role's granular permissions are enforced at the database and API boundary.
 
-### 4.1 pgTAP ABAC Suite
-
-```powershell
-Get-Content supabase/tests/cad_abac_and_clinical.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-```
-
-**Expected:** All tests pass.
-
-### 4.2 Role-by-Role Access Matrix
-
-For each role below, sign in via CAD UI and verify the listed behavior.
-
-#### `writing_clinician`
-
-| Action | Expected |
-|---|---|
-| Read own patients | ✅ |
-| Write clinical record for own patient | ✅ |
-| Read another clinician's patient | ❌ 0 rows |
-| Access `commercial.orders` | ❌ Permission denied |
-
-#### `viewing_dietician`
-
-| Action | Expected |
-|---|---|
-| Read assigned patients | ✅ |
-| Write clinical record | ❌ RLS / permission denied |
-| Read DPT nutritional thresholds | ✅ |
-
-#### `tenant_admin`
-
-| Action | Expected |
-|---|---|
-| Provision new tenant member | ✅ |
-| Write clinical record | ❌ |
-| Read `audit.ledger` (own tenant) | ✅ metadata only |
-
-#### `compliance_auditor` (tenant scope)
-
-```sql
-SELECT set_config('request.jwt.claims', json_build_object(
-  'tenant_id', '11111111-1111-1111-1111-111111111111',
-  'app_role', 'compliance_auditor',
-  'audit_scope', 'tenant'
-)::text, true);
-SET ROLE authenticated;
-
--- Must read own chain only
-SELECT COUNT(*) FROM audit.ledger WHERE tenant_id = '11111111-1111-1111-1111-111111111111';
--- Must NOT read cross-tenant
-SELECT COUNT(*) FROM audit.ledger WHERE tenant_id = '22222222-2222-2222-2222-222222222222';
-```
-
-**Expected:** First query > 0, second query = 0.
-
-#### `compliance_auditor` (platform scope)
-
-```sql
-SELECT set_config('request.jwt.claims', json_build_object(
-  'app_role', 'compliance_auditor',
-  'audit_scope', 'platform'
-)::text, true);
-SET ROLE authenticated;
-
-SELECT COUNT(*) FROM audit.v_ledger_platform;
-```
-
-**Expected:** Row count spanning multiple tenants.
-
-#### `commercial_stakeholder`
-
-| View | Expected |
-|---|---|
-| `v_orders_tracking` | ✅ (no `shopper_alias` column) |
-| `v_sku_demand` | ✅ (suppressed below k=5) |
-| `clinical.patients` | ❌ 0 rows |
-
-#### `patient`
-
-```sql
-SELECT set_config('request.jwt.claims', json_build_object(
-  'sub', '<patient-user-id>',
-  'tenant_id', '11111111-1111-1111-1111-111111111111',
-  'app_role', 'patient'
-)::text, true);
-SET ROLE authenticated;
-
-SELECT COUNT(*) FROM clinical.patients;          -- must be exactly 1 (own row)
-SELECT COUNT(*) FROM clinical.clinical_records;  -- must be own records only
-```
-
-### 4.3 Grant Matrix pgTAP Suite
-
-```powershell
-Get-Content supabase/tests/cad_grant_matrix_lifecycle.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-```
-
-**Expected:** All tests pass.
-
----
-
-## Section 5 — Clinical Data Flows & Field-Level Encryption
-
-**Goal:** Verify Phase 6 field encryption — PHI is stored as `bytea`, never plaintext.
-
-### 5.1 Create a Patient Record (via UI)
-
-1. Sign in as `writing_clinician`
-2. Create a new patient through the CAD UI form
-3. Submit and note the patient UUID from the response
-
-### 5.2 Verify Encrypted Storage in Studio
-
-Open Supabase Studio → **Table Editor** → `clinical.patients`:
-
-| Column | Expected type | Expected value |
+| Role Tested | Allowed Capabilities | Strictly Prohibited Actions (Must Return 403 / 0 rows) |
 |---|---|---|
-| `full_name_enc` | `bytea` | Binary blob (not a readable name) |
-| `dob_enc` | `bytea` | Binary blob |
+| `writing_clinician` | Read/write assigned patients; create clinical records. | Read other clinicians' unassigned patients; access `commercial.orders`. |
+| `viewing_dietician` | Read assigned patients; view DPT nutritional thresholds. | Write clinical records; alter prescription rules; export raw keys. |
+| `tenant_admin` | Manage tenant membership; view tenant audit metadata. | Read raw patient clinical records (`clinical.clinical_records`). |
+| `compliance_auditor`| Inspect tamper-evident audit ledger (`audit.ledger`) within scope. | Access decrypted clinical notes or commercial customer records. |
+| `commercial_stakeholder` | View aggregate SKU demand (`v_sku_demand` where $k \ge 5$). | View `clinical.*`, individual orders, or `shopper_alias`. |
+| `patient` | View own records and consent settings; initiate export/shred. | View any other patient's data; access clinical notes before sign-off. |
 
-> [!CAUTION]
-> If `full_name_enc` shows a plaintext name string, field encryption is broken. Stop testing and investigate Phase 6 migration.
-
-### 5.3 Phase 6 Canary — Zero Plaintext Leaks
-
+### Role Privilege Verification via SQL Session Switching
 ```powershell
-node scripts/verify-phase6-canary.mjs
+# Verify commercial_stakeholder cannot query clinical.patients
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{\"sub\":\"00000000-0000-0000-0000-000000000099\",\"tenant_id\":\"11111111-1111-1111-1111-111111111111\",\"app_role\":\"commercial_stakeholder\"}', true);
+SELECT * FROM clinical.patients;
+"
 ```
-
-**Expected:** `0 plaintext PHI fields found in pg_dump output`.
-
-### 5.4 Cross-Row Ciphertext Isolation (AAD Binding)
-
-```sql
--- Get two patient rows from different patients
-SELECT id, full_name_enc FROM clinical.patients LIMIT 2;
-```
-
-The ciphertext blobs are bound to their row's `patient_id` via Additional Authenticated Data (AAD). Swapping ciphertext between rows will cause decryption to fail — this is tested in the pgTAP suite:
-
-```powershell
-Get-Content supabase/tests/cad_field_encryption_and_projection.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-```
-
-**Expected:** All tests pass, including AAD tamper detection.
-
-### 5.5 Crypto-Shredding Test
-
-```sql
--- Record patient ID before shredding
--- Then trigger crypto-shred (DEK deletion):
-SELECT clinical.crypto_shred_patient('<patient-uuid>');
-```
-
-After shredding:
-
-```sql
--- Key must be deleted
-SELECT COUNT(*) FROM clinical.patient_dek_registry
-WHERE patient_id = '<patient-uuid>';
--- → 0
-
--- Ciphertext row must still exist (but unreadable)
-SELECT COUNT(*) FROM clinical.patients WHERE id = '<patient-uuid>';
--- → 1 (row preserved, ciphertext permanently unreadable)
-```
-
-> [!NOTE]
-> Crypto-shredding is irreversible. Use a test patient created specifically for this check.
+> **Expected:** 0 rows returned (or permission denied by RLS).
 
 ---
 
-## Section 6 — Break-Glass Workflow
+## Section 5 — Clinical Data Flows, Field Encryption & Stage C Typed Shredding
 
-**Goal:** Verify Phase 4 emergency access grants are logged immediately and expire correctly.
+**Goal:** Verify AES-256-GCM field encryption of PHI and test the Stage C typed-phrase crypto-shredding mechanism.
 
-### 6.1 Access Denied Without Grant
-
-```sql
-SET ROLE authenticated;
-SELECT set_config('request.jwt.claims', json_build_object(
-  'sub', '<clinician-without-assignment>',
-  'tenant_id', '11111111-1111-1111-1111-111111111111',
-  'app_role', 'writing_clinician'
-)::text, true);
-
--- Attempt to read a patient not assigned to this clinician
-SELECT * FROM clinical.patients WHERE id = '<restricted-patient-uuid>';
+### 5.1 Verification of Encrypted Storage
+Inspect the `clinical.patients` table to ensure PHI is stored strictly as `bytea`:
+```powershell
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
+\d clinical.patients
+"
 ```
+Verify that `full_name_enc`, `dob_enc`, and `contact_enc` have type `bytea`.
 
-**Expected:** 0 rows returned (RLS enforced).
+### 5.2 Phase 6 Plaintext Leak Canary
+Run the zero-plaintext leak verification:
+```powershell
+docker compose exec toolchain node scripts/verify-phase6-canary.mjs
+```
+> **Expected:** `0 plaintext PHI fields found in database dump. Canary clean.`
 
-### 6.2 Create Emergency Grant
+### 5.3 Stage C Typed Crypto-Shredding in Chrome UI
+Stage C implements a hardened `<ConfirmDialog>` requiring the user to explicitly type the confirmation phrase `"SHRED"` before crypto-erasure executes.
 
-```sql
--- As the treating clinician (or tenant_admin):
+1. In Chrome, navigate to CAD: `http://localhost:8080/cad/`
+2. Open the **Patient Linking & Consent Management** view (`PatientLinkingConsentView.tsx`).
+3. Select an active test patient.
+4. Click the **Revoke & Shred** action button.
+5. **Inspect the Modal Dialog (`ConfirmDialog.tsx`):**
+   - The dialog title displays: **Confirm Irreversible Crypto-Shredding**.
+   - A warning banner alerts the user: *"This will permanently destroy the Data Encryption Key (DEK). All encrypted clinical records will become permanently undecryptable."*
+   - An input field prompts: **Type "SHRED" to confirm:**
+   - Verify that the **Confirm Shredding** button is **disabled** initially.
+   - Type `"shred"` (lowercase) → button remains **disabled** (strict case check).
+   - Type `"SHRED"` → button becomes **enabled**.
+6. Click **Confirm Shredding**.
+7. **Verify Database State Post-Shred:**
+   ```powershell
+   docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
+   -- Confirm the DEK was deleted
+   SELECT COUNT(*) FROM clinical.patient_dek_registry WHERE patient_id = '<patient-uuid>';
+   -- Expected: 0
+
+   -- Confirm the ciphertext row remains for audit preservation
+   SELECT id, full_name_enc FROM clinical.patients WHERE id = '<patient-uuid>';
+   -- Expected: 1 row present with intact ciphertext, but permanently unreadable
+   "
+   ```
+
+---
+
+## Section 6 — Break-Glass Emergency Access Workflow
+
+**Goal:** Verify that emergency clinician overrides are strictly time-bound and immediately audited.
+
+### 6.1 Attempt Access Without Break-Glass Grant
+A clinician attempting to access an unassigned patient in emergency intake receives 0 rows.
+
+### 6.2 Grant Emergency Access
+```powershell
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
 INSERT INTO clinical.break_glass_grants (
-  clinician_id, patient_id, tenant_id,
-  granted_by, reason, expires_at
+  clinician_id, patient_id, tenant_id, granted_by, reason, expires_at
 ) VALUES (
-  '<clinician-uuid>',
+  '00000000-0000-0000-0000-000000000001',
   '<restricted-patient-uuid>',
   '11111111-1111-1111-1111-111111111111',
-  '<admin-uuid>',
-  'Emergency: patient presented unconscious',
+  '00000000-0000-0000-0000-000000000002',
+  'Emergency triage: acute diabetic crisis',
   NOW() + INTERVAL '24 hours'
 );
+"
 ```
 
-### 6.3 Access Succeeds Within Grant Window
-
-Re-run the query from 6.1 — **Expected:** Patient row is returned.
-
-### 6.4 Audit Ledger Entry Appears Immediately
-
-```sql
+### 6.3 Immediate Immutable Audit Entry
+Verify that the grant triggers an immediate WORM ledger entry:
+```powershell
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
 SELECT action, actor_id, patient_id, created_at
 FROM audit.ledger
 WHERE action = 'BREAK_GLASS_ACCESS'
-  AND patient_id = '<restricted-patient-uuid>'
-ORDER BY created_at DESC
-LIMIT 1;
+ORDER BY created_at DESC LIMIT 1;
+"
 ```
-
-**Expected:** Row exists with `created_at` within the last 60 seconds.
-
-### 6.5 Grant Expiry
-
-```sql
--- Simulate expiry by back-dating the grant
-UPDATE clinical.break_glass_grants
-SET expires_at = NOW() - INTERVAL '1 second'
-WHERE patient_id = '<restricted-patient-uuid>';
-```
-
-Re-run the patient query — **Expected:** 0 rows (grant expired).
+> **Expected:** Record exists with timestamp within the last 30 seconds.
 
 ---
 
-## Section 7 — WORM Audit Ledger
+## Section 7 — WORM Append-Only Audit Ledger & Merkle Verification
 
-**Goal:** Verify Phase 5 hash-chained signed ledger is tamper-evident and trigger-protected.
+**Goal:** Verify cryptographic SHA-256 hash chaining and tamper-rejection on `audit.ledger`.
 
-### 7.1 Verify All Audit Chains
-
+### 7.1 Verify Audit Chain Integrity
 ```powershell
-node scripts/verify-audit-chain.mjs
+docker compose exec toolchain node scripts/verify-audit-chain.mjs
 ```
+> **Expected:** All 6 tenant and platform audit hash chains pass verification with 0 mismatches.
 
-**Expected:** All 6 audit chains verified. Zero hash mismatches.
-
-### 7.2 Tamper Attempt — UPDATE Must Fail
-
-Open Supabase Studio → SQL Editor:
-
-```sql
--- Attempt to tamper with an existing ledger entry
-UPDATE audit.ledger SET action = 'HACKED_ACTION' WHERE seq = 1;
+### 7.2 Tamper Rejection Test (UPDATE & DELETE Blocked)
+Attempt to alter an audit row:
+```powershell
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
+UPDATE audit.ledger SET action = 'TAMPERED_ACTION' WHERE seq = 1;
+"
 ```
+> **Expected:** `ERROR: audit ledger is append-only (WORM protection). Updates rejected.`
 
-**Expected:** `ERROR: audit ledger is append-only (WORM protection)` (trigger fires, update rejected).
-
-### 7.3 Tamper Attempt — DELETE Must Fail
-
-```sql
+Attempt to delete an audit row:
+```powershell
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
 DELETE FROM audit.ledger WHERE seq = 1;
-```
-
-**Expected:** `ERROR: audit ledger rows cannot be deleted` (trigger fires, delete rejected).
-
-### 7.4 Merkle Checkpoint Verification
-
-```sql
-SELECT id, chain_id, checkpoint_at, merkle_root, seq_start, seq_end
-FROM audit.checkpoints
-ORDER BY checkpoint_at DESC
-LIMIT 5;
-```
-
-**Expected:** Rows exist with non-null `merkle_root` values.
-
-### 7.5 pgTAP WORM Ledger Suite
-
-```powershell
-Get-Content supabase/tests/cad_worm_ledger.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-```
-
-**Expected:** All tests pass.
-
-### 7.6 Platform Auditor View Restriction
-
-```sql
-SET ROLE authenticated;
-SELECT set_config('request.jwt.claims', json_build_object(
-  'app_role', 'compliance_auditor',
-  'audit_scope', 'tenant'  -- NOT platform
-)::text, true);
-
-SELECT COUNT(*) FROM audit.v_ledger_platform;
-```
-
-**Expected:** 0 rows or permission denied (tenant-scope auditor cannot read cross-tenant view).
-
----
-
-## Section 8 — Exchange Service & Dietary Profile Token (DPT)
-
-**Goal:** Verify Phase 7 DPT exchange issues privacy-preserving tokens with no condition names or PHI.
-
-### 8.1 DPoP Key Pair Is Memory-Only
-
-1. Sign in as `patient` role in CAD UI
-2. Navigate to "Shop with my plan" (DPT exchange flow)
-3. Open DevTools → **Application** tab → **Storage**:
-   - `localStorage` → must contain **no** DPoP private key material
-   - `IndexedDB` → must contain **no** DPoP private key material
-4. DevTools → **Memory** tab → Take heap snapshot → Search for `dpop` → Key material exists in heap only (ephemeral)
-
-### 8.2 DPT Token Claims Verification
-
-1. DevTools → **Network** tab → find `exchange-token` Edge Function call
-2. Copy `access_token` from response → decode:
-
-```powershell
-node -e "
-const token = '<paste-token-here>';
-const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-console.log(JSON.stringify(payload, null, 2));
 "
 ```
-
-**Required claims (allowlist only):**
-
-| Claim | Description |
-|---|---|
-| `carbs_g_100g_max` | Carbohydrate threshold |
-| `sugars_g_100g_max` | Sugar threshold |
-| `sodium_mg_100g_max` | Sodium threshold |
-| `satfat_g_100g_max` | Saturated fat threshold |
-| `energy_kcal_100g_max` | Energy threshold |
-| `fibre_g_100g_min` | Fibre minimum |
-
-**Forbidden content — must be absent:**
-
-```powershell
-# Grep decoded token for condition names
-node -e "
-const token = '<paste-token-here>';
-const payload = Buffer.from(token.split('.')[1], 'base64').toString();
-['diabetic_friendly','renal_safe','low_potassium','diagnosis','health_mode'].forEach(k => {
-  if (payload.includes(k)) console.error('FAIL: found forbidden key:', k);
-  else console.log('OK: absent:', k);
-});
-"
-```
-
-**Expected:** All 5 checks print `OK: absent:`.
-
-### 8.3 DPoP Proof Replay Rejection
-
-Submit the same DPoP-signed request twice using the same `jti`:
-
-```powershell
-# Use the exchange endpoint directly
-$dpopProof = "<your-dpop-proof-with-same-jti>"
-$headers = @{ "DPoP" = $dpopProof; "Authorization" = "Bearer <access-token>" }
-
-Invoke-RestMethod -Uri "http://localhost:54321/functions/v1/exchange-token" -Headers $headers
-# First call → 200 OK
-
-Invoke-RestMethod -Uri "http://localhost:54321/functions/v1/exchange-token" -Headers $headers
-# Second call → must be 401 DPOP_REPLAY or 400
-```
-
-**Expected:** Second call rejected.
-
-### 8.4 Leak Proof Verification
-
-```powershell
-node scripts/check-leak-proofs.mjs
-```
-
-**Expected:** `5/5 steps pass`.
-
-### 8.5 pgTAP Exchange & DPT Suite
-
-```powershell
-Get-Content supabase/tests/cad_exchange_and_dpt.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-```
-
-**Expected:** All tests pass.
+> **Expected:** `ERROR: audit ledger rows cannot be deleted. Deletes rejected.`
 
 ---
 
-## Section 9 — Commercial Overlay & Extension Scoring
+## Section 8 — Dietary Profile Token (DPT) & Ephemeral DPoP
 
-**Goal:** Verify Phase 8 scoring overlay renders correctly on retailer pages with no PHI leakage.
+**Goal:** Verify privacy-preserving token issuance with zero condition leakage and memory-only DPoP key management.
 
-### 9.1 Load a Supported Grocery Site
+### 8.1 Memory-Only DPoP Key Verification
+1. In Chrome, open CAD: `http://localhost:8080/cad/`
+2. Open DevTools → **Application** tab → **Storage**:
+   - Check `IndexedDB` → verify **no private keys** or DPoP key pairs stored.
+   - Check `localStorage` → verify **no private keys** stored.
+   - Check `sessionStorage` → verify **no private keys** stored.
+3. DPoP signing keys exist strictly within volatile JavaScript memory and are discarded upon tab closure.
 
-1. In Chrome (with extension loaded), navigate to one of:
-   - `https://www.naivas.online/` (Naivas Kenya)
-   - `https://www.carrefour.ke/` (Carrefour Kenya)
-   - `https://www.quickmart.co.ke/` (Quickmart Kenya)
-2. Browse to a product category page
-3. **Expected:** NUT-04 scoring overlay badges appear on product cards
-
-### 9.2 Zero PHI to Retailer — Network Verification
-
-1. DevTools → **Network** tab → filter by the retailer's domain
-2. Inspect all outbound requests from the extension content script
-3. **Expected:** No requests contain:
-   - Patient name, DOB, or any `clinical.*` data
-   - DPT raw nutritional thresholds (only scoring result transmitted, not the threshold values)
-   - Any `tenant_id` or `patient_id` values
-
-### 9.3 Observed Order Sync
-
-After adding an item to a retailer cart:
-
-```sql
-SELECT source, epoch, idempotency_key, shopper_alias
-FROM commercial.orders
-WHERE source = 'extension_observed'
-ORDER BY epoch DESC
-LIMIT 5;
-```
-
-**Expected:** Row exists with `source = 'extension_observed'` and `shopper_alias` as an opaque `bytea` (not a real name).
-
-### 9.4 `v_orders_tracking` — No `shopper_alias` Column
-
-```sql
-SELECT column_name FROM information_schema.columns
-WHERE table_schema = 'commercial'
-  AND table_name = 'v_orders_tracking';
-```
-
-**Expected:** `shopper_alias` is **NOT** in the result set.
-
-### 9.5 `v_sku_demand` k-Anonymity Suppression
-
-```sql
--- This view suppresses any SKU with fewer than 5 distinct shoppers
-SELECT * FROM commercial.v_sku_demand LIMIT 10;
-```
-
-Verify the underlying HAVING clause:
-
-```sql
-SELECT pg_get_viewdef('commercial.v_sku_demand'::regclass, true);
-```
-
-**Expected:** Output contains `HAVING count(DISTINCT shopper_alias) >= 5`.
-
-### 9.6 Commercial Overlay Script Verification
-
+### 8.2 DPT Allowlist Claims Inspection
+Execute the privacy leak proof script:
 ```powershell
-node scripts/check-commercial-overlay.mjs
+docker compose exec toolchain node scripts/check-leak-proofs.mjs
 ```
+> **Expected:** `5/5 leak proof steps pass cleanly.`
 
-**Expected:** `4/4 steps pass`.
-
-### 9.7 pgTAP Commercial Overlay Suite
-
+Verify that DPT payloads contain only nutritional thresholds and strictly exclude health condition names:
 ```powershell
-Get-Content supabase/tests/cad_commercial_overlay.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
+# Token payload must include only:
+# carbs_g_100g_max, sugars_g_100g_max, sodium_mg_100g_max, satfat_g_100g_max, energy_kcal_100g_max, fibre_g_100g_min
+# Must NEVER contain:
+# diabetic_friendly, renal_safe, hypertension, hiv, cancer, or any diagnosis identifier.
 ```
-
-**Expected:** 15/15 tests pass.
 
 ---
 
-## Section 10 — Consent & DPT Revocation
+## Section 9 — Commercial Overlay & Live Supermarket Testing
 
-**Goal:** Verify that withdrawing consent immediately invalidates active DPTs.
+**Goal:** Verify real-time product scoring on Kenyan retailer websites with strict zero-PHI leakage.
 
-### 10.1 Withdraw Dietary Profile Sharing Consent
+### 9.1 Supported Kenyan Supermarkets
+With the NUT-04 extension active in Chrome, navigate to any supported Kenyan supermarket:
+- **Naivas Online:** `https://www.naivas.online/`
+- **Carrefour Kenya:** `https://www.carrefour.ke/`
+- **Quickmart Kenya:** `https://www.quickmart.co.ke/`
 
-```sql
--- Update patient consent record
+### 9.2 Badge Rendering & Accessibility Verification
+1. Navigate to a grocery category (e.g., Dairy, Bakery, or Pantry).
+2. Observe product cards:
+   - Each item displays a **NutriScore Grade Badge** (A, B, C, D, or E) rendered using the Stage C design system tokens:
+     - Grade A: High-contrast green pill (`bg-emerald-100 text-emerald-800 border-emerald-300`)
+     - Grade C: Neutral amber pill (`bg-amber-100 text-amber-800 border-amber-300`)
+     - Grade E: High-contrast red pill (`bg-rose-100 text-rose-800 border-rose-300`)
+   - Food composition scoring calculates locally against the embedded **Kenya Food Composition Reference Database**.
+
+### 9.3 Zero-PHI Network Verification
+1. In Chrome, open DevTools (`F12`) → **Network** tab.
+2. Filter requests by the retailer domain (e.g., `naivas.online`).
+3. Inspect all outbound HTTP requests made by the extension content script.
+4. **Expected:**
+   - **Zero** patient identifiers, clinician IDs, or tenant UUIDs transmitted.
+   - **Zero** raw health conditions transmitted.
+   - Only anonymous SKU hashes or anonymized nutrient queries are evaluated.
+
+### 9.4 Aggregated Commercial Orders & $k$-Anonymity ($k \ge 5$)
+Run the commercial overlay verification suite:
+```powershell
+docker compose exec toolchain node scripts/check-commercial-overlay.mjs
+```
+> **Expected:** `4/4 steps pass.`
+> - `v_orders_tracking` view contains no `shopper_alias` column.
+> - `v_sku_demand` view enforces `HAVING count(DISTINCT shopper_alias) >= 5` to prevent micro-targeting or individual re-identification.
+
+---
+
+## Section 10 — Consent Withdrawal & Immediate Token Invalidation
+
+**Goal:** Verify that withdrawing patient consent immediately revokes active DPTs and halts synchronization.
+
+### 10.1 Withdraw Consent via SQL / UI
+```powershell
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
 UPDATE clinical.patient_consents
-SET dietary_profile_sharing = false,
-    updated_at = NOW()
-WHERE patient_id = '<test-patient-uuid>';
+SET dietary_profile_sharing = false, updated_at = NOW()
+WHERE patient_id = '<patient-uuid>';
+"
 ```
 
-### 10.2 Verify DPT Revocation Record
-
-```sql
+### 10.2 Verify Token Revocation
+```powershell
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
 SELECT token_id, revoked_at, reason
 FROM exchange.token_revocations
-WHERE patient_id = '<test-patient-uuid>'
-ORDER BY revoked_at DESC;
-```
-
-**Expected:** At least one row with `reason = 'CONSENT_WITHDRAWN'`.
-
-### 10.3 Revoked DPT Must Be Rejected
-
-Attempt to use the previously-issued DPT at the observed orders endpoint:
-
-```powershell
-$revokedToken = "<old-dpt-access-token>"
-Invoke-RestMethod `
-  -Uri "http://localhost:54321/functions/v1/observed-orders" `
-  -Headers @{ Authorization = "Bearer $revokedToken" }
-```
-
-**Expected:** HTTP 401 with body containing `TOKEN_REVOKED`.
-
-### 10.4 Revocation Audit Event
-
-```sql
-SELECT action, actor_id, patient_id, created_at
-FROM audit.ledger
-WHERE action = 'DPT_REVOKED'
-  AND patient_id = '<test-patient-uuid>'
-ORDER BY created_at DESC LIMIT 1;
-```
-
-**Expected:** Row exists within the last 60 seconds.
-
-### 10.5 pgTAP Claims & Revocation Suite
-
-```powershell
-Get-Content supabase/tests/cad_claims_and_revocation.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-```
-
-**Expected:** All tests pass.
-
----
-
-## Section 11 — Data Subject Rights Workflows
-
-**Goal:** Verify Phase 9 patient export, restriction, and rectification workflows (GDPR/DPA compliant).
-
-### 11.1 Patient Data Export (Right to Portability)
-
-```powershell
-# Export and verify signature
-node -e "
-const { exportPatientData } = require('./dist/shared/patient-export.js');
-exportPatientData('<test-patient-uuid>').then(bundle => {
-  console.log('SHA-256 digest:', bundle.digest);
-  console.log('Ed25519 signature present:', !!bundle.signature);
-  console.log('Export size (bytes):', JSON.stringify(bundle).length);
-});
+WHERE patient_id = '<patient-uuid>'
+ORDER BY revoked_at DESC LIMIT 1;
 "
 ```
+> **Expected:** A revocation record appears with `reason = 'CONSENT_WITHDRAWN'`.
 
-**Expected:** Bundle contains `digest` (SHA-256 hex), `signature` (Ed25519 base64), and patient data.
+---
 
-Alternatively, test via the UI export button in the CAD dashboard for the patient role.
+## Section 11 — Data Subject Rights (Portability, Restriction & Rectification)
 
-### 11.2 Processing Restriction (Right to Restrict)
+**Goal:** Verify compliance with the Kenya Data Protection Act 2019 (DPA) and GDPR data subject rights.
 
-```sql
-SELECT clinical.set_patient_restriction('<test-patient-uuid>', true, 'User requested restriction');
+### 11.1 Patient Data Portability Export
+Test the signed patient export bundle generation:
+```powershell
+docker compose exec toolchain node -e "
+const { exportPatientData } = await import('./src/shared/patient-export.js');
+const bundle = await exportPatientData('<test-patient-uuid>');
+console.log('Export SHA-256 Digest:', bundle.digest);
+console.log('Digital Signature Present:', !!bundle.signature);
+console.log('Payload Byte Count:', JSON.stringify(bundle).length);
+"
 ```
+> **Expected:** Generates an export payload with cryptographic SHA-256 digest and digital signature.
 
-Verify:
-
-```sql
-SELECT restricted, restriction_reason
-FROM clinical.patients
-WHERE id = '<test-patient-uuid>';
+### 11.2 Right to Restriction of Processing
+```powershell
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
+SELECT clinical.set_patient_restriction('<test-patient-uuid>', true, 'Subject exercised Right to Restrict');
+"
 ```
+Verify `clinical.patients.restricted = true`. All non-emergency read/write actions are suspended.
 
-**Expected:** `restricted = true`.
-
-Check audit ledger:
-
-```sql
-SELECT action FROM audit.ledger
-WHERE action = 'RESTRICT_PROCESSING' AND patient_id = '<test-patient-uuid>'
-ORDER BY created_at DESC LIMIT 1;
-```
-
-**Expected:** Row exists.
-
-### 11.3 Record Rectification (Right to Rectification)
-
-```sql
--- Rectify an existing clinical record (creates v2, preserves v1)
+### 11.3 Right to Rectification (Immutable Audit Preserved)
+```powershell
+docker compose exec -T postgres psql -U nutriscore_app -d nutriscore -c "
 SELECT clinical.rectify_clinical_record(
-  '<existing-record-uuid>',
-  '<corrected-body-enc-bytea>',
-  'Correction: initial transcription error'
+  '<record-uuid>',
+  '\x0102030405060708',
+  'Subject provided updated laboratory values'
 );
+"
 ```
-
-Verify version chain:
-
-```sql
--- Original record preserved
-SELECT id, supersedes_id, version FROM clinical.clinical_records
-WHERE id = '<existing-record-uuid>';
--- → supersedes_id = NULL, version = 1
-
--- New record supersedes original
-SELECT id, supersedes_id, version FROM clinical.clinical_records
-WHERE supersedes_id = '<existing-record-uuid>';
--- → supersedes_id = '<existing-record-uuid>', version = 2
-```
-
-**Expected:** Two rows — original untouched, new version with `supersedes_id` pointing to original.
+> **Expected:** Version 1 remains intact for audit compliance. Version 2 is created with `supersedes_id` pointing to Version 1.
 
 ---
 
-## Section 12 — Retention Purge Engine
+## Section 12 — Stage C Timeline Model & Retention Purge Engine
 
-**Goal:** Verify Phase 9 retention purge respects legal holds and logs all decisions.
+**Goal:** Verify the 4-timeframe timeline model, the 90-day retention cutoff, and zero-truncation UI tables.
 
-### 12.1 Dry-Run Purge (Safe)
+### 12.1 The 4-Timeframe Timeline Model
+In CAD (`http://localhost:8080/cad/`), navigate to the **Clinical Metrics & Target Adherence** view.
+1. Locate the timeframe selector buttons:
+   - **Today (`today`):** Immediate 24-hour nutritional check.
+   - **Week (`week`):** Rolling 7-day compliance average.
+   - **Month (`month`):** 30-day target adherence.
+   - **3 Months (`3months`):** 90-day maximum clinical overview boundary.
+2. Click between the four timeframes. Observe that:
+   - `<TargetMeter>` components smoothly recalculate target percentages and threshold alerts.
+   - `<KpiCard>` summaries update values dynamically.
+   - Any data older than 90 days is strictly excluded from clinical views in compliance with clinic data retention policy.
 
+### 12.2 Zero-Truncation Clinical Tables
+Inspect all tables in the CAD UI (`Patients`, `Adherence`, `Audit Logs`):
+- Patient IDs, timestamps, and dietary targets render in full with zero clipping or artificial ellipses (`text-truncate` is prohibited on clinical data).
+- Long values wrap cleanly or provide responsive horizontal scrolling containers with clear column headers.
+
+### 12.3 Automated Retention Purge Engine (Dry Run)
+Execute the retention purge script in dry-run mode:
 ```powershell
-node scripts/purge-retention.mjs --dry-run
+docker compose exec toolchain node scripts/purge-retention.mjs --dry-run
 ```
-
-**Expected:**
-- Script exits 0
-- `RETENTION_PURGE_PLAN` event appears in `audit.ledger`
-- No rows actually deleted
-
-### 12.2 Fail-Safe: Missing `retain_years` Blocks Purge
-
-```sql
--- Attempt purge on a class without retain_years configured
--- (clinical_records class has NULL retain_years by design as a safety net)
-SELECT purge_class FROM retention.purge_config WHERE retain_years IS NULL;
-```
-
-Run purge targeting that class:
-
-```powershell
-node scripts/purge-retention.mjs --class=clinical_records
-```
-
-**Expected:** Script throws `FAIL_SAFE: retain_years is NULL for class clinical_records`.
-
-### 12.3 Legal Hold Blocks Purge
-
-```sql
--- Set legal hold on a patient
-UPDATE clinical.patients SET legal_hold = true WHERE id = '<test-patient-uuid>';
-```
-
-```powershell
-node scripts/purge-retention.mjs --patient=<test-patient-uuid>
-```
-
-**Expected:** Output contains `BLOCKED: legal_hold active for patient <uuid>`. No rows deleted.
-
-### 12.4 pgTAP Retention & Rights Suite
-
-```powershell
-Get-Content supabase/tests/cad_retention_and_rights.sql | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-```
-
-**Expected:** 18/18 tests pass.
+> **Expected:**
+> - Exits cleanly with status 0.
+> - Logs proposed purge candidates older than the statutory retention policy.
+> - Preserves all records subject to active legal holds (`legal_hold = true`).
 
 ---
 
-## Section 13 — Release Gate & Compliance Artifacts
+## Section 13 — Compliance Release Gates & Artifacts
 
-**Goal:** Verify Phase 10 compliance artifacts are present and release gate correctly blocks launch.
+**Goal:** Verify statutory pre-launch compliance checks.
 
-### 13.1 Release Gate — Expected Exit Code 1
-
+### 13.1 Compliance Release Gate Check
 ```powershell
-npm run release:check
+docker compose exec toolchain node scripts/release-gate.mjs
 ```
+> **Expected Result:**
+> - Exits with status code `1` (Intentional block).
+> - Console displays pending items:
+>   - DPIA draft awaiting final Legal / DPO sign-off.
+>   - `compliance/launch.json` contains pending statutory approvals.
+> - This confirms the automated barrier prevents premature production deployment.
 
-**Expected:** Exit code 1 with messages indicating:
-- DPIA not yet signed off by DPO/counsel
-- `compliance/launch.json` has null/pending values
-- Release is intentionally blocked until legal sign-off
-
-> [!NOTE]
-> Exit code 1 here is the **correct behavior** — the gate is designed to block until all compliance fields in `launch.json` are filled by an authorized human reviewer.
-
-### 13.2 DPIA Document Check
-
+### 13.2 Compliance Documents Verification
+Verify presence of required compliance documentation:
 ```powershell
+# Verify Data Protection Impact Assessment (DPIA) draft
 Test-Path "docs\compliance\dpia\DPIA-draft.md"
-Get-Content "docs\compliance\dpia\DPIA-draft.md" | Select-Object -First 30
-```
 
-**Expected:** File exists and contains structured DPIA sections (Processing Activities, Risk Assessment, Mitigations, Residual Risk).
-
-### 13.3 Launch Manifest Inspection
-
-```powershell
-Get-Content "compliance\launch.json" | ConvertFrom-Json
-```
-
-**Expected:** JSON object with fields like `dpia_approved`, `counsel_sign_off`, `dpo_review` — all `null` or `false` (pending). This is correct for pre-launch state.
-
-### 13.4 Breach Runbook Presence
-
-```powershell
+# Verify Incident & Data Breach Response Runbook
 Test-Path "docs\compliance\BREACH_RUNBOOK.md"
 ```
-
-**Expected:** `True`.
-
-### 13.5 Hosted Supabase Checklist
-
-```powershell
-Test-Path "Reports\HOSTED_SUPABASE_CHECKLIST.md"
-Get-Content "Reports\HOSTED_SUPABASE_CHECKLIST.md" | Measure-Object -Line
-```
-
-**Expected:** File exists with > 50 lines of checklist items.
+> **Expected:** Both return `True`.
 
 ---
 
-## Section 14 — End-to-End Security Scan
+## Section 14 — Automated Quality Gates Sweep (Docker Executed)
 
-**Goal:** Run all automated security gates together as a final sweep.
-
-### 14.1 Full Security Gate Suite
+To run the full suite of automated checks at any point during testing, execute the unified CI command:
 
 ```powershell
-# Gate 1: RLS coverage (29 relations)
-npm run check:rls
-
-# Gate 2: CAD security invariants
-npm run check:cad-security
-
-# Gate 3: Extension manifest (no global leaks)
-npm run check:manifest
-
-# Gate 4: No secrets tracked in repo
-node scripts/check-no-secrets-tracked.mjs
-
-# Gate 5: All audit chains valid
-node scripts/verify-audit-chain.mjs
-
-# Gate 6: Phase 6 zero plaintext PHI
-node scripts/verify-phase6-canary.mjs
-
-# Gate 7: Leak proofs (5/5)
-node scripts/check-leak-proofs.mjs
-
-# Gate 8: Commercial overlay (4/4)
-node scripts/check-commercial-overlay.mjs
-
-# Gate 9: Purge mock users (should be 0 remaining after purge)
-node scripts/purge-mocks.mjs
-node scripts/purge-mocks.mjs --check-clean
+.\bin\nut.ps1 ci
 ```
 
-### 14.2 Expected Results Summary
+### Gate Verification Matrix
 
-| Gate | Command | Expected |
+| Gate | Execution Command (Containerized) | Verification Criteria |
 |---|---|---|
-| RLS | `check:rls` | 29 relations covered |
-| Security | `check:cad-security` | 0 errors |
-| Manifest | `check:manifest` | 0 global leaks |
-| Secrets | `check-no-secrets-tracked.mjs` | 0 secrets |
-| Audit chains | `verify-audit-chain.mjs` | 6/6 valid |
-| Phase 6 PHI | `verify-phase6-canary.mjs` | 0 plaintext |
-| Leak proofs | `check-leak-proofs.mjs` | 5/5 pass |
-| Commercial | `check-commercial-overlay.mjs` | 4/4 pass |
-| Mock cleanup | `purge-mocks.mjs --check-clean` | 0 mock users |
-
-### 14.3 Full pgTAP Suite — All Nine Files
-
-Run all pgTAP suites in sequence to confirm every DB-layer invariant:
-
-```powershell
-$suites = @(
-  "cad_tenant_wall.sql",
-  "cad_claims_and_revocation.sql",
-  "cad_grant_matrix_lifecycle.sql",
-  "cad_abac_and_clinical.sql",
-  "cad_worm_ledger.sql",
-  "cad_field_encryption_and_projection.sql",
-  "cad_exchange_and_dpt.sql",
-  "cad_commercial_overlay.sql",
-  "cad_retention_and_rights.sql"
-)
-
-foreach ($suite in $suites) {
-  Write-Host "`n=== Running $suite ===" -ForegroundColor Cyan
-  Get-Content "supabase/tests/$suite" | docker exec -i supabase_db_NUT-04_Checkout_Tool psql -U postgres -d postgres
-}
-```
-
-**Expected:** Zero `not ok` lines across all nine suites.
+| **Secret Tracking** | `node scripts/check-no-secrets-tracked.mjs` | 0 private keys or tokens tracked in git |
+| **Hardcoded Data** | `node scripts/check-no-hardcoded-data.mjs` | 0 hospital names, real emails, or real PII |
+| **Manifest Security** | `node scripts/check-manifest-globals.mjs` | 0 global leaks, Manifest V3 valid |
+| **CAD Invariants** | `node scripts/check-cad-security.mjs` | 0 security invariant violations |
+| **Code Formatting** | `npm run format:check` | Prettier style enforced across codebase |
+| **Static Analysis** | `npm run lint` | ESLint reports 0 errors |
+| **Type Integrity** | `npm run typecheck` | `tsc --noEmit` reports 0 errors |
+| **Unit & Integration** | `npm run test` | Vitest: 45 files, 793 tests passing |
+| **Production Build** | `npm run build` | Compiles `dist/` and `dist-ui/cad` cleanly |
+| **Fixture Verification**| `node scripts/check-no-fixtures-in-dist.mjs`| 0 test fixtures or mock data in production bundle |
 
 ---
 
-## Section 15 — Post-Test Cleanup
+## Section 15 — Post-Test Cleanup & Environment Reset
 
-> [!CAUTION]
-> Run this section after completing all tests. Do **not** skip the mock purge — mock accounts must not persist in any environment.
+After completing manual and automated testing, return the environment to a pristine state:
 
+### 1. Reset Database State
 ```powershell
-# 1. Purge all mock test users
-node scripts/purge-mocks.mjs
-
-# 2. Confirm zero mock users remain
-node scripts/purge-mocks.mjs --check-clean
-
-# 3. Unload the extension (optional, but recommended)
-# chrome://extensions → Remove the NUT-04 extension card
-
-# 4. Confirm no plaintext PHI introduced during testing
-node scripts/verify-phase6-canary.mjs
+.\bin\nut.ps1 db-reset
 ```
+> Re-executes `dbmate` down/up migrations, wiping test sessions and restoring the baseline schema.
+
+### 2. Stop Development Containers
+```powershell
+.\bin\nut.ps1 down
+```
+> Shuts down all 8 Docker services and cleans up local test networks.
+
+### 3. Clear Chrome Test Artifacts
+1. In Chrome, open `chrome://extensions`.
+2. Locate the **NUT-04 Checkout Tool** card → Click **Remove**.
+3. Open Chrome Settings → **Clear browsing data** → select **Cached images and files** and **Cookies and other site data** for `localhost`.
 
 ---
 
 ## Appendix A — Key File Reference
 
-| File | Purpose |
+| File Path | Description |
 |---|---|
-| [`scripts/seed-mock-users.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/seed-mock-users.mjs) | Seeds one account per role for testing |
-| [`scripts/purge-mocks.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/purge-mocks.mjs) | Removes all mock accounts; `--check-clean` asserts zero |
-| [`scripts/verify-audit-chain.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/verify-audit-chain.mjs) | Verifies hash-chain integrity across all 6 audit chains |
-| [`scripts/verify-phase6-canary.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/verify-phase6-canary.mjs) | Scans pg_dump for plaintext PHI fields |
-| [`scripts/check-leak-proofs.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/check-leak-proofs.mjs) | 5-step DPT privacy leak proof |
-| [`scripts/check-commercial-overlay.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/check-commercial-overlay.mjs) | Commercial overlay invariants (4 steps) |
-| [`scripts/purge-retention.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/purge-retention.mjs) | Retention purge engine (supports `--dry-run`) |
-| [`scripts/release-gate.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/release-gate.mjs) | Compliance release gate (blocks until counsel sign-off) |
-| [`src/shared/patient-export.ts`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/src/shared/patient-export.ts) | Patient data export with SHA-256 + Ed25519 signature |
-| [`compliance/launch.json`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/compliance/launch.json) | Compliance launch manifest (DPO/counsel fields) |
-| [`docs/compliance/dpia/DPIA-draft.md`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/docs/compliance/dpia/DPIA-draft.md) | DPIA draft document |
-| [`docs/compliance/BREACH_RUNBOOK.md`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/docs/compliance/BREACH_RUNBOOK.md) | Data breach response runbook |
-| [`Reports/CAD_BACKEND_FINAL_REPORT.md`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/Reports/CAD_BACKEND_FINAL_REPORT.md) | Full implementation report (Phases 0–10) |
+| [`bin/nut.ps1`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/bin/nut.ps1) | Windows PowerShell CLI wrapper for Docker-based operations. |
+| [`bin/nut`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/bin/nut) | POSIX / Bash CLI wrapper for Docker-based operations. |
+| [`compose.yaml`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/compose.yaml) | Docker Compose specification for microservices stack. |
+| [`infra/caddy/Caddyfile`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/infra/caddy/Caddyfile) | API Gateway reverse proxy configuration (HTTP :8080 / TLS :8443). |
+| [`infra/keycloak-realm.json`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/infra/keycloak-realm.json) | Keycloak `nutriscore` realm configuration, roles, and client scopes. |
+| [`src/ui/src/app/components/ui/`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/src/ui/src/app/components/ui/) | Stage C design system primitives (`GradeBadge`, `ConfirmDialog`, `TargetMeter`, `KpiCard`, `ConditionChip`). |
+| [`src/ui/src/styles/tokens.css`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/src/ui/src/styles/tokens.css) | 3-tier CSS custom property design tokens. |
+| [`db/migrations/0001_baseline.sql`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/db/migrations/0001_baseline.sql) | Dbmate baseline database schema and RLS policies. |
+| [`scripts/check-no-hardcoded-data.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/check-no-hardcoded-data.mjs) | Stage B verification script for zero hardcoded PII/hospital data. |
+| [`scripts/check-cad-security.mjs`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/scripts/check-cad-security.mjs) | CAD security invariant enforcement script. |
+| [`docs/adr/0001-decommission-supabase.md`](file:///c:/Users/USER/Documents/NUT-04%20Checkout%20Tool/docs/adr/0001-decommission-supabase.md) | Architecture Decision Record: Supabase decommissioning. |
 
 ---
 
 ## Appendix B — Critical Security Invariants Checklist
 
-These are the hard invariants that must hold at all times. Each is tested in this guide.
-
-- [ ] **S1** Cross-tenant query returns exactly 0 rows (Sections 3.2, 3.4)
-- [ ] **S2** No `callerRank` or numeric rank comparisons anywhere (Section 2.3 via `check:cad-security`)
-- [ ] **S3** Single `BAN_UNTIL_ISO` constant used for all bans (Section 2.3)
-- [ ] **S4** DPT contains no condition names (`diabetic_friendly`, `renal_safe`, `low_potassium`) (Section 8.2)
-- [ ] **S5** `v_orders_tracking` has no `shopper_alias` column (Section 9.4)
-- [ ] **S6** `v_sku_demand` suppresses below k=5 distinct shoppers (Section 9.5)
-- [ ] **S7** WORM ledger rejects UPDATE and DELETE (Sections 7.2, 7.3)
-- [ ] **S8** Crypto-shredded patient data is permanently unreadable (Section 5.5)
-- [ ] **S9** Break-glass access is immediately recorded in `audit.ledger` (Section 6.4)
-- [ ] **S10** DPoP proof replay is rejected (Section 8.3)
-- [ ] **S11** No DPoP key material persists to IndexedDB or localStorage (Section 8.1)
-- [ ] **S12** Extension transmits no PHI to retailer domains (Section 9.2)
-- [ ] **S13** Revoked DPT returns `TOKEN_REVOKED` 401 (Section 10.3)
-- [ ] **S14** Legal hold blocks retention purge (Section 12.3)
-- [ ] **S15** Release gate blocks launch without counsel sign-off (Section 13.1)
-
----
-
-## Appendix C — Test Tenant UUIDs
-
-| Tenant | UUID |
-|---|---|
-| Test Tenant 1 | `11111111-1111-1111-1111-111111111111` |
-| Test Tenant 2 | `22222222-2222-2222-2222-222222222222` |
+- [ ] **S1** Cross-tenant query returns exactly 0 rows under all conditions (Section 3.2).
+- [ ] **S2** No `callerRank` or numeric rank comparisons anywhere in the codebase (Section 2.3).
+- [ ] **S3** Single `BAN_UNTIL_ISO` constant used for session denylisting (Section 2.4).
+- [ ] **S4** DPT tokens contain no condition names (`diabetic_friendly`, `renal_safe`, etc.) (Section 8.2).
+- [ ] **S5** `v_orders_tracking` view contains no `shopper_alias` column (Section 9.4).
+- [ ] **S6** `v_sku_demand` view enforces $k$-anonymity suppression below $k=5$ shoppers (Section 9.4).
+- [ ] **S7** WORM ledger triggers reject `UPDATE` and `DELETE` (Section 7.2).
+- [ ] **S8** Crypto-shredded patient ciphertext is permanently unreadable (Section 5.3).
+- [ ] **S9** Break-glass access creates an immediate immutable audit ledger entry (Section 6.3).
+- [ ] **S10** DPoP proof replay attacks are rejected (Section 8.2).
+- [ ] **S11** No private keys or DPoP secrets persist in `localStorage` or `IndexedDB` (Section 8.1).
+- [ ] **S12** Extension content scripts transmit zero PHI to retailer domains (Section 9.3).
+- [ ] **S13** Revoked DPT returns HTTP 401 `TOKEN_REVOKED` (Section 10.2).
+- [ ] **S14** Active legal hold strictly blocks retention purge (Section 12.3).
+- [ ] **S15** Statutory release gate intentionally blocks unapproved production release (Section 13.1).
+- [ ] **S16** Host-isolation rule R4 enforced: 0 host `npm`/`node`/`psql` calls (Section Pre-Flight).
 
 ---
 
-*Generated for NUT-04 Checkout Tool — CAD Backend Blueprint v1.0 — Branch `feat/cad-backend-blueprint`*
-*Last updated: 2026-11-03*
+*NUT-04 Checkout Tool — CAD Testing Guide v2.0 — Modernized for Dockerized Microservices & Stage C UI*  
+*Target Branch: `refactor/decay-cleanup-docker-ui`*
