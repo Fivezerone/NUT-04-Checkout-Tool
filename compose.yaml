@@ -90,7 +90,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://nutriscore_app:$(cat /run/secrets/pg_password)@postgres:5432/nutriscore?sslmode=disable
+      DATABASE_URL: ${DATABASE_URL:-postgres://nutriscore_app:nutriscore_dev_secret_pg_pass_2026@postgres:5432/nutriscore?sslmode=disable}
+      DBMATE_NO_DUMP_SCHEMA: 'true'
     volumes:
       - ./db/migrations:/db/migrations:ro
     secrets:
@@ -110,21 +111,22 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/nutriscore
       KC_DB_USERNAME: nutriscore_app
-      KC_DB_PASSWORD_FILE: /run/secrets/pg_password
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:-nutriscore_dev_secret_pg_pass_2026}
       KC_HOSTNAME: keycloak
       KC_HTTP_ENABLED: 'true'
+      KC_HEALTH_ENABLED: 'true'
       KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD_FILE: /run/secrets/kc_admin_password
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-nutriscore_dev_secret_kc_admin_2026}
     volumes:
-      - ./infra/keycloak:/opt/keycloak/data/import:ro
+      - ./infra/keycloak-realm.json:/opt/keycloak/data/import/nutriscore-realm.json:ro
     secrets:
       - pg_password
       - kc_admin_password
     command: ['start-dev', '--import-realm']
     healthcheck:
-      test: ['CMD-SHELL', 'curl -fs http://localhost:8080/health/ready || exit 1']
+      test: ['CMD', '/usr/bin/bash', '-c', 'exec 3<>/dev/tcp/127.0.0.1/8080']
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 15
       start_period: 30s
     expose: ['8080']
@@ -141,7 +143,7 @@ services:
       keycloak:
         condition: service_healthy
     environment:
-      PGRST_DB_URI: postgres://authenticator:$(cat /run/secrets/pg_password)@postgres:5432/nutriscore
+      PGRST_DB_URI: ${PGRST_DB_URI:-postgres://authenticator:nutriscore_dev_secret_pg_pass_2026@postgres:5432/nutriscore}
       PGRST_DB_SCHEMA: public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET_IS_BASE64: 'false'
@@ -166,7 +168,7 @@ services:
     environment:
       <<: *common-env
       NODE_ENV: production
-      DATABASE_URL: postgres://nutriscore_app:$(cat /run/secrets/pg_password)@postgres:5432/nutriscore
+      DATABASE_URL: ${DATABASE_URL:-postgres://nutriscore_app:nutriscore_dev_secret_pg_pass_2026@postgres:5432/nutriscore}
     secrets:
       - pg_password
     expose: ['4000']
@@ -208,7 +210,7 @@ services:
       - ./infra/nginx/cad.nginx.conf:/etc/nginx/conf.d/default.conf:ro
     expose: ['8080']
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost:8080/health || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/health || exit 1']
       interval: 5s
       retries: 5
 

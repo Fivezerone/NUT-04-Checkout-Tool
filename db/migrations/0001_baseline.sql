@@ -1,3 +1,4 @@
+-- migrate:up
 -- db/migrations/0001_baseline.sql
 -- NUT-04 Checkout Tool — Plain Postgres 16 baseline migration.
 --
@@ -23,7 +24,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'authenticator']
+  FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role']
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN', r);
@@ -31,17 +32,21 @@ BEGIN
   END LOOP;
   -- authenticator is the PostgREST login role
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticator') THEN
-    CREATE ROLE authenticator NOINHERIT LOGIN;
+    CREATE ROLE authenticator NOINHERIT LOGIN PASSWORD 'nutriscore_dev_secret_pg_pass_2026';
+  ELSE
+    ALTER ROLE authenticator WITH LOGIN PASSWORD 'nutriscore_dev_secret_pg_pass_2026';
   END IF;
   -- Allow authenticator to switch to anon or authenticated
   GRANT anon TO authenticator;
   GRANT authenticated TO authenticator;
+  GRANT service_role TO authenticator;
 END
 $$;
 
 -- ---------------------------------------------------------------------------
 -- Schemas
 -- ---------------------------------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS app;
 CREATE SCHEMA IF NOT EXISTS app_private;
 CREATE SCHEMA IF NOT EXISTS iam;
 CREATE SCHEMA IF NOT EXISTS clinical;
@@ -477,5 +482,8 @@ grant execute on function public.rate_limit_take(text, int, double precision, in
 --   0009_catalog_and_bundles.sql       (from 20261029020000, catalog_schema)
 --   0010_reference_seed_data.sql       (rule packs, grade thresholds)
 
-COMMIT;
+-- migrate:down
+-- Rollback baseline schema
+DROP SCHEMA IF EXISTS app CASCADE;
+DROP SCHEMA IF EXISTS app_private CASCADE;
 
