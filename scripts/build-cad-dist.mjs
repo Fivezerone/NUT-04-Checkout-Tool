@@ -8,7 +8,7 @@
  * Removes `cad.html` from the extension package (D-21).
  */
 
-import { existsSync, mkdirSync, copyFileSync, cpSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, rmSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -27,8 +27,12 @@ const cadHtmlSrc = existsSync(resolve(extDir, 'cad.html'))
 const cadIndexDst = resolve(cadDistDir, 'index.html')
 
 if (existsSync(cadHtmlSrc)) {
-  copyFileSync(cadHtmlSrc, cadIndexDst)
-  console.log('[build-cad-dist] Copied cad.html -> dist-ui/cad/index.html')
+  try {
+    writeFileSync(cadIndexDst, readFileSync(cadHtmlSrc))
+    console.log('[build-cad-dist] Copied cad.html -> dist-ui/cad/index.html')
+  } catch (err) {
+    console.warn('[build-cad-dist] Warning writing cad index.html:', err.message)
+  }
   // Clean up cad.html from extension build so CAD is not bundled into shopper extension
   if (cadHtmlSrc.startsWith(extDir)) {
     rmSync(cadHtmlSrc, { force: true })

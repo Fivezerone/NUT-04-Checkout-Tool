@@ -198,23 +198,25 @@ function PopupRoot() {
   // ── Navigation handlers ────────────────────────────────────────────────────
 
   const handleOpenDashboard = () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
+    if (typeof chrome !== "undefined" && chrome.tabs?.create) {
+      chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
+    } else {
+      window.open("dashboard.html", "_blank");
+    }
   };
 
   /**
-   * handleOpenAuth — the single entry point for unauthenticated or incomplete users.
-   *
-   * Button label and destination differ by state:
-   *   'new'        → "Sign Up"        → onboarding.html?mode=signup
-   *   'incomplete' → "Finish Sign Up" → onboarding.html?mode=signup
-   *   'returning'  → "Log In"         → onboarding.html?mode=login
-   *
-   * After login/resume, redirectAfterLogin() in OnboardingWizard handles routing.
+   * handleOpenAuth — navigates unauthenticated or incomplete patients to the
+   * care enrollment and consent gate inside dashboard.html.
    */
   const handleOpenAuth = () => {
-    chrome.tabs.create({
-      url: chrome.runtime.getURL("onboarding.html"),
-    });
+    if (typeof chrome !== "undefined" && chrome.tabs?.create) {
+      chrome.tabs.create({
+        url: chrome.runtime.getURL("dashboard.html"),
+      });
+    } else {
+      window.open("dashboard.html", "_blank");
+    }
   };
 
   return (

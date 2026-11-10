@@ -191,9 +191,9 @@ docker compose exec toolchain node scripts/check-manifest-globals.mjs
    - **Health Focus Selection:** Displays mode selection pills using the Stage C `ConditionChip` component.
    - **Accessible Targets:** All clickable chips and toggles satisfy minimum 44px touch targets.
    - **Dark Mode Parity:** If OS is in dark mode, the popup renders high-contrast slate surfaces (`--t-color-surface-card`).
-3. **Actions & Dashboard Access:**
-   - **Open Shopper Dashboard (`#open-dashboard-btn`):** Always visible and directly clickable by all users. Opens `dashboard.html` in a dedicated tab. Unauthenticated/new shoppers can immediately access their dashboard (or complete consent via `ConsentGate`), while returning shoppers see their full basket analytics.
-   - **Sign in to Clinic Admin Dashboard (`#open-auth-btn`):** Displayed for unauthenticated users wishing to access clinical workflows. Opens the CAD web portal (`http://localhost:8080/cad/` or `http://localhost:3000/cad.html`).
+3. **Actions & Patient Dashboard Access:**
+   - **Enrolled Shoppers (`#open-dashboard-btn`):** When authenticated with an active clinical session, renders **Open Shopper Dashboard** leading to `dashboard.html`.
+   - **Unauthenticated / Incomplete Shoppers (`#open-auth-btn`):** In accordance with `Docs/ui-ux-overhaul-report.md` §4.4, replaces the dashboard button with **Sign in with Clinic Credentials** (or **Complete Care Consent**), opening `dashboard.html` to present the clinical onboarding and consent gate. The extension popup is strictly a patient/shopper surface and contains no clinical administrative entrypoints.
 4. Right-click the popup → **Inspect**:
    - Console must be clean of errors and warnings.
 
@@ -205,16 +205,12 @@ docker compose exec toolchain node scripts/check-manifest-globals.mjs
 
 ### 2.1 Sign In to the CAD Web Application
 
-Depending on whether you are running the full Docker stack or the Vite development server, navigate to:
+Navigate in Chrome to the dedicated CAD entrypoint:
 
-- **Docker Compose Gateway (Default / Recommended):**  
+- **Docker Compose Gateway:**  
   `http://localhost:8080/cad/`  
   *(Note: navigating to `http://localhost:8080/cad.html` or `http://localhost:8080/cad` automatically redirects with HTTP 301 to `/cad/`)*.  
   The Caddy gateway reverse-proxies `/cad/*` to the dedicated Nginx container (`cad:8080`), `/auth/*` to Keycloak (`keycloak:8080`), and `/api/*` to PostgREST (`postgrest:3000`).
-
-- **Vite Local Dev Server (Host Dev Mode):**  
-  `http://localhost:3000/cad.html` (or `http://localhost:3000/cad/`).  
-  When running `npm run dev`, Vite serves on port 3000 and automatically proxies `/api` and `/auth` calls to `http://localhost:8080`.
 
 1. Open Chrome and navigate to `http://localhost:8080/cad/`.
 2. The CAD Clinical Login portal renders cleanly with NutriScore branding, email, and password fields.
