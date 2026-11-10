@@ -141,7 +141,7 @@ export const AuditLogView: React.FC = () => {
                         <div className="mt-1 text-xs text-[color:var(--color-text-muted)] font-mono">Ref: {log.subject_ref}</div>
                       )}
                     </td>
-                    <td className="max-w-xs truncate" title={log.reason}>
+                    <td className="min-w-[180px] break-words text-wrap" title={log.reason}>
                       {log.reason}
                     </td>
                     <td className="font-mono text-xs text-[color:var(--color-text-muted)]">

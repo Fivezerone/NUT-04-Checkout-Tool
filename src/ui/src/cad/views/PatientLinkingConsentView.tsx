@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react'
 import { useCadAuth } from '../context/AuthContext'
+import { ConfirmDialog } from '../../app/components/ui'
 import { 
   Link2, 
   ShieldCheck, 
@@ -49,6 +50,7 @@ export const PatientLinkingConsentView: React.FC = () => {
   const [generatedCode, setGeneratedCode] = useState<string | null>(null)
   const [copiedCode, setCopiedCode] = useState(false)
   const [erasureStatus, setErasureStatus] = useState<string | null>(null)
+  const [shredTarget, setShredTarget] = useState<string | null>(null)
 
   const handleGenerateLinkCode = () => {
     const randomDigits = Math.floor(100000 + Math.random() * 900000)
@@ -82,11 +84,7 @@ export const PatientLinkingConsentView: React.FC = () => {
     )
   }
 
-  const handleCryptoShred = (patientRef: string) => {
-    if (!window.confirm(`Initiate DPA s.40 crypto-shredding for ${patientRef}? All patient identifiers will be pseudonymized and consent revoked permanently.`)) {
-      return
-    }
-
+  const executeCryptoShred = (patientRef: string) => {
     const shreddedToken = `SHREDDED-${patientRef.substring(0, 4)}-${Math.random().toString(36).substring(2, 8)}`
     
     // Revoke all consents
@@ -279,9 +277,10 @@ export const PatientLinkingConsentView: React.FC = () => {
 
                   {!consent.patientRef.startsWith('SHREDDED') && (
                     <button
-                      onClick={() => handleCryptoShred(consent.patientRef)}
-                      className="text-slate-400 hover:text-slate-700 p-1.5 hover:bg-slate-100 rounded transition-colors"
+                      onClick={() => setShredTarget(consent.patientRef)}
+                      className="text-slate-400 hover:text-rose-600 p-1.5 hover:bg-slate-100 rounded transition-colors"
                       title="Crypto-shred patient (Test T27)"
+                      aria-label={`Crypto-shred patient ${consent.patientRef}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -292,6 +291,23 @@ export const PatientLinkingConsentView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* DPA s.40 Irreversible Crypto-Shredding Typed Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={Boolean(shredTarget)}
+        title="Initiate DPA s.40 Crypto-Shredding"
+        description={`All patient identifiers for ${shredTarget} will be permanently pseudonymized, consent revoked, and cryptographic keys rotated. Type SHRED to confirm this irreversible action.`}
+        confirmLabel="Crypto-Shred Patient"
+        variant="danger"
+        expectedPhrase="SHRED"
+        onConfirm={() => {
+          if (shredTarget) {
+            executeCryptoShred(shredTarget)
+            setShredTarget(null)
+          }
+        }}
+        onClose={() => setShredTarget(null)}
+      />
     </div>
   )
 }

@@ -117,3 +117,4 @@ export const GradeBadge: React.FC<GradeBadgeProps> = ({
     </span>
   );
 };
+

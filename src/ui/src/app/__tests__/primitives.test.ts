@@ -31,3 +31,4 @@ describe('Design System Primitives Contract (Phase C2 / WCAG 2.2 AA)', () => {
     expect(typeof ConditionChip).toBe('function');
   });
 });
+
