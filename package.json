@@ -12,7 +12,7 @@
     "check:cad-security": "node scripts/check-cad-security.mjs",
     "verify:audit": "node scripts/verify-audit-chain.mjs",
     "dev": "vite",
-    "test": "vitest run src/ui/src/app/__tests__",
+    "test": "vitest run --no-cache src/ui/src/app/__tests__",
     "test:watch": "vitest src/ui/src/app/__tests__",
     "typecheck": "tsc --noEmit && node -e \"console.log('✓ TypeScript check passed: 0 errors')\"",
     "lint": "eslint .",

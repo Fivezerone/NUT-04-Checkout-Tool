@@ -38,6 +38,8 @@ RUN curl -sSfL \
 RUN groupadd --gid 1001 appgroup \
   && useradd --uid 1001 --gid 1001 --shell /bin/bash --create-home appuser
 
+RUN git config --system --add safe.directory '*'
+
 WORKDIR /app
 
 # ---------------------------------------------------------------------------
