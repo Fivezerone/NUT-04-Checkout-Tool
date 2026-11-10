@@ -23,6 +23,7 @@ Add CI guard scripts to prevent regression.
 | `0052277d` | B-02 to B-05 | `ClinicianWorkspaceView`: metric counts + `PAT-0042` → empty state; `PlatformOverviewView`: `\|\| 3` count + `112`/`0` values + inline hospital tenant array removed; `Dashboard`: `year`/`all` range options removed (Decision 4); `PatientLinkingConsentView`: `PAT-0042`/`PAT-0108`/`Dr. Mwangi` fixtures → `[]`; `TenantSettingsView`: `knh-cardio` slug fallback → `''` |
 | `5464155d` | B-06/B-10 | `check-no-hardcoded-data.mjs` and `check-no-fixtures-in-dist.mjs` guard scripts; `package.json` CI chain updated |
 | `59b0738d` | B-11 to B-13 | `Options.tsx`: clinician name + hospital name fallbacks → `""`; comment/placeholder false-positives fixed after guard run |
+| Remediation | B-14 to B-15 | `PatientTargetsView.tsx`: hardcoded patient refs (`pat-anon-8821`, `pat-anon-4109`) and demo clinician IDs purged; `BillingSubscriptionView.tsx`: phone number default and mock M-Pesa receipts purged |
 
 ---
 
@@ -39,8 +40,10 @@ Add CI guard scripts to prevent regression.
 | B-07 | `Options.tsx` | `"Dr. David Omondi, MBChB, MMed"` + `"Kenyatta National Hospital — Clinical Nutrition Unit"` local var fallbacks | Both set to `""`; TODO(Stage C) |
 | B-08 | `PatientLinkingConsentView.tsx` comment | Literal `PAT-0042`/`PAT-0108` in comment triggered guard | Reworded |
 | B-09 | `UserManagementView.tsx` comment + placeholder | `@knh.or.ke` in comment; `KMPDC/2026/12345` in placeholder triggered guard | Reworded; placeholder → `Reg-No/YYYY/NNNNN` |
+| B-14 | `PatientTargetsView.tsx` | `pat-anon-8821`, `pat-anon-4109`, `usr-dr-omondi`, `usr-diet-wanjiku` | Prescribed targets set to `[]` empty list; cosigner fallback sanitized |
+| B-15 | `BillingSubscriptionView.tsx` | Phone `254712345678`, M-Pesa receipts `QHJ882194K`, `PZX110943A` | Cleared phone default; `invoices` set to `[]` with empty table state |
 
-**Total: 9 distinct violation sites → 13 ledger entries (some sites had multiple sub-items) → 0 remaining.**
+**Total: 11 distinct violation sites → 15 ledger entries → 0 remaining.**
 
 ---
 
@@ -87,6 +90,8 @@ Stage B objectives met:
 - ✅ 0 real clinic email domains in `src/`
 - ✅ 0 real hospital names or slugs in `src/`
 - ✅ 0 real clinician names in `src/`
+- ✅ 0 hardcoded phone numbers or mock payment transaction receipts
 - ✅ Dashboard range ceiling enforced (3 months, Decision 4)
 - ✅ CI guard blocks any regression
-- ✅ `HARDCODED_DATA_LEDGER.md` complete (13 entries)
+- ✅ `HARDCODED_DATA_LEDGER.md` complete (15 entries)
+

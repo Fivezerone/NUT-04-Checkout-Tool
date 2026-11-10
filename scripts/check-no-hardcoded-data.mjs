@@ -26,14 +26,24 @@ const repoRoot = resolve(__dirname, '..')
 
 // Build split-string patterns to avoid this script self-matching its own ban list.
 const BANNED_PATTERNS = [
-  // Patient reference codes
-  { re: /PAT-\d{4,}/g, label: 'patient-ref(PAT-XXXX)' },
+  // Patient reference codes (PAT-XXXX, pat-anon-XXXX)
+  { re: /(?:PAT-\d{4,}|pat-anon-\d+)/gi, label: 'patient-ref' },
+  // Clinician identifiers
+  { re: /usr-(?:dr|diet)-[a-z]+/gi, label: 'clinician-id' },
+  // Real Kenyan phone numbers (2547XXXXXXXX)
+  { re: /(?:254|\+254)[17]\d{8}/g, label: 'kenya-phone-number' },
   // Real clinic email domains
   { re: /@knh\.or\.ke/gi, label: 'clinic-email(@knh.or.ke)' },
   { re: /@akuh\.ac\.ke/gi, label: 'clinic-email(@akuh.ac.ke)' },
   // Hospital names (split to avoid this script self-matching)
-  { re: new RegExp(['Kenyatta', 'National', 'Hospital'].join(' '), 'g'), label: 'hospital-name(Kenyatta National Hospital)' },
-  { re: new RegExp(['Aga', 'Khan', 'University', 'Hospital'].join(' '), 'g'), label: 'hospital-name(Aga Khan University Hospital)' },
+  {
+    re: new RegExp(['Kenyatta', 'National', 'Hospital'].join(' '), 'g'),
+    label: 'hospital-name(Kenyatta National Hospital)',
+  },
+  {
+    re: new RegExp(['Aga', 'Khan', 'University', 'Hospital'].join(' '), 'g'),
+    label: 'hospital-name(Aga Khan University Hospital)',
+  },
   // Hospital slug / shortcode
   { re: /knh[-_]cardio/gi, label: 'hospital-slug(knh-cardio)' },
   // KMPDC licence number format: KMPDC/YYYY/NNNNN
@@ -42,7 +52,17 @@ const BANNED_PATTERNS = [
 
 /** Files / directories to skip entirely */
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.turbo'])
-const SKIP_EXTENSIONS = new Set(['.md', '.lock', '.png', '.jpg', '.svg', '.ico', '.woff', '.woff2', '.ttf'])
+const SKIP_EXTENSIONS = new Set([
+  '.md',
+  '.lock',
+  '.png',
+  '.jpg',
+  '.svg',
+  '.ico',
+  '.woff',
+  '.woff2',
+  '.ttf',
+])
 const SKIP_FILES = new Set([
   resolve(__dirname, 'check-no-hardcoded-data.mjs'),
   resolve(repoRoot, 'docs', 'cleanup', 'DELETION_LEDGER.md'),
@@ -90,10 +110,11 @@ for (const file of files) {
 }
 
 if (totalViolations > 0) {
-  console.error(`\n[FAIL] ${totalViolations} violation(s) found. Remove hardcoded patient/clinic data before committing.`)
+  console.error(
+    `\n[FAIL] ${totalViolations} violation(s) found. Remove hardcoded patient/clinic data before committing.`,
+  )
   process.exit(1)
 } else {
   console.log('[PASS] No hardcoded patient or clinic-specific data found in src/.')
   process.exit(0)
 }
-

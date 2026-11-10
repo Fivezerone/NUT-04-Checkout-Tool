@@ -12,63 +12,9 @@ export const PatientTargetsView: React.FC = () => {
   const { claims, activeTenant } = useCadAuth()
   const isWritingClinician = claims.role === 'writing_clinician' || claims.role === 'super_admin'
 
-  const [targets, setTargets] = useState<NutrientTarget[]>([
-    {
-      target_id: 'tgt-001',
-      tenant_id: claims.tenantId,
-      version: 1,
-      scope: 'patient',
-      subject_ref: 'pat-anon-8821',
-      nutrient_code: 'SodiumMG',
-      unit: 'mg',
-      basis: 'per_day',
-      comparator: 'lte',
-      value: 2000,
-      severity: 'critical',
-      valid_from: '2026-10-01',
-      valid_to: '2026-12-31',
-      status: 'active',
-      set_by: claims.userId || 'usr-dr-omondi',
-      reason: 'Stage 2 Hypertension strict dietary sodium restriction',
-      created_at: new Date().toISOString(),
-    },
-    {
-      target_id: 'tgt-002',
-      tenant_id: claims.tenantId,
-      version: 1,
-      scope: 'cohort',
-      subject_ref: 'cohort-diabetes-type2',
-      nutrient_code: 'SugarsG',
-      unit: 'g',
-      basis: 'per_100g',
-      comparator: 'lte',
-      value: 10,
-      severity: 'caution',
-      valid_from: '2026-09-01',
-      status: 'active',
-      set_by: 'usr-dr-omondi',
-      reason: 'Standard ADA/KFCT threshold for glycemic management',
-      created_at: new Date().toISOString(),
-    },
-    {
-      target_id: 'tgt-003',
-      tenant_id: claims.tenantId,
-      version: 1,
-      scope: 'patient',
-      subject_ref: 'pat-anon-4109',
-      nutrient_code: 'PotassiumMG',
-      unit: 'mg',
-      basis: 'per_day',
-      comparator: 'lte',
-      value: 2000,
-      severity: 'critical',
-      valid_from: '2026-10-15',
-      status: 'pending_cosign',
-      set_by: 'usr-diet-wanjiku',
-      reason: 'Renal stage 3 hyperkalemia prevention (requires physician co-sign)',
-      created_at: new Date().toISOString(),
-    },
-  ])
+  // STAGE B: Hardcoded patient references and demo clinician IDs purged.
+  // Initial state starts empty; populated via API in Stage C.
+  const [targets, setTargets] = useState<NutrientTarget[]>([])
 
   const [showModal, setShowModal] = useState(false)
   const [patientRef, setPatientRef] = useState('')
@@ -116,7 +62,7 @@ export const PatientTargetsView: React.FC = () => {
           ? {
               ...t,
               status: 'active',
-              cosigned_by: claims.userId || 'usr-dr-omondi',
+              cosigned_by: claims.userId || 'clinician',
             }
           : t
       )
@@ -148,7 +94,14 @@ export const PatientTargetsView: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {targets.map((tgt) => (
+              {targets.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-[color:var(--color-text-muted)]">
+                    No clinical targets prescribed yet.
+                  </td>
+                </tr>
+              ) : (
+                targets.map((tgt) => (
                 <tr key={tgt.target_id}>
                   <td>
                     <div className="font-semibold text-[color:var(--color-text-strong)]">{tgt.subject_ref || 'Tenant Default'}</div>
@@ -186,7 +139,7 @@ export const PatientTargetsView: React.FC = () => {
                     )}
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
@@ -203,7 +156,7 @@ export const PatientTargetsView: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="pat-anon-1234"
+                  placeholder="patient-ref"
                   value={patientRef}
                   onChange={(e) => setPatientRef(e.target.value)}
                   className="ui-input mt-1"

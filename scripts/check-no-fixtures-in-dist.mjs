@@ -23,23 +23,40 @@ const repoRoot = resolve(__dirname, '..')
 const distRoot = join(repoRoot, 'dist')
 
 if (!existsSync(distRoot)) {
-  console.warn('[WARN] dist/ directory not found — skipping fixture-in-dist check (run build first).')
+  console.warn(
+    '[WARN] dist/ directory not found — skipping fixture-in-dist check (run build first).',
+  )
   process.exit(0)
 }
 
 // Split-string patterns to avoid this script self-matching its own ban list.
 const BANNED_PATTERNS = [
-  { re: /PAT-\d{4,}/g, label: 'patient-ref(PAT-XXXX)' },
+  { re: /(?:PAT-\d{4,}|pat-anon-\d+)/gi, label: 'patient-ref' },
+  { re: /usr-(?:dr|diet)-[a-z]+/gi, label: 'clinician-id' },
+  { re: /(?:254|\+254)[17]\d{8}/g, label: 'kenya-phone-number' },
   { re: /@knh\.or\.ke/gi, label: 'clinic-email(@knh.or.ke)' },
   { re: /@akuh\.ac\.ke/gi, label: 'clinic-email(@akuh.ac.ke)' },
   { re: new RegExp(['Kenyatta', 'National', 'Hospital'].join(' '), 'g'), label: 'hospital-name' },
-  { re: new RegExp(['Aga', 'Khan', 'University', 'Hospital'].join(' '), 'g'), label: 'hospital-name' },
+  {
+    re: new RegExp(['Aga', 'Khan', 'University', 'Hospital'].join(' '), 'g'),
+    label: 'hospital-name',
+  },
   { re: /knh[-_]cardio/gi, label: 'hospital-slug(knh-cardio)' },
   { re: /KMPDC\/\d{4}\/\d+/g, label: 'licence-number(KMPDC/YYYY/NNNNN)' },
 ]
 
 const SKIP_DIRS = new Set(['assets', '_assets'])
-const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.ts', '.jsx', '.tsx', '.json', '.html', '.css', '.txt'])
+const TEXT_EXTENSIONS = new Set([
+  '.js',
+  '.mjs',
+  '.ts',
+  '.jsx',
+  '.tsx',
+  '.json',
+  '.html',
+  '.css',
+  '.txt',
+])
 
 function walkDir(dir, out = []) {
   for (const entry of readdirSync(dir)) {
@@ -83,10 +100,11 @@ for (const file of files) {
 }
 
 if (totalViolations > 0) {
-  console.error(`\n[FAIL] ${totalViolations} banned pattern(s) found in dist/. Fixture data must not ship in the extension package.`)
+  console.error(
+    `\n[FAIL] ${totalViolations} banned pattern(s) found in dist/. Fixture data must not ship in the extension package.`,
+  )
   process.exit(1)
 } else {
   console.log('[PASS] No fixture data found in dist/.')
   process.exit(0)
 }
-

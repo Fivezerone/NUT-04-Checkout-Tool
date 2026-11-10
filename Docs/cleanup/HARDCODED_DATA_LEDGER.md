@@ -31,6 +31,8 @@
 | B-11 | `src/ui/src/options/Options.tsx:78–79` | Hardcoded clinician name `"Dr. David Omondi, MBChB, MMed"` and clinic `"Kenyatta National Hospital — Clinical Nutrition Unit"` as local variable fallbacks | A | Both set to `""` with STAGE B comment and TODO(Stage C) | `HEAD` |
 | B-12 | `src/ui/src/cad/views/PatientLinkingConsentView.tsx:37` | Comment contained literal patient ref codes — guard self-match | A | Reworded comment to remove literal refs | `HEAD` |
 | B-13 | `src/ui/src/cad/views/UserManagementView.tsx:70,344` | Comment contained `@knh.or.ke`; placeholder `KMPDC/2026/12345` matched real licence format | A | Comment reworded; placeholder changed to `Reg-No/YYYY/NNNNN` | `HEAD` |
+| B-14 | `src/ui/src/cad/views/PatientTargetsView.tsx:15–71` | Hardcoded patient references `pat-anon-8821`, `pat-anon-4109`, demo clinician `usr-dr-omondi`, `usr-diet-wanjiku`, and clinical targets | A | Prescribed targets set to `[]` empty list; cosigner fallback sanitized to `'clinician'`; placeholder changed to `'patient-ref'` | `HEAD` |
+| B-15 | `src/ui/src/cad/views/BillingSubscriptionView.tsx:22–50` | Hardcoded phone number `254712345678` and demo M-Pesa receipts `QHJ882194K`, `PZX110943A` | A | Phone number default cleared to `""` with placeholder `'e.g. 254...'`; `invoices` array set to `[]` empty list with empty table state | `HEAD` |
 
 ## Guard Scripts Added (B-10)
 
@@ -41,5 +43,5 @@
 
 ## Status
 
-Stage B complete — 13 items found, 13 resolved, 2 guard scripts added to CI.
+Stage B complete — 15 items found, 15 resolved, 2 guard scripts added to CI.
 Closed: 2026-11-10.
