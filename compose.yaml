@@ -112,7 +112,8 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/nutriscore
       KC_DB_USERNAME: nutriscore_app
       KC_DB_PASSWORD: ${KC_DB_PASSWORD:-nutriscore_dev_secret_pg_pass_2026}
-      KC_HOSTNAME: keycloak
+      KC_HOSTNAME_STRICT: 'false'
+      KC_HTTP_RELATIVE_PATH: /auth
       KC_HTTP_ENABLED: 'true'
       KC_HEALTH_ENABLED: 'true'
       KEYCLOAK_ADMIN: admin

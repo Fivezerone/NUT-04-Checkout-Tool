@@ -6,9 +6,12 @@
     respond /healthz 200
     respond /health 200
 
-    # Clean redirects for CAD entrypoints
+    # Clean redirects for CAD and Auth entrypoints
     redir /cad /cad/ permanent
     redir /cad.html /cad/ permanent
+    redir /auth /auth/ permanent
+    redir /admin /auth/admin/ permanent
+    redir /admin/* /auth/admin/ permanent
 
     # API → PostgREST
     handle /api/* {
