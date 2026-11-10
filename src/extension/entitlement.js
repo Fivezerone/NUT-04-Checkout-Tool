@@ -4,6 +4,12 @@
  * ES256 JWT verifier for the NutriScore entitlement token.
  * Runs in the service worker (MV3); uses WebCrypto only — no network.
  *
+ * STAGE A (A-11b): @supabase/supabase-js package removed (A-04). The internal
+ * getSupabase() accessor pattern is PRESERVED for reference. The auth.getSession()
+ * call will be replaced with the OIDC session key (nutri_oidc_session) in
+ * Stage C (TODO(Stage C): replace supabase.auth.getSession with OIDC token
+ * lookup from chrome.storage; see ADR-0005).
+ *
  * Rules:
  *  - Only accepts alg === "ES256" (ECDSA P-256 / SHA-256).
  *  - Looks up the signing key by "kid" in NUTRI_CONFIG.ENTITLEMENT_PUBLIC_KEYS.

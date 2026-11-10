@@ -3,6 +3,13 @@
  *
  * IndexedDB thin-client catalog synchronization.
  * Pulls signed catalog_releases and streams catalog_products / catalog_premium
+ *
+ * STAGE A (A-11b): @supabase/supabase-js package removed (A-04). The internal
+ * getSupabase() factory and all supabase.auth / supabase.from() calls remain
+ * and are PRESERVED for reference. These will be replaced with OIDC + REST
+ * equivalents in Stage C (TODO(Stage C): rewrite supabase calls to use
+ * config.API_URL + Bearer token from OIDC session; see ADR-0005).
+ * No functional change in this commit — no test coverage removed.
  * from Supabase, atomically committing changes via the catalog_staging store.
  * Replaces the static bundled JSON ingestion (db/settings.ts importDatasets).
  */
