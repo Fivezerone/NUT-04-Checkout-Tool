@@ -86,7 +86,7 @@ export const TenantSettingsView: React.FC = () => {
               <input
                 type="text"
                 disabled
-                value={activeTenant?.slug || 'knh-cardio'}
+                value={activeTenant?.slug || ''}
                 className="mt-1 w-full px-3 py-2 border border-slate-200 bg-slate-50 rounded-lg text-sm font-mono text-slate-500 cursor-not-allowed"
               />
             </div>

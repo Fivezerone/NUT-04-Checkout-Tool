@@ -54,14 +54,14 @@ const RetailerBadge = React.memo(({ retailer }: { retailer: string }) => {
   return <span style={{ color: "var(--muted-foreground)" }}>{retailer}</span>;
 });
 
-type Range = "today" | "week" | "month" | "year" | "all";
+// Decision 4: device data retention ceiling is 3 months. Ranges beyond
+// "month" are disallowed on the extension side. See ADR-0004.
+type Range = "today" | "week" | "month";
 
 const RANGE_OPTIONS: { value: Range; label: string }[] = [
   { value: "today", label: "Today" },
   { value: "week", label: "This Week" },
   { value: "month", label: "This Month" },
-  { value: "year", label: "This Year" },
-  { value: "all", label: "All Time" },
 ];
 
 type RetailerFilter = "all" | "NAIVAS" | "CARREFOUR" | "QUICKMART";
@@ -89,12 +89,9 @@ function rangeStart(range: Range): number {
     case "month":
       d.setDate(1);
       return d.getTime();
-    case "year":
-      d.setMonth(0, 1);
-      return d.getTime();
-    case "all":
     default:
-      return 0;
+      // Exhaustive: "today" | "week" | "month" — no case reaches here.
+      return d.getTime();
   }
 }
 
@@ -270,18 +267,8 @@ export function Dashboard({ onBack }: DashboardProps) {
   const analytics = useMemo<DashboardViewModel | null>(() => {
     if (!entries.length) return null;
     const tf = resolveTimeframe(range);
-    let effectiveTf = tf;
-    if (range === "all") {
-      // Fix #21: reduce instead of Math.min(...spread) — avoids RangeError on large arrays.
-      const oldest = entries.length > 0
-        ? entries.reduce((min, e) => (e.addedAt < min ? e.addedAt : min), entries[0].addedAt)
-        : Date.now() - 30 * 86400000;
-      const spanDays = (Date.now() - oldest) / 86400000;
-      // Build a new object — never mutate the value returned by resolveTimeframe().
-      const bucketUnit = spanDays <= 365 ? "week" : spanDays <= 365 * 3 ? "month" : "quarter";
-      effectiveTf = { ...tf, windowStart: oldest, bucketUnit };
-    }
-    return calculateAnalytics(filtered, entries.length, effectiveTf);
+    // Decision 4: "year" and "all" ranges removed — 3-month ceiling on device data.
+    return calculateAnalytics(filtered, entries.length, tf);
   }, [filtered, entries.length, range]);
 
   const basketData = useMemo(() => {
