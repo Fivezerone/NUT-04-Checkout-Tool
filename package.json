@@ -20,7 +20,7 @@
     "format:check": "prettier --check .",
     "enrich:quickmart": "node scripts/enrich_quickmart.mjs",
     "release:check": "node scripts/release-gate.mjs",
-    "ci": "node scripts/check-no-secrets-tracked.mjs && npm run check:manifest && npm run check:cad-security && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "ci": "node scripts/check-no-secrets-tracked.mjs && node scripts/check-no-hardcoded-data.mjs && npm run check:manifest && npm run check:cad-security && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && node scripts/check-no-fixtures-in-dist.mjs",
     "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {
