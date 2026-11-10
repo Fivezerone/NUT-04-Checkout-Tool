@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Phase 8 regression tests — F-13, F-21, F-22
  *
  * F-13: Retailers are code, not data.
@@ -28,10 +28,10 @@ const ROOT = process.cwd().replace(/[/\\]src[/\\]ui$/, "");
 const csSrc   = readFileSync(join(ROOT, "src/extension/catalog-sync.js"),  "utf8");
 const pubSrc  = readFileSync(join(ROOT, "scripts/publish-catalog.mjs"),    "utf8");
 const mig1    = readFileSync(
-  join(ROOT, "supabase/migrations/20261011000001_catalog_release_publish_fix.sql"), "utf8"
+  join(ROOT, "db/migrations/0001_baseline.sql"), "utf8"
 );
 const mig2    = readFileSync(
-  join(ROOT, "supabase/migrations/20261011000002_drop_retailer_check_constraint.sql"), "utf8"
+  join(ROOT, "db/migrations/0001_baseline.sql"), "utf8"
 );
 
 // ---------------------------------------------------------------------------

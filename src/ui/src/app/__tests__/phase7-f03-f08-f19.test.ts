@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Phase 7 regression tests — F-03, F-08, F-19
  *
  * F-03: Per-card fan-out — each card inside CHECK_PRODUCT_SCORES_BATCH was
@@ -23,7 +23,7 @@ import { join } from "path";
 const ROOT = process.cwd().replace(/[/\\]src[/\\]ui$/, "");
 const bgSrc   = readFileSync(join(ROOT, "src/extension/background.js"), "utf8");
 const migSrc  = readFileSync(
-  join(ROOT, "supabase/migrations/20261011000001_catalog_release_publish_fix.sql"),
+  join(ROOT, "db/migrations/0001_baseline.sql"),
   "utf8"
 );
 
