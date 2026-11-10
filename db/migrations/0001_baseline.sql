@@ -175,6 +175,292 @@ AS $$
   )
 $$;
 
+-- Security ban constant (matches BAN_UNTIL_ISO in src/shared/constants.ts)
+CREATE OR REPLACE FUNCTION app_private.ban_until()
+RETURNS timestamptz
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT '2099-01-01T00:00:00Z'::timestamptz;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Core Multi-Tenant Tables & RLS Policies
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.tenants (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name           text NOT NULL,
+  slug           text UNIQUE NOT NULL CHECK (slug ~ '^[a-z0-9-]{3,48}$'),
+  status         text NOT NULL DEFAULT 'pending_activation'
+                   CHECK (status IN ('pending_activation','active','past_due','suspended','cancelled')),
+  config         jsonb NOT NULL DEFAULT '{}'::jsonb,
+  config_version int NOT NULL DEFAULT 1,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.tenant_members (
+  tenant_id        uuid NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+  user_id          uuid NOT NULL,
+  role             text NOT NULL CHECK (role IN (
+                     'super_admin','compliance_auditor','tenant_admin',
+                     'writing_clinician','viewing_dietician',
+                     'commercial_stakeholder','patient'
+                   )),
+  licence_number   text,
+  licence_expiry   date,
+  licence_verified boolean NOT NULL DEFAULT false,
+  status           text NOT NULL DEFAULT 'active'
+                     CHECK (status IN ('active','suspended','revoked')),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.users (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id            uuid REFERENCES public.tenants(id),
+  full_name            text,
+  condition            text,
+  metric               text,
+  onboarding_completed boolean NOT NULL DEFAULT false,
+  is_premium           boolean NOT NULL DEFAULT false,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.payments (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id  uuid REFERENCES public.tenants(id),
+  user_id    uuid NOT NULL,
+  amount     numeric(12,2) NOT NULL DEFAULT 0.00,
+  currency   text NOT NULL DEFAULT 'KES',
+  status     text NOT NULL DEFAULT 'completed',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.audit_log (
+  event_id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       uuid NOT NULL REFERENCES public.tenants(id),
+  seq             bigint NOT NULL,
+  occurred_at     timestamptz NOT NULL DEFAULT clock_timestamp(),
+  actor_id        uuid NOT NULL,
+  actor_role      text NOT NULL,
+  session_id      text,
+  action          text NOT NULL,
+  mutation_type   text NOT NULL CHECK (mutation_type IN (
+                    'create','update','suspend','revoke',
+                    'read','export','break_glass'
+                  )),
+  resource_type   text NOT NULL,
+  resource_id     text,
+  subject_ref     text,
+  before_snapshot bytea,
+  after_snapshot  bytea,
+  reason          text NOT NULL,
+  prev_hash       text,
+  row_hash        text NOT NULL,
+  UNIQUE (tenant_id, seq)
+);
+
+-- Audit log tamper prevention trigger (T14 integrity invariant)
+CREATE OR REPLACE FUNCTION public.prevent_audit_log_tamper()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RAISE EXCEPTION 'Audit log is append-only. UPDATE and DELETE operations are strictly prohibited (T14 integrity invariant).';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_audit_log_tamper ON public.audit_log;
+CREATE TRIGGER trg_audit_log_tamper
+  BEFORE UPDATE OR DELETE ON public.audit_log
+  FOR EACH ROW
+  EXECUTE FUNCTION public.prevent_audit_log_tamper();
+
+-- Enable Row Level Security (T11 invariant)
+ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tenant_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies
+DROP POLICY IF EXISTS tenant_isolation_tenants ON public.tenants;
+CREATE POLICY tenant_isolation_tenants ON public.tenants
+  FOR SELECT TO authenticated
+  USING (id = app_private.tenant_id() OR app_private.app_role() = 'super_admin');
+
+DROP POLICY IF EXISTS tenant_isolation_members ON public.tenant_members;
+CREATE POLICY tenant_isolation_members ON public.tenant_members
+  FOR SELECT TO authenticated
+  USING (tenant_id = app_private.tenant_id() OR user_id = app_private.uid() OR app_private.app_role() = 'super_admin');
+
+DROP POLICY IF EXISTS tenant_isolation_audit ON public.audit_log;
+CREATE POLICY tenant_isolation_audit ON public.audit_log
+  FOR SELECT TO authenticated
+  USING (
+    (tenant_id = app_private.tenant_id() AND app_private.app_role() IN ('tenant_admin', 'compliance_auditor', 'writing_clinician'))
+    OR app_private.app_role() IN ('super_admin', 'compliance_auditor')
+  );
+
+DROP POLICY IF EXISTS tenant_isolation_users ON public.users;
+CREATE POLICY tenant_isolation_users ON public.users
+  FOR SELECT TO authenticated
+  USING (
+    id = app_private.uid()
+    OR (
+      tenant_id IS NOT NULL 
+      AND tenant_id = app_private.tenant_id() 
+      AND app_private.app_role() IN ('tenant_admin', 'writing_clinician', 'viewing_dietician', 'super_admin')
+    )
+  );
+
+DROP POLICY IF EXISTS tenant_isolation_payments ON public.payments;
+CREATE POLICY tenant_isolation_payments ON public.payments
+  FOR SELECT TO authenticated
+  USING (
+    user_id = app_private.uid()
+    OR (
+      tenant_id IS NOT NULL 
+      AND tenant_id = app_private.tenant_id() 
+      AND app_private.app_role() IN ('tenant_admin', 'super_admin')
+    )
+  );
+
+-- ---------------------------------------------------------------------------
+-- Catalog Release & Publishing Functions (F-08, F-13)
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.catalog_products (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  retailer     text NOT NULL,
+  product_id   text NOT NULL,
+  record_hash  text,
+  seq          bigint,
+  deleted      boolean NOT NULL DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS public.catalog_premium (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  retailer     text NOT NULL,
+  product_id   text NOT NULL,
+  record_hash  text,
+  seq          bigint,
+  deleted      boolean NOT NULL DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS public.catalog_releases (
+  id         bigserial PRIMARY KEY,
+  manifest   jsonb NOT NULL,
+  signature  text NOT NULL,
+  key_id     text NOT NULL,
+  is_current boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Format constraints (F-13: migration 002 drops the hard-coded CHECK constraint)
+alter table public.catalog_products drop constraint if exists catalog_products_retailer_check;
+alter table public.catalog_premium  drop constraint if exists catalog_premium_retailer_check;
+alter table public.catalog_products add constraint catalog_products_retailer_fmt check (retailer ~ '^[A-Z0-9_]{2,32}$');
+alter table public.catalog_premium  add constraint catalog_premium_retailer_fmt  check (retailer ~ '^[A-Z0-9_]{2,32}$');
+
+create table if not exists public.retailers (
+  id                text primary key check (id ~ '^[A-Z0-9_]{2,32}$'),
+  display_name      text not null,
+  hosts             text[] not null,
+  adapter_spec      jsonb,
+  adapter_spec_hash text,
+  enabled           boolean not null default true,
+  rollout_pct       smallint not null default 100 check (rollout_pct between 0 and 100),
+  updated_at        timestamptz not null default now()
+);
+
+insert into public.retailers (id, display_name, hosts) values
+  ('NAIVAS',    'Naivas',          array['naivas.online','naivas.co.ke']),
+  ('CARREFOUR', 'Carrefour Kenya', array['carrefour.ke','carrefourkenya.com'])
+on conflict (id) do nothing;
+
+alter table public.catalog_products drop constraint if exists catalog_products_retailer_fk;
+alter table public.catalog_premium  drop constraint if exists catalog_premium_retailer_fk;
+alter table public.catalog_products add constraint catalog_products_retailer_fk foreign key (retailer) references public.retailers(id) not valid;
+alter table public.catalog_premium  add constraint catalog_premium_retailer_fk  foreign key (retailer) references public.retailers(id) not valid;
+
+create or replace function public.catalog_release_publish(
+  p_manifest jsonb, p_signature text, p_key_id text
+) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  v_max_seq bigint;
+  v_id      bigint;
+begin
+  perform pg_advisory_xact_lock(hashtext('catalog_release_publish'));
+
+  select greatest(
+    coalesce((select max(seq) from public.catalog_products), 0),
+    coalesce((select max(seq) from public.catalog_premium),  0)
+  ) into v_max_seq;
+
+  if (p_manifest->>'max_seq')::bigint <> v_max_seq then
+    raise exception 'manifest max_seq % does not match current catalog max_seq %',
+      p_manifest->>'max_seq', v_max_seq;
+  end if;
+
+  update public.catalog_releases set is_current = false where is_current;
+  insert into public.catalog_releases (manifest, signature, key_id, is_current)
+    values (p_manifest, p_signature, p_key_id, true)
+    returning id into v_id;
+  return v_id;
+end $$;
+
+revoke all on function public.catalog_release_publish(jsonb, text, text) from public, anon, authenticated;
+grant  execute on function public.catalog_release_publish(jsonb, text, text) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- Token Bucket (F-14)
+-- ---------------------------------------------------------------------------
+create unlogged table if not exists public.rate_buckets (
+  key        text primary key,
+  tokens     double precision not null,
+  updated_at timestamptz      not null default clock_timestamp()
+);
+
+alter table public.rate_buckets enable row level security;
+revoke all on public.rate_buckets from anon, authenticated;
+
+create or replace function public.rate_limit_take(
+  p_key text, p_capacity int, p_refill_per_sec double precision, p_cost int default 1
+) returns table (allowed boolean, retry_after_ms int)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_now     timestamptz := clock_timestamp();
+  v_tokens  double precision;
+  v_updated timestamptz;
+begin
+  insert into public.rate_buckets (key, tokens, updated_at) values (p_key, p_capacity, v_now)
+    on conflict (key) do nothing;
+
+  select b.tokens, b.updated_at into v_tokens, v_updated
+    from public.rate_buckets b where b.key = p_key for update;
+
+  v_tokens := least(p_capacity::double precision,
+                    v_tokens + extract(epoch from (v_now - v_updated)) * p_refill_per_sec);
+
+  if v_tokens >= p_cost then
+    update public.rate_buckets set tokens = v_tokens - p_cost, updated_at = v_now where key = p_key;
+    return query select true, 0;
+    return; -- RETURN QUERY does not exit
+  end if;
+
+  update public.rate_buckets set tokens = v_tokens, updated_at = v_now where key = p_key;
+  return query select false, ceil((p_cost - v_tokens) / p_refill_per_sec * 1000)::int;
+end $$;
+
+revoke all on function public.rate_limit_take(text, int, double precision, int) from public, anon, authenticated;
+grant execute on function public.rate_limit_take(text, int, double precision, int) to service_role;
+
 -- ---------------------------------------------------------------------------
 -- NOTE: Full schema (tenants, iam.*, clinical.*, audit.*, etc.) is applied
 -- by subsequent migration files that port each Supabase phase.

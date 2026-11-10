@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * scripts/publish-catalog.mjs
  *
@@ -457,11 +457,37 @@ const SIGNING_JWK = process.env.CATALOG_SIGNING_KEY
 
 if (!SIGNING_JWK) die('CATALOG_SIGNING_KEY must be set (JWK JSON string)', 2)
 
+// F-21: resolve the unique version now that we know what is currently published.
+manifest.version = nextVersion(now, null)
+
 // Verify public key files exist
 const catalogPubKeyPath = join(ROOT, 'config/public-keys/catalog.jwks.json')
 if (!existsSync(catalogPubKeyPath))
   die('config/public-keys/catalog.jwks.json missing — run scripts/gen-keys.mjs first', 2)
 
+// PostgREST returns at most 1000 rows per request by default.
+// Paginate to ensure we read ALL rows regardless of catalog size.
+// F-22: ORDER BY retailer, product_id makes pagination stable across pages.
+// Without an ORDER BY, Postgres gives no guarantee of row order and .range()
+// can skip or duplicate rows across page boundaries, causing false hash mismatches.
+export async function fetchAllRows(client, table, columns) {
+  const PAGE = 1000
+  const all = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await client
+      .from(table)
+      .select(columns)
+      .eq('deleted', false)
+      .order('retailer', { ascending: true })
+      .order('product_id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) die(`${table} fetch failed: ${error.message}`)
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE) break
+  }
+  return all
+}
 
 // STAGE A (A-07): Supabase upload removed (decision 7).
 // TODO (Stage C): Replace with PostgREST PATCH /catalog_releases using OIDC service token.

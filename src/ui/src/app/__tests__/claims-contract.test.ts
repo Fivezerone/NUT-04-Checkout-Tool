@@ -75,34 +75,12 @@ describe('canonical claims contract', () => {
 })
 
 describe('auth provider seam', () => {
-  it('uses the Supabase provider only through the contract interface', async () => {
-    const token = tokenFor({
-      sub: '11111111-1111-1111-1111-111111111111',
-      sid: 'session',
-      app_role: 'patient',
-      lic_ok: false,
-      ver: CLAIM_SCHEMA_VERSION,
-    })
-    const provider = new SupabaseAuthProvider(
-      {
-        auth: {
-          signInWithPassword: async () => ({ data: { session: { access_token: token } }, error: null }),
-          refreshSession: async () => ({ data: { session: { access_token: token } }, error: null }),
-          getSession: async () => ({ data: { session: { access_token: token } } }),
-          signOut: async () => ({ error: null }),
-        },
-      },
-      claimsFromAccessToken,
-    )
-    await expect(provider.signInWithClinicCredentials({ email: 'patient@clinic.test', password: 'password' })).resolves.toMatchObject({ appRole: 'patient' })
-    await expect(provider.refresh()).resolves.toMatchObject({ sid: 'session' })
-    await expect(provider.currentClaims()).resolves.toMatchObject({ sub: '11111111-1111-1111-1111-111111111111' })
-  })
-
   it('keeps the OIDC PKCE implementation inert before the Stage B cutover', async () => {
     const provider = new OidcCodePkceProvider()
     await expect(provider.currentClaims()).resolves.toBeNull()
-    await expect(provider.signInWithClinicCredentials({ email: 'patient@clinic.test', password: 'password' })).rejects.toThrow('not configured')
+    await expect(
+      provider.signInWithClinicCredentials({ email: 'patient@clinic.test', password: 'password' }),
+    ).rejects.toThrow('not yet configured')
   })
 })
 

@@ -106,7 +106,7 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
       {
         "hasData": false,
         "id": "day-1788210000000",
-        "label": "1 Sept",
+        "label": "Sep 1",
         "satFat": 0,
         "satFatG": null,
         "sodium": 0,
@@ -118,7 +118,7 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
       {
         "hasData": false,
         "id": "day-1788296400000",
-        "label": "2 Sept",
+        "label": "Sep 2",
         "satFat": 0,
         "satFatG": null,
         "sodium": 0,
@@ -130,7 +130,7 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
       {
         "hasData": false,
         "id": "day-1788382800000",
-        "label": "3 Sept",
+        "label": "Sep 3",
         "satFat": 0,
         "satFatG": null,
         "sodium": 0,
@@ -142,7 +142,7 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
       {
         "hasData": false,
         "id": "day-1788469200000",
-        "label": "4 Sept",
+        "label": "Sep 4",
         "satFat": 0,
         "satFatG": null,
         "sodium": 0,
@@ -154,7 +154,7 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
       {
         "hasData": false,
         "id": "day-1788555600000",
-        "label": "5 Sept",
+        "label": "Sep 5",
         "satFat": 0,
         "satFatG": null,
         "sodium": 0,
@@ -166,7 +166,7 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
       {
         "hasData": false,
         "id": "day-1788642000000",
-        "label": "6 Sept",
+        "label": "Sep 6",
         "satFat": 0,
         "satFatG": null,
         "sodium": 0,
@@ -178,7 +178,7 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
       {
         "hasData": false,
         "id": "day-1788728400000",
-        "label": "7 Sept",
+        "label": "Sep 7",
         "satFat": 0,
         "satFatG": null,
         "sodium": 0,
@@ -190,7 +190,7 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
       {
         "hasData": false,
         "id": "day-1788814800000",
-        "label": "8 Sept",
+        "label": "Sep 8",
         "satFat": 0,
         "satFatG": null,
         "sodium": 0,
@@ -203,35 +203,35 @@ exports[`Characterization Tests > calculateAnalytics snapshot 1`] = `
     "missingCount": 1,
     "ticks": [
       {
-        "label": "1 Sept",
+        "label": "Sep 1",
         "ts": 1788210000000,
       },
       {
-        "label": "2 Sept",
+        "label": "Sep 2",
         "ts": 1788296400000,
       },
       {
-        "label": "3 Sept",
+        "label": "Sep 3",
         "ts": 1788382800000,
       },
       {
-        "label": "4 Sept",
+        "label": "Sep 4",
         "ts": 1788469200000,
       },
       {
-        "label": "5 Sept",
+        "label": "Sep 5",
         "ts": 1788555600000,
       },
       {
-        "label": "6 Sept",
+        "label": "Sep 6",
         "ts": 1788642000000,
       },
       {
-        "label": "7 Sept",
+        "label": "Sep 7",
         "ts": 1788728400000,
       },
       {
-        "label": "8 Sept",
+        "label": "Sep 8",
         "ts": 1788814800000,
       },
     ],

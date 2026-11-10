@@ -145,6 +145,21 @@
 
 ---
 
+### A-09 · Remediation (A-14)
+
+| ID | Path | Reason | Proof | Risk |
+|----|------|--------|-------|------|
+| A-57 | `src/ui/src/app/__tests__/d03-optimistic-success.test.ts` | EXP/decision-6 | Asserted on deleted `OnboardingWizard` & `usePaymentState` | low |
+| A-58 | `src/ui/src/app/__tests__/d08-d09-d10-onboarding.test.ts` | EXP/decision-6 | Asserted on deleted `OnboardingWizard` & `persistOnboarding` | low |
+| A-59 | `src/ui/src/app/__tests__/mock-scripts.test.ts` | EXP/decision-7 | Asserted on deleted `scripts/seed-mock-users.mjs` | low |
+| A-60 | `next-themes` from `sonner.tsx` | EXP/zero-imports | `next-themes` was pruned from package.json in A-04 | low |
+
+**Untracked Artifact Offloading to `../nut-04-archive/`:**
+- `supabase/.temp/` and `supabase/.branches/` moved to `../nut-04-archive/supabase/`
+- `.env` and `.env.local` containing old Supabase keys moved to `../nut-04-archive/.env.legacy` and `.env.local.legacy`
+
+---
+
 ## Stage B — Hard-coded Data Purge
 
 | ID | Location | Data class | What was removed | Commit |
@@ -154,12 +169,16 @@
 | B-03 | `AuthContext.tsx` `verifyMfa()` | HARD/class-A | Any-6-char MFA stub (accepted any TOTP) | `cf004952` |
 | B-04 | `AuditLogView.tsx` `loadAuditLogs()` | HARD/class-A | Mock audit log events (pat-anon-8821, KMPDC refs) | `cf004952` |
 | B-05 | `UserManagementView.tsx` `loadMembers()` | HARD/class-A | Demo roster: dr.omondi, wanjiku.diet, mutua.admin, dr.kipchoge @knh.or.ke | `cf004952` |
-
-> **Remaining Stage B work** (commits B-02 through B-05):
-> - `ClinicianWorkspaceView.tsx`: PAT-0042 hardcoded patient, hardcoded form values
-> - `PlatformOverviewView.tsx`: `|| 3` tenant fallback, inline tenant array, hardcoded metrics
-> - `Dashboard.tsx`: `year`/`all` range options (outside 3-month ceiling, decision 4)
-> - Guard scripts: `check-no-hardcoded-data.mjs`, `check-no-fixtures-in-dist.mjs`
+| B-06 | `ClinicianWorkspaceView.tsx` | HARD/class-A | `PAT-0042` patient ref, hardcoded metric cards | `0052277d` |
+| B-07 | `PlatformOverviewView.tsx` | HARD/class-A | `\|\| 3` fallback, inline KNH/AKUH demo tenant array | `0052277d` |
+| B-08 | `PatientLinkingConsentView.tsx` | HARD/class-A | `PAT-0042`, `PAT-0108`, `Dr. Mwangi` consent records | `0052277d` |
+| B-09 | `TenantSettingsView.tsx` | HARD/class-A | `knh-cardio` slug fallback | `0052277d` |
+| B-10 | Guard scripts | — | Added `check-no-hardcoded-data.mjs` & `check-no-fixtures-in-dist.mjs` | `5464155d` |
+| B-11 | `Options.tsx` | HARD/class-A | Dr. David Omondi & KNH Nutrition Unit fallbacks | `HEAD` |
+| B-12 | `PatientLinkingConsentView.tsx` | HARD/class-A | Comment literal patient ref codes | `HEAD` |
+| B-13 | `UserManagementView.tsx` | HARD/class-A | Comment `@knh.or.ke` and `KMPDC/2026/12345` | `HEAD` |
+| B-14 | `PatientTargetsView.tsx` | HARD/class-A | `pat-anon-8821`, `pat-anon-4109`, `usr-dr-omondi`, `usr-diet-wanjiku` | `HEAD` |
+| B-15 | `BillingSubscriptionView.tsx` | HARD/class-A | Phone `254712345678`, M-Pesa receipts `QHJ882194K`, `PZX110943A` | `HEAD` |
 
 ---
 

@@ -103,10 +103,7 @@ const PROHIBITED_TERMS = [
 //   db/migrations/<timestamp>_commercial_overlay.sql
 //   src/shared/commercial-catalogue.ts
 //   src/extension/observed-orders-sync.js
-const TARGET_FILES = [
-  'src/shared/commercial-catalogue.ts',
-  'src/extension/observed-orders-sync.js',
-]
+const TARGET_FILES = ['src/shared/commercial-catalogue.ts', 'src/extension/observed-orders-sync.js']
 
 let violations = 0
 

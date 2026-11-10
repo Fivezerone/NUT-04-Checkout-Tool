@@ -17,7 +17,9 @@ const repoRoot = resolve(dirnameHere, '..')
 const migrationsDir = join(repoRoot, 'db', 'migrations')
 
 if (!existsSync(migrationsDir)) {
-  console.warn('[check-rls] db/migrations/ not found — skipping (expected before Stage C migration files are added).')
+  console.warn(
+    '[check-rls] db/migrations/ not found — skipping (expected before Stage C migration files are added).',
+  )
   process.exit(0)
 }
 
