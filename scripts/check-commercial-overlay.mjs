@@ -26,7 +26,7 @@ function queryPsql(sql) {
       [
         'exec',
         '-i',
-        'supabase_db_NUT-04_Checkout_Tool',
+        'nut-04-checkout-tool-postgres-1',
         'psql',
         '-U',
         'postgres',
@@ -98,11 +98,12 @@ const PROHIBITED_TERMS = [
   ['check', 'out'].join(''),
 ]
 
+// TODO(Stage C): Supabase migration and function paths were removed in A-07.
+// When the Docker-native migration pipeline is in place, add:
+//   db/migrations/<timestamp>_commercial_overlay.sql
+//   src/shared/commercial-catalogue.ts
+//   src/extension/observed-orders-sync.js
 const TARGET_FILES = [
-  'supabase/migrations/20261101070000_commercial_overlay_and_observed_orders.sql',
-  'supabase/rollbacks/20261101070000_commercial_overlay_and_observed_orders.rollback.sql',
-  'supabase/functions/observed-orders/index.ts',
-  'supabase/functions/catalogue/index.ts',
   'src/shared/commercial-catalogue.ts',
   'src/extension/observed-orders-sync.js',
 ]

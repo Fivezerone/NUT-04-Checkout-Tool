@@ -11,3 +11,4 @@
 #   node scripts/gen-keys.mjs
 #   openssl rand -base64 32 > .secrets/pg_password
 #   openssl rand -base64 32 > .secrets/keycloak_admin_password
+
