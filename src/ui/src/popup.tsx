@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { Popup } from "./app/components/Popup";
 import { BlueThemeProvider } from "./app/context/BlueThemeProvider";
 import { ExtensionStorage, ChromeExtensionStorage, supabase, setOnboardingCompleted } from "./services/storage";
-import { isSubscriptionExpired } from "./app/lib/subscriptionUtils";
 import "./styles/index.css";
 
 /**
@@ -47,8 +46,7 @@ function PopupRoot() {
 
       if (local?.nutri_entitlement) {
         const ent = local.nutri_entitlement;
-        const expired = ent.tier !== 'premium' || isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
-        if (!expired || ent.tier === 'premium') {
+        if (ent.tier === 'premium' || ent.tier === 'clinical') {
           isPremium = true;
           isOnboarded = true;
         }
@@ -95,8 +93,7 @@ function PopupRoot() {
 
             if (entRes?.data) {
               const ent = entRes.data;
-              const expired = ent.tier !== 'premium' || isSubscriptionExpired(ent.premium_expires_at, ent.server_now);
-              if (!expired || ent.tier === 'premium') {
+              if (ent.tier === 'premium' || ent.tier === 'clinical') {
                 updatedPremium = true;
                 updatedOnboarded = true;
               }
@@ -113,7 +110,7 @@ function PopupRoot() {
               }
             }
 
-            setUserData(prev => prev ? {
+            setUserData((prev: any) => prev ? {
               ...prev,
               onboarding_completed: updatedOnboarded,
               nutriscore_is_premium: updatedPremium

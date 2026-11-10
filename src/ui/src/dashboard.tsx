@@ -13,11 +13,19 @@ import { supabase, signOutUser, setOnboardingCompleted } from "./services/storag
 import { AlertTriangle } from "lucide-react";
 import "./styles/index.css";
 
-// Lazy-load OnboardingWizard for unauthenticated users or consent gate
-const OnboardingWizard = lazy(() =>
-  import("./app/components/OnboardingWizard").then((m) => ({ default: m.OnboardingWizard }))
-);
-type UserProfile = import("./app/components/OnboardingWizard").UserProfile;
+import { ConsentGate, type ConsentAcceptance } from "./app/components/ConsentGate";
+
+interface UserProfile {
+  name: string;
+  initials: string;
+  condition: string;
+  primaryMetric: string;
+  isFirstTime?: boolean;
+  patientName?: string;
+  patientEmail?: string;
+  clinician?: string;
+  clinic?: string;
+}
 
 /**
  * applyPersonalization — DOM-level greeting update for the static HTML scaffold.
@@ -27,7 +35,7 @@ function applyPersonalization(profile: UserProfile) {
   const { name, initials, primaryMetric } = profile;
 
   // 1. Dynamic Greeting with FIRST NAME ONLY
-  const firstName = name.trim().split(" ")[0] || "Shopper";
+  const firstName = (name || "").trim().split(" ")[0] || "Shopper";
   const hour = new Date().getHours();
   const timeStr = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const greetingEl = document.getElementById("user-greeting");
@@ -37,13 +45,13 @@ function applyPersonalization(profile: UserProfile) {
 
   // 2. Avatar
   const avatarEl = document.getElementById("user-avatar-badge");
-  if (avatarEl) avatarEl.textContent = initials;
+  if (avatarEl) avatarEl.textContent = initials || "";
 
   // 3. Metric legend sort (primary metric sorted first)
   const metricList = document.getElementById("nutrient-legend-list");
   if (metricList) {
     const items = Array.from(metricList.children);
-    items.sort((a) => ((a.textContent ?? "").includes(primaryMetric) ? -1 : 1));
+    items.sort((a) => ((a.textContent ?? "").includes(primaryMetric || "") ? -1 : 1));
     items.forEach((item) => metricList.appendChild(item));
   }
 
@@ -299,7 +307,12 @@ function DashboardRoot() {
             </div>
           }
         >
-          <OnboardingWizard onComplete={handleOnboardingComplete} />
+          <ConsentGate
+            onAccept={async (_acceptance: ConsentAcceptance) => {
+              await setOnboardingCompleted();
+              setAuthState("active");
+            }}
+          />
         </Suspense>
       </ThemeProvider>
     );

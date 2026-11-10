@@ -1,7 +1,6 @@
-﻿// STAGE A (A-06): container name updated from supabase_db_NUT-04_Checkout_Tool
-// to nut-04-checkout-tool-postgres-1 (Docker Compose project service name).
-
 #!/usr/bin/env node
+// STAGE A (A-06): container name updated from supabase_db_NUT-04_Checkout_Tool
+// to nut-04-checkout-tool-postgres-1 (Docker Compose project service name).
 /**
  * NutriScore CAD Phase 6 — Field Encryption, Crypto-Shredding & Canary Scan Verifier
  *
