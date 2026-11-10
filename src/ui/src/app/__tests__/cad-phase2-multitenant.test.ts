@@ -1,4 +1,4 @@
-/**
+﻿/**
  * cad-phase2-multitenant.test.ts
  *
  * Mandatory isolation and RBAC test scenarios for Clinic Admin Dashboard (CAD)
@@ -11,7 +11,7 @@ import { resolve, join } from 'path'
 import { extractClaims, requireRole } from '../../../../shared/rbac'
 
 const ROOT = process.cwd().replace(/[/\\]src[/\\]ui$/, '')
-const MIGRATIONS_DIR = join(ROOT, 'supabase', 'migrations')
+const MIGRATIONS_DIR = join(ROOT, 'db', 'migrations')
 
 describe('T10: Cross-Tenant Isolation & JWT Claim Tamper Protection', () => {
   it('extractClaims maps Supabase claim aliases to the canonical contract', () => {
@@ -63,7 +63,7 @@ describe('T10: Cross-Tenant Isolation & JWT Claim Tamper Protection', () => {
 
 describe('T11: Table RLS Enforcement Gate (CI Check)', () => {
   it('migration 20261029000000_multi_tenant_core.sql enables RLS and defines policies on all tenant tables', () => {
-    const migrationFile = join(MIGRATIONS_DIR, '20261029000000_multi_tenant_core.sql')
+    const migrationFile = join(MIGRATIONS_DIR, '0001_baseline.sql')
     const sql = readFileSync(migrationFile, 'utf8')
 
     const expectedTenantTables = ['tenants', 'tenant_members', 'audit_log', 'users', 'payments']
@@ -194,7 +194,7 @@ describe('T13: Small-Cell Privacy Suppression (Commercial Stakeholder Guard)', (
 
 describe('T14: Immutable Audit Log Tamper Rejection & Cryptographic Hash Chaining', () => {
   it('migration defines prevent_audit_log_tamper trigger prohibiting UPDATE and DELETE', () => {
-    const migrationFile = join(MIGRATIONS_DIR, '20261029000000_multi_tenant_core.sql')
+    const migrationFile = join(MIGRATIONS_DIR, '0001_baseline.sql')
     const sql = readFileSync(migrationFile, 'utf8')
 
     expect(sql).toContain('CREATE TRIGGER trg_audit_log_tamper')

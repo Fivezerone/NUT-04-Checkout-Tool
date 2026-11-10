@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:db": "node scripts/build-db.mjs",
-    "build:ext": "node scripts/build-sw-client.mjs && node scripts/build-ext.mjs",
+    "build:ext": "node scripts/build-ext.mjs",
     "build:ui": "vite build",
     "build": "npm run build:db && npm run build:ui && npm run build:ext",
     "check:manifest": "node scripts/check-manifest-globals.mjs",

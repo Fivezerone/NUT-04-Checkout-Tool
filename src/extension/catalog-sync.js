@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/extension/catalog-sync.js — global NutriCatalogSync
  *
  * IndexedDB thin-client catalog synchronization.
@@ -30,7 +30,7 @@ self.NutriCatalogSync = (() => {
   let _getSupabase = null;
   function getSupabase() {
     if (_getSupabase) return _getSupabase();
-    return NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+    return NutriSupabase.create(NUTRI_CONFIG.API_URL, NUTRI_CONFIG.OIDC_ISSUER);
   }
 
   async function base64urlDecode(str) {
@@ -223,10 +223,10 @@ self.NutriCatalogSync = (() => {
     const supabase = getSupabase();
     
     // Bypass stale memory cache in the background script to ensure requests are authenticated
-    const local = await chrome.storage.local.get("nutri_supabase_session");
-    if (local.nutri_supabase_session) {
+    const local = await chrome.storage.local.get("nutri_oidc_session");
+    if (local.nutri_oidc_session) {
       try {
-        const parsed = JSON.parse(local.nutri_supabase_session);
+        const parsed = JSON.parse(local.nutri_oidc_session);
         if (parsed?.access_token && parsed?.refresh_token) {
           await supabase.auth.setSession({
             access_token: parsed.access_token,

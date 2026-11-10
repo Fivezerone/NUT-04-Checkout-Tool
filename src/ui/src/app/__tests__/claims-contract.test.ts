@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { OidcCodePkceProvider, SupabaseAuthProvider } from '../../../../shared/auth-provider'
+import { OidcCodePkceProvider } from '../../../../shared/auth-provider'
 import { claimsFromAccessToken, canonicalizeClaims } from '../../../../shared/claims'
 import { BAN_UNTIL_ISO, CLAIM_SCHEMA_VERSION } from '../../../../shared/constants'
 
@@ -108,8 +108,9 @@ describe('auth provider seam', () => {
 
 describe('single ban constant', () => {
   it('matches the SQL ban_until implementation exactly', () => {
+    // STAGE A (A-07): repointed from supabase/migrations/ to db/migrations/
     const migration = readFileSync(
-      resolve(ROOT, 'supabase/migrations/20261101000000_cad_schema_foundation.sql'),
+      resolve(ROOT, 'db/migrations/0001_baseline.sql'),
       'utf8',
     )
     expect(migration).toContain(`SELECT '${BAN_UNTIL_ISO}'::timestamptz`)

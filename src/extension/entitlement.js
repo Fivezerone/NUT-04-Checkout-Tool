@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/extension/entitlement.js  — global NutriEntitlement
  *
  * ES256 JWT verifier for the NutriScore entitlement token.
@@ -30,7 +30,7 @@ self.NutriEntitlement = (() => {
   function getSupabase() {
     if (_getSupabase) return _getSupabase();
     if (typeof NutriSupabase !== "undefined" && typeof NUTRI_CONFIG !== "undefined") {
-      return NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+      return NutriSupabase.create(NUTRI_CONFIG.API_URL, NUTRI_CONFIG.OIDC_ISSUER);
     }
     throw new Error(
       '[NutriEntitlement] getSupabase() called before init() and NutriSupabase unavailable.'
@@ -186,7 +186,7 @@ self.NutriEntitlement = (() => {
       }
 
       const res = await fetch(
-        `${NUTRI_CONFIG.SUPABASE_URL}/functions/v1/entitlement`,
+        `${NUTRI_CONFIG.API_URL}/functions/v1/entitlement`,
         {
           method: 'POST',
           signal: AbortSignal.timeout(5000), // D-06: 5s timeout prevents indefinite hang

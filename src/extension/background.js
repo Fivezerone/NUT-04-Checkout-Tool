@@ -1,8 +1,9 @@
-/* @license SPDX-License-Identifier: Apache-2.0 BackgroundServiceWorker ? Component Architecture v2.0 Orchestrates: NutriScoreDB -> DiseaseEngine */
+﻿/* @license SPDX-License-Identifier: Apache-2.0 BackgroundServiceWorker ? Component Architecture v2.0 Orchestrates: NutriScoreDB -> DiseaseEngine */
 
+// STAGE A (A-07): supabase.js removed from importScripts (deleted; decision 7).
+// TODO (Stage C): add oidc-client.js when OidcAuthProvider is implemented.
 importScripts(
   "config.js",
-  "supabase.js",
   "db.js",
   "entitlement.js",
   "catalog-sync.js",
@@ -54,7 +55,7 @@ let _sb;
 let _sbReady; // Fix #5: promise that resolves after auth session rehydration.
 const sb = () => {
   if (!_sb) {
-    _sb ??= NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+    _sb ??= NutriSupabase.create(NUTRI_CONFIG.API_URL, NUTRI_CONFIG.OIDC_ISSUER);
     // Eagerly rehydrate session so callers never hit a null-session race.
     _sbReady = _sb.auth.getSession().catch(() => {});
   }
@@ -79,7 +80,7 @@ async function currentTier() {
   try {
     let userId;
     try {
-      const sessionDataStr = (await chrome.storage.local.get('nutri_supabase_session'))['nutri_supabase_session'];
+      const sessionDataStr = (await chrome.storage.local.get('nutri_oidc_session'))['nutri_oidc_session'];
       if (sessionDataStr) userId = JSON.parse(sessionDataStr)?.user?.id;
     } catch(e) {}
     if (!userId) userId = (await sb().auth.getSession()).data?.session?.user?.id;
@@ -92,7 +93,7 @@ async function currentTier() {
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes['nutri_supabase_session']) {
+  if (area === 'local' && changes['nutri_oidc_session']) {
     sb().auth.getSession(); // trigger re-read from storage
     _tierAt = 0; // invalidate tier memo
   }
@@ -500,7 +501,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           let userId = message.userId;
           if (!userId) {
             try {
-              const sessionDataStr = (await chrome.storage.local.get('nutri_supabase_session'))['nutri_supabase_session'];
+              const sessionDataStr = (await chrome.storage.local.get('nutri_oidc_session'))['nutri_oidc_session'];
               if (sessionDataStr) userId = JSON.parse(sessionDataStr)?.user?.id;
             } catch(e) {}
           }

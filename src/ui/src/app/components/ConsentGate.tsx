@@ -142,3 +142,4 @@ export function ConsentGate({ onAccept }: Readonly<ConsentGateProps>) {
     </div>
   )
 }
+

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Phase 3 regression tests — F-01 / F-11 / F-16
  *
  * F-01: A plain SW wake must not call NutriEntitlement.refresh().
@@ -45,8 +45,8 @@ const storage = {
 // Minimal NUTRI_CONFIG for entitlement.js
 // ---------------------------------------------------------------------------
 (globalThis as any).NUTRI_CONFIG = {
-  SUPABASE_URL:  "https://test.supabase.co",
-  SUPABASE_ANON_KEY: "test-anon",
+  API_URL: "https://localhost:8443/api",
+  OIDC_ISSUER: "https://localhost:8443/auth/realms/nutriscore",
   ENTITLEMENT_PUBLIC_KEYS: [],
 };
 
