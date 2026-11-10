@@ -125,7 +125,7 @@ export const PatientTargetsView: React.FC = () => {
                       <StatusBadge tone="neutral">{tgt.status}</StatusBadge>
                     )}
                   </td>
-                  <td className="max-w-xs truncate" title={tgt.reason}>
+                  <td className="min-w-[180px] break-words text-wrap" title={tgt.reason}>
                     {tgt.reason}
                   </td>
                   <td className="text-right">

@@ -4,9 +4,11 @@
 import React from 'react';
 import { ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 
-interface KpiCardProps {
-  title: string;
+export interface KpiCardProps {
+  title?: string;
+  label?: string;
   value: string | number;
+  unit?: string;
   subtitle?: string;
   delta?: {
     value: number; // Percentage or points change
@@ -14,6 +16,8 @@ interface KpiCardProps {
     favorableDirection?: 'up' | 'down'; // e.g. for nutrition score, 'up' is favorable; for sodium, 'down' is favorable
   };
   variant?: 'hero' | 'standard';
+  tone?: 'mint' | 'coral' | 'neutral' | string;
+  direction?: 'favorable' | 'unfavorable' | string;
   icon?: React.ReactNode;
   badge?: React.ReactNode;
   className?: string;
@@ -21,24 +25,29 @@ interface KpiCardProps {
 
 export const KpiCard: React.FC<KpiCardProps> = ({
   title,
+  label,
   value,
+  unit,
   subtitle,
   delta,
   variant = 'standard',
+  tone = 'neutral',
+  direction,
   icon,
   badge,
   className = '',
 }) => {
   const isHero = variant === 'hero';
+  const displayTitle = title || label || '';
 
   const renderDelta = () => {
     if (!delta) return null;
-    const { value: deltaVal, label, favorableDirection = 'up' } = delta;
+    const { value: deltaVal, label: deltaLabel, favorableDirection = 'up' } = delta;
     if (deltaVal === 0) {
       return (
         <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
           <Minus className="w-3.5 h-3.5" />
-          <span>Same {label}</span>
+          <span>Same {deltaLabel}</span>
         </span>
       );
     }
@@ -57,54 +66,58 @@ export const KpiCard: React.FC<KpiCardProps> = ({
     return (
       <span
         className={`inline-flex items-center gap-0.5 px-2 py-0.5 text-xs font-semibold rounded-full border ${colorClass}`}
-        aria-label={`${Math.abs(deltaVal)}% ${isPositive ? 'increase' : 'decrease'} ${label}`}
+        aria-label={`${Math.abs(deltaVal)}% ${isPositive ? 'increase' : 'decrease'} ${deltaLabel}`}
       >
-        <ArrowIcon className="w-3.5 h-3.5" />
-        <span>
-          {isPositive ? '+' : ''}
-          {deltaVal}%
-        </span>
-        <span className="text-muted-foreground font-normal ml-0.5">{label}</span>
+        <ArrowIcon className="w-3 h-3" />
+        <span>{Math.abs(deltaVal)}% {deltaLabel}</span>
       </span>
     );
   };
 
   return (
-    <div
-      className={`rounded-2xl bg-surface border border-border-subtle p-5 shadow-sm transition-shadow hover:shadow-md ${
+    <article
+      className={`rounded-2xl border border-[color:var(--t-color-border-subtle)] bg-[color:var(--t-color-surface)] shadow-xs transition-shadow hover:shadow-md ${
         isHero
-          ? 'bg-gradient-to-br from-teal-50/50 to-white dark:from-slate-900 dark:to-slate-950 border-teal-200 dark:border-teal-900/60'
-          : ''
+          ? 'p-5 bg-gradient-to-br from-[color:var(--t-color-surface)] to-[color:var(--t-color-surface-subtle)]'
+          : 'p-4'
       } ${className}`}
-      role="region"
-      aria-label={`${title}: ${value}`}
+      aria-label={`${displayTitle}: ${value} ${unit || ''}`}
     >
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {title}
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs font-semibold text-[color:var(--t-color-text-muted)] tracking-wide">
+          {displayTitle}
         </span>
-        {icon && (
-          <div className="p-2 rounded-lg bg-teal-50 dark:bg-slate-800 text-teal-700 dark:text-teal-400">
-            {icon}
-          </div>
-        )}
+        {icon && <div className="text-[color:var(--t-color-text-muted)] shrink-0">{icon}</div>}
+        {badge && <div className="shrink-0">{badge}</div>}
       </div>
 
-      <div className="flex items-baseline gap-3 mb-2">
+      <div className="mt-2.5 flex items-baseline gap-2">
         <span
-          className={`font-extrabold tracking-tight text-foreground ${
-            isHero ? 'text-4xl text-teal-900 dark:text-teal-200' : 'text-2xl text-foreground'
+          className={`font-black tracking-tight text-[color:var(--t-color-text-strong)] tabular-nums ${
+            isHero ? 'text-3xl sm:text-4xl' : 'text-2xl sm:text-3xl'
           }`}
         >
           {value}
         </span>
-        {badge}
+        {unit && (
+          <span className="text-xs font-medium text-[color:var(--t-color-text-muted)]">
+            {unit}
+          </span>
+        )}
       </div>
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
-        {subtitle && <span>{subtitle}</span>}
-        {renderDelta()}
-      </div>
-    </div>
+      {(subtitle || delta) && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {renderDelta()}
+          {subtitle && (
+            <p className="text-xs text-[color:var(--t-color-text-muted)] font-medium leading-relaxed">
+              {subtitle}
+            </p>
+          )}
+        </div>
+      )}
+    </article>
   );
 };
+
+export default KpiCard;

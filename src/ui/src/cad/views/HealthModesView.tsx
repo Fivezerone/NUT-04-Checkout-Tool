@@ -577,7 +577,7 @@ export const HealthModesView: React.FC = () => {
                                   {rule.severity}
                                 </span>
                               </td>
-                              <td className="px-3 py-2 max-w-xs truncate text-slate-600" title={rule.clinicalRationale}>
+                              <td className="px-3 py-2 min-w-[180px] break-words text-wrap text-slate-600" title={rule.clinicalRationale}>
                                 {rule.clinicalRationale}
                               </td>
                               {isClinician && activeMode.status === 'active' && (

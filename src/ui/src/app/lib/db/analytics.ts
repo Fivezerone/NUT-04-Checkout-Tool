@@ -26,6 +26,11 @@ export function resolveTimeframe(timeframeKey: string, now = Date.now()) {
     start.setMonth(start.getMonth() - 1);
     bucketUnit = "day";
     bucketCount = 30;
+  } else if (timeframeKey === "3months") {
+    start.setMonth(start.getMonth() - 3);
+    start.setHours(0, 0, 0, 0);
+    bucketUnit = "week";
+    bucketCount = 12;
   } else if (timeframeKey === "year") {
     start.setFullYear(start.getFullYear() - 1);
     bucketUnit = "month";
