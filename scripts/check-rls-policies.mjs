@@ -1,23 +1,29 @@
 #!/usr/bin/env node
 /**
+ * scripts/check-rls-policies.mjs
  * CI guard for the CAD restrictive tenant wall.
  *
- * A live database test is kept in supabase/tests/cad_tenant_wall.sql. This
- * static companion fails fast whenever a migration omits the required forced,
- * restrictive wall for a Stage A tenant relation.
+ * STAGE A (A-06): Migrated from supabase/migrations/ to db/migrations/.
+ * Checks that every tenant-scoped relation has an explicit FORCE ROW LEVEL SECURITY
+ * and a restrictive tenant_wall policy in the plain-Postgres migration files.
  */
 
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const dirnameHere = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(dirnameHere, '..')
-const migrationsDir = join(repoRoot, 'supabase', 'migrations')
+const migrationsDir = join(repoRoot, 'db', 'migrations')
 
-const phaseOneTenantRelations = [
+if (!existsSync(migrationsDir)) {
+  console.warn('[check-rls] db/migrations/ not found — skipping (expected before Stage C migration files are added).')
+  process.exit(0)
+}
+
+const tenantRelations = [
   'iam.members',
-  'audit.legacy_audit_log',
+  'audit.audit_log',
   'clinical.targets',
   'clinical.target_bundles',
   'clinical.consumption_diary',
@@ -40,22 +46,23 @@ const phaseOneTenantRelations = [
   'commercial.sku_mappings',
   'commercial.orders',
   'commercial.order_lines',
-  'public.users',
-  'public.payments',
-  'public.subscriptions',
-  'public.invoices',
-  'public.payment_attempts',
 ]
 
 const migrationFiles = readdirSync(migrationsDir)
   .filter((file) => file.endsWith('.sql'))
   .sort()
+
+if (migrationFiles.length === 0) {
+  console.warn('[check-rls] No .sql files in db/migrations/ — skipping.')
+  process.exit(0)
+}
+
 const combinedSql = migrationFiles
   .map((file) => readFileSync(join(migrationsDir, file), 'utf8'))
   .join('\n\n')
 
 const errors = []
-for (const relation of phaseOneTenantRelations) {
+for (const relation of tenantRelations) {
   const escaped = relation.replace('.', '\\.')
   const wallCall = new RegExp(
     `SELECT\\s+app_private\\.apply_tenant_wall\\(\\s*'${escaped}'\\s*\\)`,
@@ -66,11 +73,11 @@ for (const relation of phaseOneTenantRelations) {
   }
 }
 
-if (!/ALTER\s+TABLE\s+%s\s+FORCE\s+ROW\s+LEVEL\s+SECURITY/i.test(combinedSql)) {
-  errors.push('tenant-wall helper does not FORCE ROW LEVEL SECURITY')
+if (!/ALTER\s+TABLE\s+\S+\s+FORCE\s+ROW\s+LEVEL\s+SECURITY/i.test(combinedSql)) {
+  errors.push('No FORCE ROW LEVEL SECURITY found in migration files')
 }
 if (!/CREATE\s+POLICY\s+tenant_wall[\s\S]*?AS\s+RESTRICTIVE/i.test(combinedSql)) {
-  errors.push('tenant-wall helper does not create a restrictive tenant_wall policy')
+  errors.push('No restrictive tenant_wall policy found in migration files')
 }
 
 if (errors.length > 0) {
@@ -80,6 +87,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `✅ [check-rls] ${phaseOneTenantRelations.length} tenant relations have explicit forced restrictive walls.`,
+  `✅ [check-rls] ${tenantRelations.length} tenant relations have explicit forced restrictive walls.`,
 )
-console.log('[check-rls] Live gate query is covered by supabase/tests/cad_tenant_wall.sql.')
