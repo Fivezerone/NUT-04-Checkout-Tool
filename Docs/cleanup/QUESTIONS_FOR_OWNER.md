@@ -147,3 +147,33 @@ Branch from `feat/cad-backend-blueprint` after resolving Q-02 (clean the tree fi
 
 *This file is maintained throughout the refactor. Add items as new questions arise. Close each item by recording the human's answer and the date.*
 
+
+---
+
+## A-09 Findings (added 2026-11-10)
+
+### Q-A09-1 · `android/` directory (54 tracked files)
+
+**What:** A standalone native Android application (`ke.co.nutriscore.android`) for Naivas/Carrefour/Quickmart. It has its own Gradle build, `MainActivity.kt`, and architecture unrelated to the Chrome extension or Docker stack.
+
+**Status:** Not referenced from any npm script, CI workflow, or compose.yaml. No imports from `src/`. Completely disconnected.
+
+**Options:**
+- **A. Leave in place** — keep as a future platform track; it currently causes no harm.
+- **B. Move to `../nut-04-archive/android/`** — per R6, untracked dirs move to archive; this is tracked, so it needs an explicit ledger entry + git rm.
+- **C. Delete** — if the Android track is cancelled.
+
+> **Action required:** Choose A, B, or C. No change made until confirmed.
+
+### Q-A09-2 · `NUT-04_Release_Documentation/` directory (32 tracked files)
+
+**What:** Project documentation including API reference, changelog, install guide, PRD, system architecture docs, and rollback runbook. Not referenced by any code.
+
+**Status:** Historical documentation that predates the current refactor. May contain outdated information (references to Supabase, old architecture).
+
+**Options:**
+- **A. Move to `docs/archive/`** — keep as historical record inside the repo.
+- **B. Leave in place** — treat as external-facing docs to be updated in a future pass.
+- **C. Delete** — if superseded by the new docs under `docs/`.
+
+> **Action required:** Choose A, B, or C. No change made until confirmed.

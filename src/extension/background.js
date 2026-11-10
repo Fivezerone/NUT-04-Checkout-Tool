@@ -1,4 +1,4 @@
-﻿/* @license SPDX-License-Identifier: Apache-2.0 BackgroundServiceWorker ? Component Architecture v2.0 Orchestrates: NutriScoreDB -> DiseaseEngine */
+/* @license SPDX-License-Identifier: Apache-2.0 BackgroundServiceWorker ? Component Architecture v2.0 Orchestrates: NutriScoreDB -> DiseaseEngine */
 
 // STAGE A (A-07): supabase.js removed from importScripts (deleted; decision 7).
 // TODO (Stage C): add oidc-client.js when OidcAuthProvider is implemented.

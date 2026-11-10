@@ -33,3 +33,8 @@ android/local.properties
 local.properties
 *.apk
 *.aab
+
+# Docker secrets — never commit real values
+.secrets/*
+!.secrets/README.md
+
