@@ -1,14 +1,15 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Dynamic: Defers to the active condition theme set by health-modes.generated.css */
-  --shell-primary: var(--condition-primary);
-  --shell-accent-bg: var(--condition-accent-bg);
-  --shell-border: var(--condition-border);
-  --shell-header-bg: var(--condition-header-bg);
-  --shell-header-text: var(--condition-header-text);
-  --shell-header-sub: var(--condition-header-sub);
+  /* Institutional theme: driven by surface action token, decoupled from health condition */
+  --shell-primary: var(--t-color-action-primary, #04785a);
+  --shell-accent-bg: #f0fdfa;
+  --shell-border: #ccfbf1;
+  --shell-header-bg: var(--t-color-action-primary, #04785a);
+  --shell-header-text: #ffffff;
+  --shell-header-sub: #99f6e4;
 
+  /* Condition palette reserved for condition badges & icons (never paints whole UI) */
   --condition-primary: #2E7D32;
   --condition-accent-bg: #e8f5e9;
   --condition-border: #c8e6c9;

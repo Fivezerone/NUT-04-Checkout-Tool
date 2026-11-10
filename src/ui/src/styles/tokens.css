@@ -63,7 +63,6 @@
 
   --focus-ring: #1d4ed8;
   --color-overlay: rgb(15 23 42 / 0.48);
-  --color-overlay: rgb(15 23 42 / 0.48);
   --shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.08);
   --shadow-raised: 0 12px 28px rgb(15 23 42 / 0.12);
   --ui-radius-sm: 0.25rem;
@@ -74,6 +73,46 @@
   --rail-width: 17.5rem;
   --header-height: 4.5rem;
   --transition-fast: 150ms ease;
+
+  /* Tier 1 Primitives: NutriScore Palette */
+  --color-navy-900: #073a4b;
+  --color-mint-700: #04785a;
+  --color-blue-700: #0b6e91;
+
+  /* NutriScore Grades (Charter standard) */
+  --color-grade-a: #038141;
+  --color-grade-b: #85bb2f;
+  --color-grade-c: #fecb02;
+  --color-grade-d: #ee8100;
+  --color-grade-e: #e63e11;
+
+  /* Condition Chips (non-surface-recolouring) */
+  --condition-chip-general: #2e7d32;
+  --condition-chip-diabetes: #d32f2f;
+  --condition-chip-hypertension: #e65100;
+  --condition-chip-kidney: #00796b;
+  --condition-chip-obesity: #7b1fa2;
+
+  /* Default surface variables */
+  --t-color-action-primary: var(--color-mint-700);
+  --t-radius-card: var(--ui-radius-xl);
+  --t-row-height: 56px;
+}
+
+:root[data-surface="shopper"] {
+  --t-color-action-primary: #04785a;
+  --t-radius-card: 20px;
+  --t-row-height: 56px;
+}
+
+:root[data-surface="clinical"] {
+  --t-color-action-primary: #0b6e91;
+  --t-radius-card: 12px;
+  --t-row-height: 40px;
+}
+
+:root[data-density="compact"] {
+  --t-row-height: 36px;
 }
 
 .dark {
