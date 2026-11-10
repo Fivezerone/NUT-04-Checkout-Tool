@@ -292,8 +292,8 @@
   7. Zero TypeScript errors via npm run typecheck. Clean production build generated via npm run build.
 - Deviations: None.
 - Follow-ups / HUMAN-ACTION: Set Supabase Edge Function secrets with the correct 20-character project ref domain:
-  - PAYSTACK_CALLBACK_URL=https://nqcpudpkrkutpxuqpsfk.supabase.co/functions/v1/paystack-redirect
-  - PAYSTACK_SECRET_KEY=sk_test_501eefdf75d591face4b5d2f45b3c0ea1e1d0e10
+  - PAYSTACK_CALLBACK_URL=https://<project-ref>.supabase.co/functions/v1/paystack-redirect
+  - PAYSTACK_SECRET_KEY=sk_test_placeholder_for_historical_docs
   - ENTITLEMENT_SIGNING_KEY (JSON string from node scripts/gen-keys.mjs)
   - Configure Paystack Dashboard Webhook: https://nqcpudpkrkutpxuqpsfk.supabase.co/functions/v1/paystack-webhook
 
