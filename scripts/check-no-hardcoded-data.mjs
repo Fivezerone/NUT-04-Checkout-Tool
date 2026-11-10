@@ -96,3 +96,4 @@ if (totalViolations > 0) {
   console.log('[PASS] No hardcoded patient or clinic-specific data found in src/.')
   process.exit(0)
 }
+

@@ -34,10 +34,10 @@ interface ConsentRecordItem {
   revokedAt?: string
 }
 
-// STAGE B (B-05): Hardcoded synthetic patient refs (PAT-0042, PAT-0108) and
-// clinician name ('Dr. Mwangi') removed from useState fixtures.
-// Initial state now starts empty; the UI shows an empty-state prompt until
-// real data is loaded from the API (TODO(Stage C): wire to GET /patient-links).
+// STAGE B (B-05): Hardcoded synthetic patient refs and clinician name removed
+// from useState fixtures. Initial state now starts empty; the UI shows an
+// empty-state prompt until real data is loaded from the API
+// (TODO(Stage C): wire to GET /patient-links).
 export const PatientLinkingConsentView: React.FC = () => {
   const { claims, activeTenant } = useCadAuth()
   const isWritingClinician = claims.role === 'writing_clinician' || claims.role === 'super_admin'

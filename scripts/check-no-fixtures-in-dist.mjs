@@ -89,3 +89,4 @@ if (totalViolations > 0) {
   console.log('[PASS] No fixture data found in dist/.')
   process.exit(0)
 }
+

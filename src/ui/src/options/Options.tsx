@@ -75,8 +75,11 @@ export function Options() {
       const currentFreq =
         storageData?.user_preferences?.notificationFrequency || "realtime";
 
-      const clinician = "Dr. David Omondi, MBChB, MMed";
-      let clinic = "Kenyatta National Hospital — Clinical Nutrition Unit";
+      // STAGE B (B-11): Hardcoded clinician name and clinic name removed.
+      // These are set from the OIDC session / tenant API in Stage C.
+      // TODO(Stage C): load clinician name from OIDC claims or GET /tenant_members.
+      const clinician = "";
+      let clinic = "";
       const modeKey = idbSettings?.activeTheme || "diabetes";
       const modeLabel = HEALTH_MODES[modeKey as keyof typeof HEALTH_MODES]?.label || "Cardio-Metabolic (Type 2 Diabetes)";
 

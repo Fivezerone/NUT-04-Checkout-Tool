@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/extension/catalog-sync.js — global NutriCatalogSync
  *
  * IndexedDB thin-client catalog synchronization.

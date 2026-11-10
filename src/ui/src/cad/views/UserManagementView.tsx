@@ -67,7 +67,7 @@ export const UserManagementView: React.FC = () => {
     setLoading(true)
     try {
       // TODO (Stage C): GET /tenant_members?tenant_id=eq.{tenantId} via PostgREST.
-      // Stub: returns empty list (B-01 — demo roster with @knh.or.ke emails removed).
+      // Stub: returns empty list (B-01 — demo roster with clinic-domain emails removed).
       setMembers([])
     } catch {
       // Ignore
@@ -341,7 +341,7 @@ export const UserManagementView: React.FC = () => {
                   <label className="ui-field-label">Medical or dietetic licence number</label>
                   <input
                     type="text"
-                    placeholder="KMPDC/2026/12345"
+                    placeholder="Reg-No/YYYY/NNNNN"
                     value={newLicence}
                     onChange={(e) => setNewLicence(e.target.value)}
                     className="ui-input mt-1"

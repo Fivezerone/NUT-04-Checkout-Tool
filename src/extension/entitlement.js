@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/extension/entitlement.js  — global NutriEntitlement
  *
  * ES256 JWT verifier for the NutriScore entitlement token.
