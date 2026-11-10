@@ -1,10 +1,12 @@
 // src/ui/src/cad/views/TenantSettingsView.tsx
 // Clinic Configuration, Policy Settings & Privacy Parameters
 // Reference: Reports/Plans/CAD_IMPLEMENTATION_PLAN.md (§6.1, §6.6, §11.1)
+//
+// STAGE A (A-03): cadSupabase removed; save stubbed.
+// TODO (Stage C): Replace stub with OIDC-authed PATCH /tenants + POST /audit_log.
 
 import React, { useState } from 'react'
 import { useCadAuth } from '../context/AuthContext'
-import { cadSupabase } from '../supabaseClient'
 import { Settings, Shield, Globe, Database, Save, Check } from 'lucide-react'
 
 export const TenantSettingsView: React.FC = () => {
@@ -29,26 +31,8 @@ export const TenantSettingsView: React.FC = () => {
     }
 
     try {
-      await cadSupabase
-        .from('tenants')
-        .update({
-          name,
-          config: updatedConfig,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', claims.tenantId)
-
-      // Audit log event
-      await cadSupabase.from('audit_log').insert({
-        tenant_id: claims.tenantId,
-        actor_id: claims.userId || 'admin',
-        actor_role: claims.role,
-        action: 'UPDATE_TENANT_CONFIG',
-        mutation_type: 'update',
-        resource_type: 'Tenant',
-        resource_id: claims.tenantId,
-        reason: 'Updated tenant clinical rule pack and privacy threshold parameters',
-      })
+      // TODO (Stage C): PATCH /tenants/{tenantId} and POST /audit_log via PostgREST.
+      // Stub: no-op until REST layer is wired.
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch {
@@ -102,7 +86,7 @@ export const TenantSettingsView: React.FC = () => {
               <input
                 type="text"
                 disabled
-                value={activeTenant?.slug || 'knh-cardio'}
+                value={activeTenant?.slug || ''}
                 className="mt-1 w-full px-3 py-2 border border-slate-200 bg-slate-50 rounded-lg text-sm font-mono text-slate-500 cursor-not-allowed"
               />
             </div>

@@ -34,66 +34,17 @@ interface ConsentRecordItem {
   revokedAt?: string
 }
 
+// STAGE B (B-05): Hardcoded synthetic patient refs and clinician name removed
+// from useState fixtures. Initial state now starts empty; the UI shows an
+// empty-state prompt until real data is loaded from the API
+// (TODO(Stage C): wire to GET /patient-links).
 export const PatientLinkingConsentView: React.FC = () => {
   const { claims, activeTenant } = useCadAuth()
   const isWritingClinician = claims.role === 'writing_clinician' || claims.role === 'super_admin'
 
-  const [links, setLinks] = useState<PatientLinkItem[]>([
-    {
-      code: 'NS-849201',
-      patientRef: 'PAT-0042',
-      clinicianName: 'Dr. Mwangi, MBChB',
-      status: 'confirmed',
-      expiresAt: '2026-11-01T12:00:00Z',
-      confirmedAt: '2026-10-28T09:15:00Z',
-    },
-    {
-      code: 'NS-119304',
-      patientRef: 'PAT-0108',
-      clinicianName: 'Dr. Mwangi, MBChB',
-      status: 'confirmed',
-      expiresAt: '2026-11-02T16:00:00Z',
-      confirmedAt: '2026-10-29T10:30:00Z',
-    },
-    {
-      code: 'NS-772049',
-      patientRef: 'Pending Confirmation',
-      clinicianName: 'Dr. Mwangi, MBChB',
-      status: 'pending',
-      expiresAt: '2026-10-30T18:00:00Z',
-    },
-  ])
+  const [links, setLinks] = useState<PatientLinkItem[]>([])
 
-  const [consents, setConsents] = useState<ConsentRecordItem[]>([
-    {
-      id: 'c1',
-      patientRef: 'PAT-0042',
-      purpose: 'clinician_link',
-      status: 'active',
-      grantedAt: '2026-10-28T09:15:00Z',
-    },
-    {
-      id: 'c2',
-      patientRef: 'PAT-0042',
-      purpose: 'purchase_timeline',
-      status: 'active',
-      grantedAt: '2026-10-28T09:15:00Z',
-    },
-    {
-      id: 'c3',
-      patientRef: 'PAT-0108',
-      purpose: 'clinician_link',
-      status: 'active',
-      grantedAt: '2026-10-29T10:30:00Z',
-    },
-    {
-      id: 'c4',
-      patientRef: 'PAT-0108',
-      purpose: 'diary',
-      status: 'active',
-      grantedAt: '2026-10-29T10:30:00Z',
-    },
-  ])
+  const [consents, setConsents] = useState<ConsentRecordItem[]>([])
 
   const [generatedCode, setGeneratedCode] = useState<string | null>(null)
   const [copiedCode, setCopiedCode] = useState(false)

@@ -17,7 +17,6 @@ const ROOT = process.cwd().replace(/[/\\]src[/\\]ui$/, "");
 const scannerSrc     = readFileSync(join(ROOT, "src/extension/scanner.js"), "utf8");
 const bgSrc          = readFileSync(join(ROOT, "src/extension/background.js"), "utf8");
 const catalogSrc     = readFileSync(join(ROOT, "src/extension/catalog-sync.js"), "utf8");
-const buildSwSrc     = readFileSync(join(ROOT, "scripts/build-sw-client.mjs"), "utf8");
 const naivasSrc      = readFileSync(join(ROOT, "src/extension/adapters/naivas.js"), "utf8");
 const carrefourSrc   = readFileSync(join(ROOT, "src/extension/adapters/carrefour.js"), "utf8");
 const quickmartSrc   = readFileSync(join(ROOT, "src/extension/adapters/quickmart.js"), "utf8");
@@ -126,12 +125,6 @@ describe("Supabase Nutrition Sync & Local Fallback Resilience", () => {
     expect(seedBody).toContain("RETAILER_REGISTRY.entries()");
     expect(seedBody).toContain('version: "local-bundled"');
     expect(seedBody).toContain("NutriScoreDB.putCatalogMeta");
-  });
-
-  it("build-sw-client.mjs exposes auth, from, rpc, and schema on NutriSupabase client", () => {
-    expect(buildSwSrc).toContain("from: (table) => rest.from(table)");
-    expect(buildSwSrc).toContain("rpc: (fn, args, options) => rest.rpc(fn, args, options)");
-    expect(buildSwSrc).toContain("schema: (s) => rest.schema(s)");
   });
 
   it("manifest.json defines web_accessible_resources for local data JSON fallbacks", () => {

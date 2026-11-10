@@ -1,0 +1,55 @@
+{
+  "recordedAt": "2026-11-10",
+  "commitTag": "baseline/pre-cleanup",
+  "commits": ["2ffa433f", "e594f4d1"],
+  "files": {
+    "totalTracked": 495,
+    "sourceFiles": 217,
+    "sourceLines": 33305,
+    "byDirectory": {
+      "src": 189,
+      "supabase": 87,
+      "Docs": 56,
+      "android": 54,
+      "NUT-04_Release_Documentation": 32,
+      "scripts": 31,
+      "infra": 5,
+      "bin": 2,
+      ".github": 2
+    }
+  },
+  "packages": {
+    "productionDeps": 19,
+    "devDeps": 16,
+    "total": 35
+  },
+  "tests": {
+    "testFiles": 51
+  },
+  "patterns": {
+    "supabase": 622,
+    "mock": 193,
+    "fixture": 76,
+    "PAT-": 19,
+    "demo": 16,
+    "@knh.or.ke": 4
+  },
+  "docker": {
+    "toolchainImageSize": "TBD",
+    "installTime": "TBD"
+  },
+  "bundles": {
+    "popupGzipKb": "TBD",
+    "dashboardGzipKb": "TBD",
+    "cadGzipKb": "TBD",
+    "optionsGzipKb": "TBD"
+  },
+  "quality": {
+    "lintErrors": "TBD",
+    "typeErrors": "TBD",
+    "testPass": "TBD",
+    "testFail": "TBD",
+    "testSkip": "TBD"
+  }
+}
+

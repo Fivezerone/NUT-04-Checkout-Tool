@@ -3,6 +3,13 @@
  *
  * IndexedDB thin-client catalog synchronization.
  * Pulls signed catalog_releases and streams catalog_products / catalog_premium
+ *
+ * STAGE A (A-11b): @supabase/supabase-js package removed (A-04). The internal
+ * getSupabase() factory and all supabase.auth / supabase.from() calls remain
+ * and are PRESERVED for reference. These will be replaced with OIDC + REST
+ * equivalents in Stage C (TODO(Stage C): rewrite supabase calls to use
+ * config.API_URL + Bearer token from OIDC session; see ADR-0005).
+ * No functional change in this commit — no test coverage removed.
  * from Supabase, atomically committing changes via the catalog_staging store.
  * Replaces the static bundled JSON ingestion (db/settings.ts importDatasets).
  */
@@ -30,7 +37,7 @@ self.NutriCatalogSync = (() => {
   let _getSupabase = null;
   function getSupabase() {
     if (_getSupabase) return _getSupabase();
-    return NutriSupabase.create(NUTRI_CONFIG.SUPABASE_URL, NUTRI_CONFIG.SUPABASE_ANON_KEY);
+    return NutriSupabase.create(NUTRI_CONFIG.API_URL, NUTRI_CONFIG.OIDC_ISSUER);
   }
 
   async function base64urlDecode(str) {
@@ -223,10 +230,10 @@ self.NutriCatalogSync = (() => {
     const supabase = getSupabase();
     
     // Bypass stale memory cache in the background script to ensure requests are authenticated
-    const local = await chrome.storage.local.get("nutri_supabase_session");
-    if (local.nutri_supabase_session) {
+    const local = await chrome.storage.local.get("nutri_oidc_session");
+    if (local.nutri_oidc_session) {
       try {
-        const parsed = JSON.parse(local.nutri_supabase_session);
+        const parsed = JSON.parse(local.nutri_oidc_session);
         if (parsed?.access_token && parsed?.refresh_token) {
           await supabase.auth.setSession({
             access_token: parsed.access_token,

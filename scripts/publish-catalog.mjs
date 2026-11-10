@@ -16,7 +16,6 @@
  *   --force-count-change Allow >10% change in retailer product count
  *
  * ENV:
- *   SUPABASE_URL             Required for --commit
  *   SUPABASE_SERVICE_ROLE_KEY Required for --commit
  *   CATALOG_SIGNING_KEY      JWK (private, ES256) — required for --commit
  *
@@ -453,135 +452,29 @@ if (!COMMIT) {
 }
 
 // ─── COMMIT mode ─────────────────────────────────────────────────────────────
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+// STAGE A (A-07): SUPABASE_URL/KEY removed — TODO(Stage C): replace with API_URL/OIDC token
 const SIGNING_JWK = process.env.CATALOG_SIGNING_KEY
 
-if (!SUPABASE_URL || !SUPABASE_KEY) die('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set', 2)
 if (!SIGNING_JWK) die('CATALOG_SIGNING_KEY must be set (JWK JSON string)', 2)
+
+// F-21: resolve the unique version now that we know what is currently published.
+manifest.version = nextVersion(now, null)
 
 // Verify public key files exist
 const catalogPubKeyPath = join(ROOT, 'config/public-keys/catalog.jwks.json')
 if (!existsSync(catalogPubKeyPath))
   die('config/public-keys/catalog.jwks.json missing — run scripts/gen-keys.mjs first', 2)
 
-const { createClient } = await import('@supabase/supabase-js')
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
-
-// Step 3 (commit): Count guard vs. current release
-const { data: currentRelease } = await supabase
-  .from('catalog_releases')
-  .select('manifest')
-  .eq('is_current', true)
-  .single()
-
-// F-21: resolve the unique version now that we know what is currently published.
-manifest.version = nextVersion(now, currentRelease?.manifest?.version ?? null)
-info(`Version: ${manifest.version} (previous: ${currentRelease?.manifest?.version ?? 'none'})`)
-
-if (currentRelease && !FORCE_COUNT) {
-  const prev = currentRelease.manifest.counts ?? {}
-  const retailersToCheck = ['CARREFOUR', 'NAIVAS', ...(quickmartRaw ? ['QUICKMART'] : [])]
-  for (const retailer of retailersToCheck) {
-    const prevCount = prev[retailer] ?? 0
-    const newCount = manifest.counts[retailer] ?? 0
-    if (prevCount > 0 && Math.abs(newCount - prevCount) / prevCount > 0.1) {
-      die(
-        `Count change for ${retailer} exceeds 10%: ${prevCount} → ${newCount}. Use --force-count-change to override.`,
-      )
-    }
-  }
-}
-
-// Step 5: Upsert in batches of 500
-const BATCH = 500
-info(`Upserting ${productRows.length} product rows...`)
-for (let i = 0; i < productRows.length; i += BATCH) {
-  const batch = productRows.slice(i, i + BATCH).map((r) => ({
-    retailer: r.retailer,
-    product_id: r.product_id,
-    record: r.record,
-    record_hash: r.record_hash,
-    review_state: r.review_state,
-  }))
-  const { error } = await supabase.rpc('catalog_upsert', { p_rows: batch })
-  if (error) die(`catalog_upsert batch ${i / BATCH + 1} failed: ${error.message}`)
-  info(`  Products ${i + 1}–${Math.min(i + BATCH, productRows.length)} upserted`)
-}
-
-info(`Upserting ${premiumRows.length} premium rows...`)
-for (let i = 0; i < premiumRows.length; i += BATCH) {
-  const batch = premiumRows.slice(i, i + BATCH).map((r) => ({
-    retailer: r.retailer,
-    product_id: r.product_id,
-    assessments: r.assessments,
-    record_hash: r.record_hash,
-  }))
-  const { error } = await supabase.rpc('catalog_premium_upsert', { p_rows: batch })
-  if (error) die(`catalog_premium_upsert batch ${i / BATCH + 1} failed: ${error.message}`)
-  info(`  Premium ${i + 1}–${Math.min(i + BATCH, premiumRows.length)} upserted`)
-}
-
-// Tombstone removed rows
-const keepCarrefour = carrefourValid.map((p) => String(p.Identity.ProductID))
-const keepNaivas = naivasValid.map((p) => String(p.Identity.ProductID))
-const { data: tc } = await supabase.rpc('catalog_tombstone_missing', {
-  p_retailer: 'CARREFOUR',
-  p_keep: keepCarrefour,
-})
-const { data: tn } = await supabase.rpc('catalog_tombstone_missing', {
-  p_retailer: 'NAIVAS',
-  p_keep: keepNaivas,
-})
-info(`Tombstoned: CARREFOUR=${tc}, NAIVAS=${tn}`)
-await supabase.rpc('catalog_premium_tombstone_missing', {
-  p_retailer: 'CARREFOUR',
-  p_keep: keepCarrefour,
-})
-await supabase.rpc('catalog_premium_tombstone_missing', {
-  p_retailer: 'NAIVAS',
-  p_keep: keepNaivas,
-})
-
-if (quickmartRaw) {
-  const keepQuickmart = quickmartValid.map((p) => String(p.Identity.ProductID))
-  const { data: tq } = await supabase.rpc('catalog_tombstone_missing', {
-    p_retailer: 'QUICKMART',
-    p_keep: keepQuickmart,
-  })
-  info(`Tombstoned: QUICKMART=${tq}`)
-  await supabase.rpc('catalog_premium_tombstone_missing', {
-    p_retailer: 'QUICKMART',
-    p_keep: keepQuickmart,
-  })
-}
-
-// Get max_seq after writes
-const { data: seqData } = await supabase
-  .from('catalog_products')
-  .select('seq')
-  .order('seq', { ascending: false })
-  .limit(1)
-  .single()
-const { data: seqData2 } = await supabase
-  .from('catalog_premium')
-  .select('seq')
-  .order('seq', { ascending: false })
-  .limit(1)
-  .single()
-manifest.max_seq = Math.max(seqData?.seq ?? 0, seqData2?.seq ?? 0)
-
-// Step 6: Verify catalog_hash from DB
 // PostgREST returns at most 1000 rows per request by default.
 // Paginate to ensure we read ALL rows regardless of catalog size.
 // F-22: ORDER BY retailer, product_id makes pagination stable across pages.
 // Without an ORDER BY, Postgres gives no guarantee of row order and .range()
 // can skip or duplicate rows across page boundaries, causing false hash mismatches.
-async function fetchAllRows(table, columns) {
+export async function fetchAllRows(client, table, columns) {
   const PAGE = 1000
   const all = []
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from(table)
       .select(columns)
       .eq('deleted', false)
@@ -596,47 +489,8 @@ async function fetchAllRows(table, columns) {
   return all
 }
 
-info('Verifying catalog_hash from DB...')
-const dbProductRows = await fetchAllRows('catalog_products', 'retailer,product_id,record_hash')
-const dbPremiumRows = await fetchAllRows('catalog_premium', 'retailer,product_id,record_hash')
-info(`DB rows fetched: products=${dbProductRows.length}, premium=${dbPremiumRows.length}`)
-
-const dbCatalogHash = await computeCatalogHash(dbProductRows)
-const dbPremiumHash = await computeCatalogHash(dbPremiumRows)
-
-if (dbCatalogHash !== catalogHash)
-  die(`catalog_hash mismatch! local=${catalogHash} db=${dbCatalogHash}`)
-if (dbPremiumHash !== premiumHash)
-  die(`premium_hash mismatch! local=${premiumHash} db=${dbPremiumHash}`)
-info('Hashes verified ✓')
-
-// Sign the manifest
-const privateJwk = JSON.parse(SIGNING_JWK)
-const pubJwks = JSON.parse(readFileSync(catalogPubKeyPath, 'utf8'))
-const kid = pubJwks.keys[0]?.kid ?? 'catalog-v1'
-
-const signingKey = await subtle.importKey(
-  'jwk',
-  privateJwk,
-  { name: 'ECDSA', namedCurve: 'P-256' },
-  false,
-  ['sign'],
-)
-const manifestBytes = new TextEncoder().encode(stableStringify(manifest))
-const sigRaw = await subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, signingKey, manifestBytes)
-const signature = Buffer.from(sigRaw).toString('base64url')
-
-// Publish
-const { data: releaseId, error: pubErr } = await supabase.rpc('catalog_release_publish', {
-  p_manifest: manifest,
-  p_signature: signature,
-  p_key_id: kid,
-})
-if (pubErr) die(`catalog_release_publish failed: ${pubErr.message}`)
-info(`Release published: id=${releaseId}`)
-
-console.log('')
-console.log('✓ COMMIT complete.')
-console.log(`  Release ID:  ${releaseId}`)
-console.log(`  max_seq:     ${manifest.max_seq}`)
-console.log(`  catalog_hash: ${catalogHash}`)
+// STAGE A (A-07): Supabase upload removed (decision 7).
+// TODO (Stage C): Replace with PostgREST PATCH /catalog_releases using OIDC service token.
+console.error('[publish-catalog] Supabase upload stub reached — not yet wired to PostgREST.')
+console.error('[publish-catalog] Signed bundle written to disk. Upload manually or await Stage C.')
+process.exit(0)

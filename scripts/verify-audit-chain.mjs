@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * NutriScore CAD Phase 5 — Audit Chain Verifier
  *
@@ -118,7 +118,7 @@ function queryPsql(sql) {
     [
       'exec',
       '-i',
-      'supabase_db_NUT-04_Checkout_Tool',
+      'nut-04-checkout-tool-postgres-1',
       'psql',
       '-U',
       'postgres',

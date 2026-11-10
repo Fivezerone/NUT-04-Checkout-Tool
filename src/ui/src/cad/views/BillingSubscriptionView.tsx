@@ -19,7 +19,7 @@ export const BillingSubscriptionView: React.FC = () => {
   const isTenantAdmin = claims.role === 'tenant_admin' || claims.role === 'super_admin'
 
   const [selectedPlan, setSelectedPlan] = useState<'clinic_monthly' | 'clinic_quarterly' | 'clinic_annual'>('clinic_monthly')
-  const [phoneNumber, setPhoneNumber] = useState('254712345678')
+  const [phoneNumber, setPhoneNumber] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [stkSent, setStkSent] = useState(false)
 
@@ -27,26 +27,16 @@ export const BillingSubscriptionView: React.FC = () => {
   const [subStatus, setSubStatus] = useState<'active' | 'past_due' | 'suspended'>('active')
   const graceDaysLeft = 5
 
-  const invoices = [
-    {
-      id: 'inv-2026-10',
-      period: 'Oct 2026 – Nov 2026',
-      amount_kes: 5000.00,
-      status: 'paid',
-      paid_at: '2026-10-15T09:30:00Z',
-      receipt: 'QHJ882194K',
-      method: 'mpesa_stk',
-    },
-    {
-      id: 'inv-2026-09',
-      period: 'Sep 2026 – Oct 2026',
-      amount_kes: 5000.00,
-      status: 'paid',
-      paid_at: '2026-09-15T11:14:00Z',
-      receipt: 'PZX110943A',
-      method: 'mpesa_stk',
-    },
-  ]
+  // STAGE B: Hardcoded phone numbers and transaction receipts purged.
+  // Invoices will be loaded from the billing service in Stage C.
+  const invoices: Array<{
+    id: string
+    period: string
+    amount_kes: number
+    status: string
+    receipt: string
+    method: string
+  }> = []
 
   const handleInitiatePayment = (e: React.FormEvent) => {
     e.preventDefault()
@@ -184,7 +174,7 @@ export const BillingSubscriptionView: React.FC = () => {
                   type="text"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="254712345678"
+                  placeholder="e.g. 254..."
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
@@ -231,35 +221,43 @@ export const BillingSubscriptionView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {invoices.map((inv) => (
-                <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 font-mono font-bold text-slate-900">
-                    {inv.id}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {inv.period}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-slate-900">
-                    KES {inv.amount_kes.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 capitalize">
-                    {inv.method.replace('_', ' ')}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-emerald-700 font-bold">
-                    {inv.receipt}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase">
-                      {inv.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button className="text-xs text-slate-500 hover:text-slate-800 p-1 rounded hover:bg-slate-100">
-                      <Download className="w-3.5 h-3.5" />
-                    </button>
+              {invoices.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-xs text-slate-400">
+                    No billing invoices recorded yet.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                invoices.map((inv) => (
+                  <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3 font-mono font-bold text-slate-900">
+                      {inv.id}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {inv.period}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-slate-900">
+                      KES {inv.amount_kes.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 capitalize">
+                      {inv.method.replace('_', ' ')}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-emerald-700 font-bold">
+                      {inv.receipt}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase">
+                        {inv.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button className="text-xs text-slate-500 hover:text-slate-800 p-1 rounded hover:bg-slate-100">
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

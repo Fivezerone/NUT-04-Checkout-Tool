@@ -3,18 +3,6 @@ import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
-function figmaAssetResolver() {
-  return {
-    name: 'figma-asset-resolver',
-    resolveId(id) {
-      if (id.startsWith('figma:asset/')) {
-        const filename = id.replace('figma:asset/', '')
-        return path.resolve(__dirname, 'src/ui/src/assets', filename)
-      }
-    },
-  }
-}
-
 export default defineConfig({
   root: 'src/ui',
   base: './',
@@ -24,7 +12,7 @@ export default defineConfig({
   // envDir must be set explicitly: when root='src/ui', Vite defaults envDir
   // to src/ui/ and won't find the .env at the project root.
   envDir: __dirname,
-  plugins: [figmaAssetResolver(), react({ jsxRuntime: 'classic' }), tailwindcss()],
+  plugins: [react({ jsxRuntime: 'classic' }), tailwindcss()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/ui/src'),
@@ -42,7 +30,6 @@ export default defineConfig({
         popup: path.resolve(__dirname, 'src/ui/popup.html'),
         dashboard: path.resolve(__dirname, 'src/ui/dashboard.html'),
         options: path.resolve(__dirname, 'src/ui/options.html'),
-        onboarding: path.resolve(__dirname, 'src/ui/onboarding.html'),
         cad: path.resolve(__dirname, 'src/ui/cad.html'),
       },
     },

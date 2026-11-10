@@ -25,7 +25,7 @@ function queryPsql(sql) {
       [
         'exec',
         '-i',
-        'supabase_db_NUT-04_Checkout_Tool',
+        'nut-04-checkout-tool-postgres-1',
         'psql',
         '-U',
         'postgres',
@@ -139,7 +139,10 @@ export function loadRetailerDatasets(limitPerRetailer = 500) {
   }
 
   // 3. Quickmart Kenya
-  const quickmartPath = join(repoRoot, 'supabase', 'snippets', 'quickmart_catalog_payload.json')
+  // TODO(Stage C): quickmart_catalog_payload.json was in supabase/snippets/ (deleted A-07).
+  // Source this from src/extension/data/ or a Docker-native fixture path once ingestion
+  // pipeline is set up. File existence check below is a safe guard – skips silently.
+  const quickmartPath = join(repoRoot, 'src', 'extension', 'data', 'quickmart_catalog_payload.json')
   if (existsSync(quickmartPath)) {
     const raw = JSON.parse(readFileSync(quickmartPath, 'utf8'))
     const list = raw.productRows || (Array.isArray(raw) ? raw : [])

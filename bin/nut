@@ -1,0 +1,57 @@
+#!/usr/bin/env sh
+# bin/nut — POSIX wrapper for Docker-based NUT-04 operations.
+# Usage: bin/nut <verb> [args...]
+# Verbs: up  down  ci  extension  e2e  db-reset  logs  shell
+set -eu
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+verb="${1:-help}"
+shift || true
+
+case "$verb" in
+  up)
+    docker compose --profile dev up --build "$@"
+    ;;
+  down)
+    docker compose --profile dev down "$@"
+    ;;
+  ci)
+    docker compose --profile ci run --rm ci "$@"
+    ;;
+  extension)
+    docker buildx build \
+      --target extension-artifact \
+      --output "type=local,dest=./dist/extension" \
+      "$@" .
+    ;;
+  e2e)
+    docker compose --profile e2e run --rm e2e "$@"
+    ;;
+  db-reset)
+    docker compose --profile dev run --rm migrate down
+    docker compose --profile dev run --rm migrate up
+    ;;
+  logs)
+    docker compose --profile dev logs -f "$@"
+    ;;
+  shell)
+    svc="${1:-toolchain}"
+    shift || true
+    docker compose --profile dev run --rm "$svc" bash "$@"
+    ;;
+  help|*)
+    printf 'Usage: bin/nut <verb>\n'
+    printf 'Verbs:\n'
+    printf '  up          Start dev stack\n'
+    printf '  down        Stop dev stack\n'
+    printf '  ci          Run all CI gates\n'
+    printf '  extension   Build the Chrome extension\n'
+    printf '  e2e         Run Playwright e2e suite\n'
+    printf '  db-reset    Drop and re-apply migrations\n'
+    printf '  logs        Tail service logs\n'
+    printf '  shell [svc] Open a shell in a service (default: toolchain)\n'
+    ;;
+esac
+

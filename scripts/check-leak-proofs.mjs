@@ -36,7 +36,7 @@ function queryPsql(sql) {
     [
       'exec',
       '-i',
-      'supabase_db_NUT-04_Checkout_Tool',
+      'nut-04-checkout-tool-postgres-1',
       'psql',
       '-U',
       'postgres',

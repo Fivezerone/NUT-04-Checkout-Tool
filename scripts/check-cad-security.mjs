@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /** Prevent security regressions that the CAD blueprint explicitly bans. */
 
 import { execFileSync } from 'node:child_process'
@@ -21,7 +21,7 @@ const forbidden = [
 ]
 
 const SCAN_EXTS = new Set(['.ts', '.tsx', '.js', '.mjs', '.sql'])
-const SCAN_DIRS = ['src', 'supabase', 'scripts']
+const SCAN_DIRS = ['src', 'scripts']
 
 /** Portable Node.js fallback: walk directories and grep with RegExp. */
 function grepFallback(pattern, dirs, rootDir) {
@@ -83,7 +83,6 @@ for (const check of forbidden) {
         '-e',
         check.pattern,
         'src',
-        'supabase',
         'scripts',
       ],
       { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },

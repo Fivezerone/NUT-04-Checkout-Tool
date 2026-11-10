@@ -1,0 +1,44 @@
+# .dockerignore — NUT-04 Checkout Tool
+# Keeps build context lean; never bake node_modules or secrets into images.
+
+node_modules/
+dist/
+dist-ui/
+.git/
+
+# Secrets — never bake into images
+.env
+.env.*
+!.env.example
+.mock-credentials.json
+
+# Dev tooling output
+eslint-report.json
+eslint-report.txt
+publish-report.json
+coverage/
+.nyc_output/
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+
+# Android / Gradle
+android/.gradle/
+android/build/
+*.apk
+*.aab
+
+# Archive artefacts
+*.zip
+*.rar
+
+# IDE
+.vscode/
+.idea/
+
+# Supabase local state (§4.7 — being decommissioned)
+supabase/.temp/
+supabase/.branches/
+supabase/.cache/
+

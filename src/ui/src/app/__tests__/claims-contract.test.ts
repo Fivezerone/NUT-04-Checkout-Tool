@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { OidcCodePkceProvider, SupabaseAuthProvider } from '../../../../shared/auth-provider'
+import { OidcCodePkceProvider } from '../../../../shared/auth-provider'
 import { claimsFromAccessToken, canonicalizeClaims } from '../../../../shared/claims'
 import { BAN_UNTIL_ISO, CLAIM_SCHEMA_VERSION } from '../../../../shared/constants'
 
@@ -75,41 +75,20 @@ describe('canonical claims contract', () => {
 })
 
 describe('auth provider seam', () => {
-  it('uses the Supabase provider only through the contract interface', async () => {
-    const token = tokenFor({
-      sub: '11111111-1111-1111-1111-111111111111',
-      sid: 'session',
-      app_role: 'patient',
-      lic_ok: false,
-      ver: CLAIM_SCHEMA_VERSION,
-    })
-    const provider = new SupabaseAuthProvider(
-      {
-        auth: {
-          signInWithPassword: async () => ({ data: { session: { access_token: token } }, error: null }),
-          refreshSession: async () => ({ data: { session: { access_token: token } }, error: null }),
-          getSession: async () => ({ data: { session: { access_token: token } } }),
-          signOut: async () => ({ error: null }),
-        },
-      },
-      claimsFromAccessToken,
-    )
-    await expect(provider.signInWithClinicCredentials({ email: 'patient@clinic.test', password: 'password' })).resolves.toMatchObject({ appRole: 'patient' })
-    await expect(provider.refresh()).resolves.toMatchObject({ sid: 'session' })
-    await expect(provider.currentClaims()).resolves.toMatchObject({ sub: '11111111-1111-1111-1111-111111111111' })
-  })
-
   it('keeps the OIDC PKCE implementation inert before the Stage B cutover', async () => {
     const provider = new OidcCodePkceProvider()
     await expect(provider.currentClaims()).resolves.toBeNull()
-    await expect(provider.signInWithClinicCredentials({ email: 'patient@clinic.test', password: 'password' })).rejects.toThrow('not configured')
+    await expect(
+      provider.signInWithClinicCredentials({ email: 'patient@clinic.test', password: 'password' }),
+    ).rejects.toThrow('not yet configured')
   })
 })
 
 describe('single ban constant', () => {
   it('matches the SQL ban_until implementation exactly', () => {
+    // STAGE A (A-07): repointed from supabase/migrations/ to db/migrations/
     const migration = readFileSync(
-      resolve(ROOT, 'supabase/migrations/20261101000000_cad_schema_foundation.sql'),
+      resolve(ROOT, 'db/migrations/0001_baseline.sql'),
       'utf8',
     )
     expect(migration).toContain(`SELECT '${BAN_UNTIL_ISO}'::timestamptz`)

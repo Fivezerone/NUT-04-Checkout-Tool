@@ -1,10 +1,13 @@
 // src/ui/src/cad/views/AuditLogView.tsx
 // Immutable, Hash-Chained Audit Trail Viewer for Clinic Admin Dashboard
 // Reference: Reports/Plans/CAD_IMPLEMENTATION_PLAN.md (§6.1, §13 Test T14)
+//
+// STAGE A (A-03): cadSupabase removed; data fetch stubbed.
+// STAGE B (B-01): Demo audit log fallback data removed.
+// TODO (Stage C): Replace stub with OIDC-authed REST fetch via PostgREST.
 
 import React, { useState, useEffect } from 'react'
 import { useCadAuth } from '../context/AuthContext'
-import { cadSupabase } from '../supabaseClient'
 import type { AuditLogEntry } from '../types'
 import { CheckCircle2, ShieldAlert, Link as ChainIcon, Search, Lock } from 'lucide-react'
 import { PageHeader, StatusBadge } from '../components/Primitives'
@@ -23,69 +26,10 @@ export const AuditLogView: React.FC = () => {
   const loadAuditLogs = async () => {
     setLoading(true)
     try {
-      const { data, error } = await cadSupabase
-        .from('audit_log')
-        .select('*')
-        .eq('tenant_id', claims.tenantId)
-        .order('seq', { ascending: false })
-        .limit(100)
-
-      if (data && !error && data.length > 0) {
-        setLogs(data as AuditLogEntry[])
-        verifyHashChain(data as AuditLogEntry[])
-      } else {
-        // Fallback seeded demo audit events for visualization
-        const mockLogs: AuditLogEntry[] = [
-          {
-            event_id: 'e100-001',
-            tenant_id: claims.tenantId,
-            seq: 3,
-            occurred_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-            actor_id: claims.userId || 'usr-dr-omondi',
-            actor_role: 'writing_clinician',
-            action: 'CREATE_TARGET',
-            mutation_type: 'create',
-            resource_type: 'Target',
-            resource_id: 'tgt-sodium-2000',
-            subject_ref: 'pat-anon-8821',
-            reason: 'Stage 2 Hypertension clinical management protocol',
-            prev_hash: '9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b',
-            row_hash: '2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d',
-          },
-          {
-            event_id: 'e100-002',
-            tenant_id: claims.tenantId,
-            seq: 2,
-            occurred_at: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-            actor_id: 'usr-admin-mutua',
-            actor_role: 'tenant_admin',
-            action: 'VERIFY_CLINICIAN_LICENCE',
-            mutation_type: 'update',
-            resource_type: 'TenantMember',
-            resource_id: claims.userId || 'usr-dr-omondi',
-            reason: 'Annual KMPDC medical practitioner board validation',
-            prev_hash: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
-            row_hash: '9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b',
-          },
-          {
-            event_id: 'e100-003',
-            tenant_id: claims.tenantId,
-            seq: 1,
-            occurred_at: new Date(Date.now() - 1000 * 60 * 1440).toISOString(),
-            actor_id: 'usr-sys-genesis',
-            actor_role: 'super_admin',
-            action: 'ONBOARD_TENANT',
-            mutation_type: 'create',
-            resource_type: 'Tenant',
-            resource_id: claims.tenantId,
-            reason: 'Clinic tenant activation following subscription confirmation',
-            prev_hash: 'GENESIS',
-            row_hash: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
-          },
-        ]
-        setLogs(mockLogs)
-        setChainValid(true)
-      }
+      // TODO (Stage C): fetch from PostgREST /audit_log?tenant_id=eq.{tenantId}&order=seq.desc&limit=100
+      // Stub: returns empty list until REST layer is wired (B-01 — demo data removed).
+      setLogs([])
+      setChainValid(true)
     } catch {
       setChainValid(true)
     } finally {

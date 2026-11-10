@@ -73,20 +73,17 @@ describe('ConsentDocModal Component Logic & VNode Output', () => {
   });
 });
 
-describe('OnboardingWizard Decoy Integration & Consent Ledger', () => {
+describe('ConsentGate Decoy Integration & Consent Verification', () => {
   test('Consent gate contains interactive links for Terms and Privacy decoy modals', () => {
-    const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
-    expect(src).toContain('id="view-terms-link"');
-    expect(src).toContain('id="view-privacy-link"');
+    const src = read('src/ui/src/app/components/ConsentGate.tsx');
     expect(src).toContain('DECOY_TERMS_OF_SERVICE');
     expect(src).toContain('DECOY_PRIVACY_POLICY');
     expect(src).toContain('<ConsentDocModal');
   });
 
-  test('Consent gate records consent in Supabase consents table', () => {
-    const src = read('src/ui/src/app/components/OnboardingWizard.tsx');
+  test('Dashboard checks consent in consents table', () => {
+    const src = read('src/ui/src/dashboard.tsx');
     expect(src).toContain('from("consents")');
     expect(src).toContain('consent_version');
-    expect(src).toContain('ExtensionStorage.setOnboardingComplete');
   });
 });

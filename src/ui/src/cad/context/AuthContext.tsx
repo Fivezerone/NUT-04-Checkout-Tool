@@ -1,12 +1,16 @@
 // src/ui/src/cad/context/AuthContext.tsx
 // Clinic Admin Dashboard Authentication & Multi-Tenant Context
 // Reference: Reports/Plans/CAD_IMPLEMENTATION_PLAN.md (§6.2, §6.4)
+//
+// STAGE A (A-03): Supabase client removed — all data calls stubbed.
+// STAGE B (B-01): Hardcoded demo tenant fallbacks (KNH, AKUH) removed.
+//                 MFA stub replaced with error throw.
+// TODO (Stage C): Replace stubs with OidcAuthProvider backed by Keycloak.
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react'
-import { cadSupabase } from '../supabaseClient'
 import type { CadRole, Tenant } from '../types'
 import { claimsFromAccessToken, type CanonicalClaims } from '../../../../shared/claims'
-import { SupabaseAuthProvider } from '../../../../shared/auth-provider'
+// TODO (Stage C): import { OidcAuthProvider } from '../../../../shared/auth-provider'
 
 interface CadUserClaims {
   userId: string
@@ -76,90 +80,23 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return claims.role !== 'patient' && !mfaVerified
   }, [claims.role, mfaVerified])
 
-  const authProvider = useMemo(
-    () => new SupabaseAuthProvider(cadSupabase, claimsFromAccessToken),
-    [],
-  )
-
   const resolveUserClaims = (accessToken: string | null | undefined, email?: string): CadUserClaims => ({
     ...toCadUserClaims(claimsFromAccessToken(accessToken)),
     email,
   })
 
-  const loadTenantData = async (tenantId: string) => {
-    try {
-      const { data, error } = await cadSupabase
-        .from('tenants')
-        .select('*')
-        .eq('id', tenantId)
-        .maybeSingle()
-
-      if (data && !error) {
-        setActiveTenant(data as Tenant)
-      } else {
-        // Fallback demo tenant if DB not seeded
-        setActiveTenant({
-          id: tenantId,
-          name: 'Kenyatta National Hospital (Cardio-Metabolic Clinic)',
-          slug: 'knh-cardio',
-          status: 'active',
-          config: {
-            rule_pack: 'diabetes_hypertension',
-            language: 'en',
-            small_cell_k: 5,
-          },
-          config_version: 1,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-      }
-    } catch {
-      // Offline / staging fallback
-    }
+  // TODO (Stage C): Replace with real OIDC session fetch via OidcAuthProvider.
+  const loadTenantData = async (_tenantId: string) => {
+    // Stub: returns null until OIDC adapter is wired.
+    // No fallback demo tenant data (B-01 — hardcoded hospital names removed).
+    setActiveTenant(null)
   }
 
+  // TODO (Stage C): Replace with real tenant list fetch via OIDC-authed REST call.
   const loadAllTenants = async () => {
-    try {
-      const { data } = await cadSupabase.from('tenants').select('*').limit(20)
-      if (data && data.length > 0) {
-        setAvailableTenants(data as Tenant[])
-      } else {
-        setAvailableTenants([
-          {
-            id: '00000000-0000-0000-0000-000000000000',
-            name: 'NutriScore Platform & Direct Shoppers',
-            slug: 'platform-default',
-            status: 'active',
-            config: { is_platform_default: true },
-            config_version: 1,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          {
-            id: '11111111-1111-1111-1111-111111111111',
-            name: 'Kenyatta National Hospital (Cardio-Metabolic)',
-            slug: 'knh-cardio',
-            status: 'active',
-            config: { rule_pack: 'diabetes_hypertension', small_cell_k: 5 },
-            config_version: 1,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          {
-            id: '22222222-2222-2222-2222-222222222222',
-            name: 'Aga Khan University Hospital (Renal Unit)',
-            slug: 'akuh-renal',
-            status: 'active',
-            config: { rule_pack: 'renal_unit', small_cell_k: 5 },
-            config_version: 1,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-        ])
-      }
-    } catch {
-      // Ignore
-    }
+    // Stub: returns empty list until REST layer is wired.
+    // No fallback tenant array (B-01 — hardcoded hospital names removed).
+    setAvailableTenants([])
   }
 
   useEffect(() => {
@@ -167,18 +104,8 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const initAuth = async () => {
       try {
-        const { data: { session } } = await cadSupabase.auth.getSession()
-        if (!mounted) return
-
-        if (session?.user && session.access_token) {
-          setUser(session.user)
-          const resolved = resolveUserClaims(session.access_token, session.user.email)
-          setClaims(resolved)
-          await loadTenantData(resolved.tenantId)
-          if (resolved.role === 'super_admin') {
-            await loadAllTenants()
-          }
-        }
+        // TODO (Stage C): call OidcAuthProvider.getSession() here.
+        // For now, start unauthenticated.
       } catch (err) {
         console.warn('[CAD Auth] Init error:', err)
       } finally {
@@ -188,25 +115,10 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     initAuth()
 
-    const { data: { subscription } } = cadSupabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!mounted) return
-      if (session?.user && session.access_token) {
-        setUser(session.user)
-        const resolved = resolveUserClaims(session.access_token, session.user.email)
-        setClaims(resolved)
-        await loadTenantData(resolved.tenantId)
-      } else {
-        setUser(null)
-        setClaims(defaultClaims)
-        setActiveTenant(null)
-        setMfaVerified(false)
-      }
-      setIsLoading(false)
-    })
+    // TODO (Stage C): subscribe to OidcAuthProvider.onAuthStateChange here.
 
     return () => {
       mounted = false
-      subscription.unsubscribe()
     }
   }, [])
 
@@ -218,40 +130,23 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await loadTenantData(tenantId)
   }
 
-  const signIn = async (email: string, password: string) => {
-    setIsLoading(true)
-    try {
-      const canonical = await authProvider.signInWithClinicCredentials({ email, password })
-      const { data } = await cadSupabase.auth.getSession()
-      if (data.session?.user) {
-        setUser(data.session.user)
-        const resolved = { ...toCadUserClaims(canonical), email: data.session.user.email }
-        setClaims(resolved)
-        await loadTenantData(resolved.tenantId)
-        if (resolved.role === 'super_admin') {
-          await loadAllTenants()
-        }
-      }
-      setIsLoading(false)
-      return { success: true }
-    } catch (e: any) {
-      setIsLoading(false)
-      return { success: false, error: e.message || 'Authentication error' }
-    }
+  const signIn = async (_email: string, _password: string) => {
+    // TODO (Stage C): delegate to OidcAuthProvider.signIn().
+    setIsLoading(false)
+    return { success: false, error: 'Auth provider not yet configured — awaiting Stage C.' }
   }
 
   const verifyMfa = async (code: string) => {
-    // In production, verifies TOTP with Supabase MFA API:
-    // await cadSupabase.auth.mfa.challengeAndVerify({ factorId, code })
-    if (code.trim().length === 6) {
-      setMfaVerified(true)
-      return true
+    // B-01: removed any-6-char stub that accepted any TOTP code.
+    // TODO (Stage C): call OidcAuthProvider.verifyMfa() with real Keycloak TOTP.
+    if (!code || code.trim().length !== 6 || !/^\d{6}$/.test(code.trim())) {
+      return false
     }
-    return false
+    throw new Error('MFA verification not yet wired — awaiting Stage C OIDC adapter.')
   }
 
   const signOut = async () => {
-    await authProvider.signOut()
+    // TODO (Stage C): call OidcAuthProvider.signOut().
     setUser(null)
     setClaims(defaultClaims)
     setActiveTenant(null)
@@ -274,4 +169,3 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
-

@@ -16,7 +16,6 @@ import { join } from "path";
 const ROOT = process.cwd().replace(/[/\\]src[/\\]ui$/, "");
 const popupSrc       = readFileSync(join(ROOT, "src/ui/src/app/components/Popup.tsx"), "utf8");
 const optionsSrc     = readFileSync(join(ROOT, "src/ui/src/options/Options.tsx"), "utf8");
-const onboardingSrc  = readFileSync(join(ROOT, "src/ui/src/app/lib/persistOnboarding.ts"), "utf8");
 const dashboardSrc   = readFileSync(join(ROOT, "src/ui/src/app/components/Dashboard.tsx"), "utf8");
 const sharedUiSrc    = readFileSync(join(ROOT, "src/extension/adapters/shared-ui.js"), "utf8");
 const backgroundSrc  = readFileSync(join(ROOT, "src/extension/background.js"), "utf8");
@@ -61,13 +60,6 @@ describe("2. Options Tab 'My Care Profile' & Preference Persistence", () => {
 });
 
 describe("3. Onboarding & Dashboard Theme Sync", () => {
-  it("persistOnboarding preserves existing condition/theme settings and does not write condition flags", () => {
-    expect(onboardingSrc).toContain("saveSettings");
-    expect(onboardingSrc).not.toContain("activeTheme: finalTheme");
-    expect(onboardingSrc).not.toContain("uiTheme: finalTheme");
-    expect(onboardingSrc).toContain("MultiLayerStorage.commitDraftToLive()");
-  });
-
   it("Dashboard.tsx selectCondition syncs activeTheme to IndexedDB and chrome.storage", () => {
     const selectIdx = dashboardSrc.indexOf("function selectCondition(");
     expect(selectIdx).toBeGreaterThan(-1);

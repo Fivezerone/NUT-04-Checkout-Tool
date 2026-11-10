@@ -1,10 +1,13 @@
 // src/ui/src/cad/views/UserManagementView.tsx
 // Clinic Staff, Clinicians & Licence Management for Clinic Admin Dashboard
 // Reference: Reports/Plans/CAD_IMPLEMENTATION_PLAN.md (§6.1, §6.6), Phase 2 RBAC & Lifecycle
+//
+// STAGE A (A-03): cadSupabase removed; data fetch and mutations stubbed.
+// STAGE B (B-01): Demo clinic roster (knh.or.ke emails, KMPDC numbers) removed.
+// TODO (Stage C): Replace stubs with OIDC-authed REST calls via PostgREST + Edge Functions.
 
 import React, { useState, useEffect } from 'react'
 import { useCadAuth } from '../context/AuthContext'
-import { cadSupabase } from '../supabaseClient'
 import type { TenantMember, CadRole } from '../types'
 import { UserPlus, CheckCircle, AlertTriangle, UserX, Copy, Check } from 'lucide-react'
 import { PageHeader, StatusBadge } from '../components/Primitives'
@@ -63,60 +66,9 @@ export const UserManagementView: React.FC = () => {
   const loadMembers = async () => {
     setLoading(true)
     try {
-      const { data, error } = await cadSupabase
-        .from('tenant_members')
-        .select('*')
-        .eq('tenant_id', claims.tenantId)
-
-      if (data && !error && data.length > 0) {
-        setMembers(data as TenantMember[])
-      } else {
-        // Fallback demo clinic roster
-        setMembers([
-          {
-            tenant_id: claims.tenantId,
-            user_id: 'usr-dr-omondi',
-            email: 'dr.omondi@knh.or.ke',
-            role: 'writing_clinician',
-            licence_number: 'KMPDC/2019/48192',
-            licence_expiry: '2027-12-31',
-            licence_verified: true,
-            status: 'active',
-            created_at: new Date().toISOString(),
-          },
-          {
-            tenant_id: claims.tenantId,
-            user_id: 'usr-diet-wanjiku',
-            email: 'wanjiku.diet@knh.or.ke',
-            role: 'viewing_dietician',
-            licence_number: 'KNDI/2021/8120',
-            licence_expiry: '2026-11-30',
-            licence_verified: true,
-            status: 'active',
-            created_at: new Date().toISOString(),
-          },
-          {
-            tenant_id: claims.tenantId,
-            user_id: 'usr-admin-mutua',
-            email: 'mutua.admin@knh.or.ke',
-            role: 'tenant_admin',
-            licence_verified: false,
-            status: 'active',
-            created_at: new Date().toISOString(),
-          },
-          {
-            tenant_id: claims.tenantId,
-            user_id: 'usr-dr-kipchoge',
-            email: 'kipchoge.res@knh.or.ke',
-            role: 'writing_clinician',
-            licence_number: 'KMPDC/2024/99120',
-            licence_expiry: '2025-06-30',
-            licence_verified: false,
-            status: 'active',
-            created_at: new Date().toISOString(),
-          },
-        ])
-      }
+      // TODO (Stage C): GET /tenant_members?tenant_id=eq.{tenantId} via PostgREST.
+      // Stub: returns empty list (B-01 — demo roster with clinic-domain emails removed).
+      setMembers([])
     } catch {
       // Ignore
     } finally {
@@ -125,28 +77,8 @@ export const UserManagementView: React.FC = () => {
   }
 
   const toggleVerifyLicence = async (memberUserId: string, currentStatus: boolean) => {
-    try {
-      await cadSupabase
-        .from('tenant_members')
-        .update({ licence_verified: !currentStatus })
-        .eq('tenant_id', claims.tenantId)
-        .eq('user_id', memberUserId)
-
-      // Also record audit log event
-      await cadSupabase.from('audit_log').insert({
-        tenant_id: claims.tenantId,
-        actor_id: claims.userId || 'admin',
-        actor_role: claims.role,
-        action: !currentStatus ? 'VERIFY_CLINICIAN_LICENCE' : 'REVOKE_CLINICIAN_LICENCE',
-        mutation_type: 'update',
-        resource_type: 'TenantMember',
-        resource_id: memberUserId,
-        reason: 'Licence credentials verified against professional council registry',
-      })
-    } catch {
-      // Offline fallback
-    }
-
+    // TODO (Stage C): PATCH /tenant_members and POST /audit_log via PostgREST.
+    // Stub: optimistic local update only.
     setMembers((prev) =>
       prev.map((m) =>
         m.user_id === memberUserId ? { ...m, licence_verified: !currentStatus } : m
@@ -155,22 +87,8 @@ export const UserManagementView: React.FC = () => {
   }
 
   const handleStatusChange = async (memberUserId: string, _targetRole: CadRole, newStatus: 'active' | 'suspended' | 'deactivated') => {
-    try {
-      const { data, error } = await cadSupabase.functions.invoke('admin-provision-user', {
-        body: {
-          action: 'update_status',
-          userId: memberUserId,
-          tenantId: claims.tenantId,
-          status: newStatus,
-          reason: `Clinic Admin transitioned member to ${newStatus}`,
-        },
-      })
-
-      if (error || !data?.success) return
-    } catch {
-      return
-    }
-
+    // TODO (Stage C): POST /functions/v1/admin-provision-user via OIDC-authed fetch.
+    // Stub: optimistic local update only.
     setMembers((prev) =>
       prev.map((m) => (m.user_id === memberUserId ? { ...m, status: newStatus } : m))
     )
@@ -187,40 +105,9 @@ export const UserManagementView: React.FC = () => {
 
     setSubmitting(true)
     try {
-      const { data, error } = await cadSupabase.functions.invoke('admin-provision-user', {
-        body: {
-          action: 'create_user',
-          email: newEmail,
-          role: newRole,
-          tenantId: isPlatformAuditor ? undefined : selectedTenantId,
-          licenceNumber: newLicence || undefined,
-          partnerOrg: newRole === 'commercial_stakeholder' ? partnerOrg : undefined,
-          auditorScope: isPlatformAuditor ? 'platform' : undefined,
-          regulatorBody: isPlatformAuditor ? regulatorBody : undefined,
-          mandateRef: isPlatformAuditor ? mandateRef : undefined,
-        },
-      })
-
-      if (!error && data?.success) {
-        const newMember: TenantMember = {
-          tenant_id: selectedTenantId,
-          user_id: data.userId,
-          email: newEmail,
-          role: newRole,
-          licence_number: newLicence || undefined,
-          licence_verified: false,
-          status: 'active',
-          created_at: new Date().toISOString(),
-        }
-        setMembers((prev) => [newMember, ...prev])
-        setProvisionSuccess({
-          email: newEmail,
-          role: newRole,
-          password: data.temporaryPassword,
-        })
-      } else {
-        alert('Permission Denied')
-      }
+      // TODO (Stage C): POST /functions/v1/admin-provision-user via OIDC-authed fetch.
+      // Stub: no-op until Edge Function is wired.
+      alert('User provisioning is not yet available — awaiting Stage C OIDC adapter.')
     } catch {
       alert('Permission Denied')
     } finally {
@@ -454,7 +341,7 @@ export const UserManagementView: React.FC = () => {
                   <label className="ui-field-label">Medical or dietetic licence number</label>
                   <input
                     type="text"
-                    placeholder="KMPDC/2026/12345"
+                    placeholder="Reg-No/YYYY/NNNNN"
                     value={newLicence}
                     onChange={(e) => setNewLicence(e.target.value)}
                     className="ui-input mt-1"

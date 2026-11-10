@@ -35,7 +35,7 @@ export default [
   pluginJs.configs.recommended,
   pluginSecurity.configs.recommended,
   {
-    files: ['scripts/**/*.{js,mjs}'],
+    files: ['scripts/**/*.{js,mjs}', 'services/**/*.{js,mjs}'],
     languageOptions: {
       globals: {
         ...globals.node,

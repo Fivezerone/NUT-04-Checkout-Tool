@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Phase 10 regression tests — F-07, F-13, F-14
  *
  * F-07: CDN shard distribution & pack client verification.
@@ -26,8 +26,8 @@ import { buildPacks } from "../../../../../scripts/build-packs.mjs";
 import * as DeclarativeEngine from "../../../../../src/extension/adapters/declarative-engine.js";
 
 const ROOT = path.resolve(__dirname, "../../../../../");
-const MIGRATION_RETAILERS = path.join(ROOT, "supabase/migrations/20261011000003_retailers_multitenant.sql");
-const MIGRATION_TOKEN_BUCKET = path.join(ROOT, "supabase/migrations/20261011000004_token_bucket.sql");
+const MIGRATION_RETAILERS = path.join(ROOT, "db/migrations/0001_baseline.sql");
+const MIGRATION_TOKEN_BUCKET = path.join(ROOT, "db/migrations/0001_baseline.sql");
 
 describe("Phase 10: F-07 CDN Shard Packaging & Verification", () => {
   const tmpDir = path.join(ROOT, "tmp_test_packs");
