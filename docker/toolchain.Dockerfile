@@ -40,6 +40,8 @@ RUN groupadd --gid 1001 appgroup \
 
 RUN git config --system --add safe.directory '*'
 
+RUN mkdir -p /app && chown -R appuser:appgroup /app
+
 WORKDIR /app
 
 # ---------------------------------------------------------------------------

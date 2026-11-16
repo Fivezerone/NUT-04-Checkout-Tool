@@ -2,20 +2,25 @@
 // Clinician Health Mode Designer, Versioning & Nutrient Rules Engine
 // Reference: CAD-Only Identity & Onboarding Rollback (Phase 5)
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useCadAuth } from '../context/AuthContext'
 import {
   ShieldCheck,
   Plus,
   Trash2,
   CheckCircle,
-  AlertCircle,
   Archive,
   Copy,
   Sparkles,
   Layers,
   ChevronRight,
+  X,
 } from 'lucide-react'
+import { DataTable } from '../../app/components/ui/DataTable'
+import { Badge } from '../../app/components/ui/Badge'
+import { Button } from '../../app/components/ui/Button'
+import { Input } from '../../app/components/ui/Input'
+import { Select } from '../../app/components/ui/Select'
 
 export interface TrackedNutrient {
   code: string
@@ -100,124 +105,121 @@ export const HEALTH_MODE_PRESETS: Record<string, { name: string; description: st
         id: 'r-diab-4',
         nutrientCode: 'FibreG',
         comparator: 'gte',
-        threshold: 6.0,
+        threshold: 3.0,
         unit: 'g',
         basis: 'per_100g',
         severity: 'advisory',
-        clinicalRationale: 'Protective soluble fibre slows glucose absorption kinetics',
+        clinicalRationale: 'Fibre satiety enhancement slows carbohydrate absorption',
       },
     ],
   },
   hypertension: {
-    name: 'Essential Hypertension Care',
-    description: 'Vascular resistance reduction and strict sodium restriction',
+    name: 'Cardiovascular / Hypertension',
+    description: 'Stringent sodium ceiling and saturated fat restriction for blood pressure regulation',
     rules: [
       {
-        id: 'r-htn-1',
+        id: 'r-hyp-1',
         nutrientCode: 'SodiumMG',
         comparator: 'lte',
         threshold: 600.0,
         unit: 'mg',
         basis: 'per_100g',
         severity: 'critical',
-        clinicalRationale: 'WHO/MOH Kenya national salt reduction guidelines for hypertension management',
+        clinicalRationale: 'WHO & MOH Kenya sodium ceiling for cardiovascular risk reduction',
       },
       {
-        id: 'r-htn-2',
+        id: 'r-hyp-2',
         nutrientCode: 'SaturatedFatG',
         comparator: 'lte',
         threshold: 5.0,
         unit: 'g',
         basis: 'per_100g',
         severity: 'high',
-        clinicalRationale: 'Cardiovascular atherosclerotic risk mitigation',
+        clinicalRationale: 'Atherosclerotic plaque progression reduction per ESC guidelines',
       },
     ],
   },
   kidney: {
-    name: 'Chronic Kidney Disease (Stage 3 Renal)',
-    description: 'Electrolyte retention prevention and renal solute load moderation',
+    name: 'Chronic Kidney Disease (Non-Dialysis)',
+    description: 'Renal solute load management: sodium, potassium, and phosphorus control',
     rules: [
       {
-        id: 'r-ren-1',
+        id: 'r-ckd-1',
         nutrientCode: 'SodiumMG',
         comparator: 'lte',
-        threshold: 600.0,
+        threshold: 400.0,
         unit: 'mg',
         basis: 'per_100g',
         severity: 'critical',
-        clinicalRationale: 'Fluid overload and blood pressure management in renal insufficiency',
+        clinicalRationale: 'KDIGO 2024 renal blood pressure and fluid overload control',
       },
       {
-        id: 'r-ren-2',
+        id: 'r-ckd-2',
         nutrientCode: 'PotassiumMG',
         comparator: 'lte',
         threshold: 200.0,
         unit: 'mg',
         basis: 'per_100g',
-        severity: 'critical',
-        clinicalRationale: 'Hyperkalaemia prevention in impaired glomerular filtration',
+        severity: 'high',
+        clinicalRationale: 'Hyperkalaemia prevention in stage 3-4 chronic kidney disease',
       },
       {
-        id: 'r-ren-3',
+        id: 'r-ckd-3',
         nutrientCode: 'ProteinG',
         comparator: 'lte',
-        threshold: 15.0,
+        threshold: 12.0,
         unit: 'g',
         basis: 'per_100g',
         severity: 'warning',
-        clinicalRationale: 'Glomerular hyperfiltration reduction and nitrogenous waste management',
+        clinicalRationale: 'Glomerular hyperfiltration reduction in non-dialysis nephropathy',
       },
     ],
   },
   obesity: {
     name: 'Metabolic Weight Management',
-    description: 'Caloric density restriction and saturated fat control',
+    description: 'Caloric density restriction, free sugar suppression, and trans-fat elimination',
     rules: [
       {
-        id: 'r-obs-1',
+        id: 'r-obe-1',
         nutrientCode: 'EnergyKcal',
         comparator: 'lte',
-        threshold: 400.0,
+        threshold: 250.0,
         unit: 'kcal',
         basis: 'per_100g',
         severity: 'critical',
-        clinicalRationale: 'Energy density restriction to promote caloric deficit',
+        clinicalRationale: 'Hypocaloric diet adherence for sustainable metabolic deficit',
       },
       {
-        id: 'r-obs-2',
+        id: 'r-obe-2',
         nutrientCode: 'SugarsG',
         comparator: 'lte',
-        threshold: 22.5,
+        threshold: 10.0,
         unit: 'g',
         basis: 'per_100g',
         severity: 'high',
-        clinicalRationale: 'Avoidance of rapid insulin surges and adipogenesis',
+        clinicalRationale: 'Fructose/sucrose reduction to reduce visceral adiposity',
       },
       {
-        id: 'r-obs-3',
+        id: 'r-obe-3',
         nutrientCode: 'SaturatedFatG',
         comparator: 'lte',
-        threshold: 5.0,
+        threshold: 3.5,
         unit: 'g',
         basis: 'per_100g',
-        severity: 'warning',
-        clinicalRationale: 'Lipid profile optimization and non-alcoholic fatty liver mitigation',
+        severity: 'high',
+        clinicalRationale: 'Hepatic steatosis risk minimization',
       },
     ],
   },
 }
 
 export const HealthModesView: React.FC = () => {
-  const { claims, activeTenant } = useCadAuth()
-  const isClinician =
-    claims.role === 'writing_clinician' ||
-    claims.role === 'tenant_admin' ||
-    claims.role === 'super_admin'
+  const { claims } = useCadAuth()
+  const isClinician = claims.role === 'writing_clinician' || claims.role === 'super_admin'
 
   const [modes, setModes] = useState<HealthMode[]>([
     {
-      id: 'hm-diab-v1',
+      id: 'hm-1',
       tenantId: claims.tenantId,
       code: 'diabetes',
       name: HEALTH_MODE_PRESETS.diabetes.name,
@@ -225,10 +227,10 @@ export const HealthModesView: React.FC = () => {
       status: 'active',
       description: HEALTH_MODE_PRESETS.diabetes.description,
       rules: HEALTH_MODE_PRESETS.diabetes.rules,
-      updatedAt: '2026-10-20T10:00:00Z',
+      updatedAt: new Date().toISOString(),
     },
     {
-      id: 'hm-htn-v1',
+      id: 'hm-2',
       tenantId: claims.tenantId,
       code: 'hypertension',
       name: HEALTH_MODE_PRESETS.hypertension.name,
@@ -236,10 +238,10 @@ export const HealthModesView: React.FC = () => {
       status: 'active',
       description: HEALTH_MODE_PRESETS.hypertension.description,
       rules: HEALTH_MODE_PRESETS.hypertension.rules,
-      updatedAt: '2026-10-22T14:30:00Z',
+      updatedAt: new Date().toISOString(),
     },
     {
-      id: 'hm-renal-v1',
+      id: 'hm-3',
       tenantId: claims.tenantId,
       code: 'kidney',
       name: HEALTH_MODE_PRESETS.kidney.name,
@@ -247,26 +249,50 @@ export const HealthModesView: React.FC = () => {
       status: 'active',
       description: HEALTH_MODE_PRESETS.kidney.description,
       rules: HEALTH_MODE_PRESETS.kidney.rules,
-      updatedAt: '2026-10-24T09:15:00Z',
+      updatedAt: new Date().toISOString(),
     },
   ])
 
-  const [selectedModeId, setSelectedModeId] = useState<string>(modes[0]?.id || '')
+  const [selectedModeId, setSelectedModeId] = useState<string>('hm-1')
+  const activeMode = modes.find((m) => m.id === selectedModeId) || modes[0]
+
   const [showAddModal, setShowAddModal] = useState<boolean>(false)
+  const addModalRef = useRef<HTMLDialogElement>(null)
+
+  const [selectedPreset, setSelectedPreset] = useState<string>('none')
   const [newModeCode, setNewModeCode] = useState<string>('')
   const [newModeName, setNewModeName] = useState<string>('')
   const [newModeDesc, setNewModeDesc] = useState<string>('')
-  const [selectedPreset, setSelectedPreset] = useState<string>('none')
 
-  // Rule editor state
   const [showAddRule, setShowAddRule] = useState<boolean>(false)
-  const [ruleNutrient, setRuleNutrient] = useState<string>('SugarsG')
+  const addRuleModalRef = useRef<HTMLDialogElement>(null)
+
+  const [ruleNutrient, setRuleNutrient] = useState<string>('SodiumMG')
   const [ruleComparator, setRuleComparator] = useState<'lte' | 'lt' | 'gte' | 'gt' | 'eq'>('lte')
-  const [ruleThreshold, setRuleThreshold] = useState<number>(20)
-  const [ruleSeverity, setRuleSeverity] = useState<'advisory' | 'warning' | 'high' | 'critical'>('warning')
+  const [ruleThreshold, setRuleThreshold] = useState<number>(600)
+  const [ruleSeverity, setRuleSeverity] = useState<'advisory' | 'warning' | 'high' | 'critical'>('critical')
   const [ruleRationale, setRuleRationale] = useState<string>('')
 
-  const activeMode = modes.find((m) => m.id === selectedModeId) || modes[0]
+  // Control dialogs
+  useEffect(() => {
+    const d = addModalRef.current
+    if (!d) return
+    if (showAddModal) {
+      if (!d.open) d.showModal()
+    } else {
+      if (d.open) d.close()
+    }
+  }, [showAddModal])
+
+  useEffect(() => {
+    const d = addRuleModalRef.current
+    if (!d) return
+    if (showAddRule) {
+      if (!d.open) d.showModal()
+    } else {
+      if (d.open) d.close()
+    }
+  }, [showAddRule])
 
   const handleApplyPreset = (presetKey: string) => {
     setSelectedPreset(presetKey)
@@ -282,27 +308,24 @@ export const HealthModesView: React.FC = () => {
     e.preventDefault()
     if (!newModeCode || !newModeName) return
 
-    let initialRules: HealthModeRule[] = []
-    if (selectedPreset !== 'none' && HEALTH_MODE_PRESETS[selectedPreset]) {
-      initialRules = HEALTH_MODE_PRESETS[selectedPreset].rules.map((r) => ({
-        ...r,
-        id: 'r-' + Math.random().toString(36).slice(2, 8),
-      }))
-    }
+    const initialRules =
+      selectedPreset !== 'none' && HEALTH_MODE_PRESETS[selectedPreset]
+        ? HEALTH_MODE_PRESETS[selectedPreset].rules
+        : []
 
     const newMode: HealthMode = {
-      id: 'hm-' + Math.random().toString(36).slice(2, 9),
+      id: `hm-${Date.now().toString(36)}`,
       tenantId: claims.tenantId,
-      code: newModeCode.toLowerCase().replace(/[^a-z0-9_-]/g, '_'),
-      name: newModeName,
+      code: newModeCode.toLowerCase().trim().replace(/\s+/g, '_'),
+      name: newModeName.trim(),
       version: 1,
       status: 'active',
-      description: newModeDesc,
+      description: newModeDesc.trim(),
       rules: initialRules,
       updatedAt: new Date().toISOString(),
     }
 
-    setModes([newMode, ...modes])
+    setModes((prev) => [newMode, ...prev])
     setSelectedModeId(newMode.id)
     setShowAddModal(false)
     setNewModeCode('')
@@ -311,20 +334,50 @@ export const HealthModesView: React.FC = () => {
     setSelectedPreset('none')
   }
 
+  const handleVersionBump = () => {
+    if (!activeMode) return
+    setModes((prev) =>
+      prev.map((m) =>
+        m.id === activeMode.id
+          ? {
+              ...m,
+              version: m.version + 1,
+              updatedAt: new Date().toISOString(),
+            }
+          : m,
+      ),
+    )
+  }
+
+  const handleRetireMode = () => {
+    if (!activeMode) return
+    setModes((prev) =>
+      prev.map((m) =>
+        m.id === activeMode.id
+          ? {
+              ...m,
+              status: 'retired',
+              updatedAt: new Date().toISOString(),
+            }
+          : m,
+      ),
+    )
+  }
+
   const handleAddRule = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!ruleRationale || !activeMode) return
+    if (!activeMode || !ruleRationale) return
 
     const nutrientMeta = TRACKED_NUTRIENTS.find((n) => n.code === ruleNutrient)
     const newRule: HealthModeRule = {
-      id: 'r-' + Math.random().toString(36).slice(2, 8),
+      id: `r-${Date.now().toString(36)}`,
       nutrientCode: ruleNutrient,
       comparator: ruleComparator,
-      threshold: Number(ruleThreshold),
+      threshold: ruleThreshold,
       unit: nutrientMeta?.unit || 'g',
       basis: 'per_100g',
       severity: ruleSeverity,
-      clinicalRationale: ruleRationale,
+      clinicalRationale: ruleRationale.trim(),
     }
 
     setModes((prev) =>
@@ -335,12 +388,13 @@ export const HealthModesView: React.FC = () => {
               rules: [...m.rules, newRule],
               updatedAt: new Date().toISOString(),
             }
-          : m
-      )
+          : m,
+      ),
     )
 
     setShowAddRule(false)
     setRuleRationale('')
+    setRuleThreshold(600)
   }
 
   const handleDeleteRule = (ruleId: string) => {
@@ -353,251 +407,222 @@ export const HealthModesView: React.FC = () => {
               rules: m.rules.filter((r) => r.id !== ruleId),
               updatedAt: new Date().toISOString(),
             }
-          : m
-      )
-    )
-  }
-
-  const handleVersionBump = () => {
-    if (!activeMode) return
-    const nextVersion = activeMode.version + 1
-    const clonedMode: HealthMode = {
-      ...activeMode,
-      id: `hm-${activeMode.code}-v${nextVersion}`,
-      version: nextVersion,
-      status: 'active',
-      updatedAt: new Date().toISOString(),
-    }
-
-    setModes((prev) => [
-      clonedMode,
-      ...prev.map((m) => (m.id === activeMode.id ? { ...m, status: 'retired' as const } : m)),
-    ])
-    setSelectedModeId(clonedMode.id)
-  }
-
-  const handleRetireMode = () => {
-    if (!activeMode) return
-    setModes((prev) =>
-      prev.map((m) => (m.id === activeMode.id ? { ...m, status: 'retired' } : m))
+          : m,
+      ),
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-control/20 pb-4">
         <div>
-          <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
-            <Layers className="w-5 h-5 text-emerald-600" />
-            <span>Clinician Health Modes & Nutrient Rules Engine</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Clinic: <strong>{activeTenant?.name || claims.tenantId}</strong> &middot; Clinicians define, version, and assign dietary rule suites.
+          <div className="flex items-center gap-2">
+            <span className="ui-eyebrow text-strong font-bold">Clinical Nutrition Rules</span>
+            <span className="text-[12px] px-2 py-0.5 rounded-full font-mono bg-surface-raised border border-border-control text-strong">
+              W3C DTCG
+            </span>
+          </div>
+          <h1 className="text-[20px] font-bold text-strong mt-1">Health Mode Designer & Rules Engine</h1>
+          <p className="text-[12px] text-muted max-w-2xl mt-0.5">
+            Configure disease-specific nutrient threshold profiles. Rules calibrate real-time alerts
+            and smart swap recommendations.
           </p>
         </div>
 
         {isClinician && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Health Mode</span>
-          </button>
+          <Button variant="primary" onClick={() => setShowAddModal(true)}>
+            <Plus size={16} /> Create Mode
+          </Button>
         )}
       </div>
 
-      {/* Main Layout: Mode List on Left, Active Rule Suite on Right */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left Column: Mode Selector */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
-          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-            Clinic Health Modes ({modes.length})
-          </h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+        {/* Left Column: Mode Selector Cards */}
+        <div className="bg-surface rounded-2xl border border-border-control/20 p-4 shadow-xs flex flex-col gap-3">
+          <div className="flex items-center justify-between pb-2 border-b border-border-control/10">
+            <h2 className="text-[12px] font-bold text-strong uppercase tracking-wider">
+              Health Modes ({modes.length})
+            </h2>
+            <span className="text-[12px] text-muted">Clinic Tenant</span>
+          </div>
 
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {modes.map((mode) => (
               <button
                 key={mode.id}
+                type="button"
                 onClick={() => setSelectedModeId(mode.id)}
-                className={`w-full text-left p-3 rounded-lg border text-xs transition-colors flex items-center justify-between ${
-                  mode.id === selectedModeId
-                    ? 'border-emerald-600 bg-emerald-50/60 shadow-xs'
-                    : 'border-slate-200 hover:bg-slate-50'
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                  selectedModeId === mode.id
+                    ? 'border-brand-mint bg-surface-raised shadow-xs'
+                    : 'border-border-control/20 hover:bg-surface-raised/50'
                 }`}
               >
-                <div className="space-y-0.5">
-                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <span>{mode.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.2 bg-slate-200 text-slate-700 rounded font-mono">
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-strong text-[12px]">{mode.name}</span>
+                    <span className="text-[12px] font-mono font-bold bg-surface px-1.5 py-0.5 rounded border border-border-control text-muted">
                       v{mode.version}
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-500 line-clamp-1">{mode.description}</div>
-                  <div className="text-[10px] text-slate-400">
-                    {mode.rules.length} rule(s) &middot; Status:{' '}
+                  <div className="flex items-center gap-2 text-[12px] text-muted">
+                    <span>{mode.rules.length} rules</span>
+                    <span>&middot;</span>
                     <span
                       className={`capitalize font-semibold ${
-                        mode.status === 'active' ? 'text-emerald-700' : 'text-slate-500'
+                        mode.status === 'active' ? 'text-status-success' : 'text-muted'
                       }`}
                     >
                       {mode.status}
                     </span>
                   </div>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                <ChevronRight size={16} className="text-muted shrink-0" />
               </button>
             ))}
           </div>
         </div>
 
         {/* Right Column: Active Mode Detail & Rule Builder */}
-        <div className="md:col-span-2 space-y-4">
+        <div className="md:col-span-2 flex flex-col gap-4">
           {activeMode && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-5">
+            <div className="bg-surface rounded-2xl border border-border-control/20 shadow-xs p-5 flex flex-col gap-5">
               {/* Mode Meta Bar */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border-control/10 pb-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-slate-900">{activeMode.name}</h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-emerald-100 text-emerald-800 font-bold">
+                    <h3 className="text-[16px] font-bold text-strong">{activeMode.name}</h3>
+                    <span className="text-[12px] px-2 py-0.5 rounded-full font-mono bg-surface-raised border border-border-control text-strong font-bold">
                       Version {activeMode.version}
                     </span>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full capitalize font-semibold ${
-                        activeMode.status === 'active'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
+                    <Badge variant={activeMode.status === 'active' ? 'success' : 'neutral'}>
                       {activeMode.status}
-                    </span>
+                    </Badge>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">{activeMode.description}</p>
+                  <p className="text-[12px] text-muted mt-1">{activeMode.description}</p>
                 </div>
 
                 {isClinician && activeMode.status === 'active' && (
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleVersionBump}
-                      title="Bump to next version"
-                      className="px-3 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Bump Version</span>
-                    </button>
-                    <button
-                      onClick={handleRetireMode}
-                      title="Retire this mode"
-                      className="px-3 py-1.5 border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-semibold flex items-center gap-1"
-                    >
-                      <Archive className="w-3.5 h-3.5" />
-                      <span>Retire</span>
-                    </button>
+                    <Button size="sm" variant="secondary" onClick={handleVersionBump} title="Bump to next version">
+                      <Copy size={14} /> Bump Version
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={handleRetireMode} title="Retire this mode">
+                      <Archive size={14} /> Retire
+                    </Button>
                   </div>
                 )}
               </div>
 
-              {/* Rules List */}
+              {/* Rules DataTable */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  <h4 className="text-[12px] font-bold text-strong uppercase tracking-wider">
                     Nutrient Threshold Rules ({activeMode.rules.length})
                   </h4>
                   {isClinician && activeMode.status === 'active' && (
-                    <button
-                      onClick={() => setShowAddRule(true)}
-                      className="text-xs text-emerald-600 hover:text-emerald-800 font-semibold flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add Nutrient Rule</span>
-                    </button>
+                    <Button size="sm" variant="primary" onClick={() => setShowAddRule(true)}>
+                      <Plus size={14} /> Add Nutrient Rule
+                    </Button>
                   )}
                 </div>
 
-                <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
-                  <table className="min-w-full divide-y divide-slate-200">
-                    <thead className="bg-slate-50 text-slate-600 font-semibold">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Nutrient</th>
-                        <th className="px-3 py-2 text-left">Coverage</th>
-                        <th className="px-3 py-2 text-left">Constraint</th>
-                        <th className="px-3 py-2 text-left">Severity</th>
-                        <th className="px-3 py-2 text-left">Clinical Rationale</th>
-                        {isClinician && activeMode.status === 'active' && (
-                          <th className="px-3 py-2 text-right">Action</th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-700">
-                      {activeMode.rules.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-3 py-6 text-center text-slate-400">
-                            No nutrient rules defined in this mode yet.
-                          </td>
-                        </tr>
-                      ) : (
-                        activeMode.rules.map((rule) => {
-                          const nutrientMeta = TRACKED_NUTRIENTS.find((n) => n.code === rule.nutrientCode)
-                          const coverage = nutrientMeta?.catalogCoveragePct ?? 0
-
-                          return (
-                            <tr key={rule.id} className="hover:bg-slate-50">
-                              <td className="px-3 py-2 font-semibold text-slate-900">
-                                <div>{nutrientMeta?.name || rule.nutrientCode}</div>
-                                <div className="text-[10px] text-slate-400 font-mono">{rule.nutrientCode}</div>
-                              </td>
-                              <td className="px-3 py-2">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                    coverage >= 90
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : coverage >= 60
-                                      ? 'bg-amber-100 text-amber-800'
-                                      : 'bg-rose-100 text-rose-800'
-                                  }`}
-                                >
-                                  {coverage}% catalog
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 font-mono font-bold text-slate-900">
-                                {rule.comparator.toUpperCase()} {rule.threshold} {rule.unit} / {rule.basis.replace('_', ' ')}
-                              </td>
-                              <td className="px-3 py-2">
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                                    rule.severity === 'critical'
-                                      ? 'bg-red-100 text-red-800'
-                                      : rule.severity === 'high'
-                                      ? 'bg-amber-100 text-amber-800'
-                                      : 'bg-blue-100 text-blue-800'
-                                  }`}
-                                >
-                                  {rule.severity}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 min-w-[180px] break-words text-wrap text-slate-600" title={rule.clinicalRationale}>
-                                {rule.clinicalRationale}
-                              </td>
-                              {isClinician && activeMode.status === 'active' && (
-                                <td className="px-3 py-2 text-right">
-                                  <button
-                                    onClick={() => handleDeleteRule(rule.id)}
-                                    className="text-slate-400 hover:text-rose-600 transition-colors"
-                                    title="Delete rule"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              )}
-                            </tr>
-                          )
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<HealthModeRule>
+                  columns={[
+                    {
+                      id: 'nutrient',
+                      header: 'Nutrient',
+                      accessor: (r) => {
+                        const meta = TRACKED_NUTRIENTS.find((n) => n.code === r.nutrientCode)
+                        return meta?.name || r.nutrientCode
+                      },
+                      cell: (v, r) => (
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-strong">{v}</span>
+                          <span className="font-mono text-[12px] text-muted">{r.nutrientCode}</span>
+                        </div>
+                      ),
+                      sortable: true,
+                      priority: 1,
+                      kind: 'text',
+                    },
+                    {
+                      id: 'rationale',
+                      header: 'Clinical Rationale & Evidence',
+                      accessor: (r) => r.clinicalRationale,
+                      cell: (v) => <span className="text-foreground break-words leading-relaxed">{v || '—'}</span>,
+                      priority: 1,
+                      kind: 'text',
+                    },
+                    {
+                      id: 'coverage',
+                      header: 'Catalog Coverage',
+                      accessor: (r) => {
+                        const meta = TRACKED_NUTRIENTS.find((n) => n.code === r.nutrientCode)
+                        return meta?.catalogCoveragePct ?? 0
+                      },
+                      cell: (cov) => (
+                        <Badge variant={cov >= 90 ? 'success' : cov >= 60 ? 'warning' : 'critical'}>
+                          {cov}% coverage
+                        </Badge>
+                      ),
+                      sortable: true,
+                      priority: 2,
+                      kind: 'number',
+                    },
+                    {
+                      id: 'constraint',
+                      header: 'Constraint',
+                      accessor: (r) => `${r.comparator} ${r.threshold} ${r.unit}`,
+                      cell: (_v, r) => (
+                        <span className="font-mono font-bold text-strong">
+                          {r.comparator.toUpperCase()} {r.threshold} {r.unit} / {r.basis.replace('_', ' ')}
+                        </span>
+                      ),
+                      priority: 2,
+                      kind: 'text',
+                    },
+                    {
+                      id: 'severity',
+                      header: 'Severity',
+                      accessor: (r) => r.severity,
+                      cell: (v) => (
+                        <Badge
+                          variant={v === 'critical' ? 'critical' : v === 'high' ? 'warning' : 'info'}
+                        >
+                          {v}
+                        </Badge>
+                      ),
+                      sortable: true,
+                      priority: 2,
+                      kind: 'status',
+                    },
+                    {
+                      id: 'actions',
+                      header: '',
+                      accessor: (r) => r.id,
+                      cell: (id) =>
+                        isClinician && activeMode.status === 'active' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRule(id)}
+                            className="p-1 rounded text-muted hover:text-status-critical cursor-pointer"
+                            title="Delete rule"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        ) : null,
+                      priority: 1,
+                      kind: 'actions',
+                    },
+                  ]}
+                  data={activeMode.rules}
+                  keyExtractor={(r) => r.id}
+                  emptyTitle="No nutrient rules defined in this mode yet"
+                  emptyDescription="Click 'Add Nutrient Rule' above to establish threshold limits for this mode."
+                  caption="Nutrient threshold limits and clinical indications"
+                />
               </div>
             </div>
           )}
@@ -605,184 +630,169 @@ export const HealthModesView: React.FC = () => {
       </div>
 
       {/* Add Mode Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-slate-900">Create Clinical Health Mode</h3>
-            <form onSubmit={handleCreateMode} className="space-y-4 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Preset Template</label>
-                <select
-                  value={selectedPreset}
-                  onChange={(e) => handleApplyPreset(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
-                >
-                  <option value="none">Custom Blank Mode</option>
-                  <option value="diabetes">Diabetes (Sugars, Carbs, Calories, Fibre)</option>
-                  <option value="hypertension">Hypertension (Sodium, Sat Fat)</option>
-                  <option value="kidney">Kidney Disease (Sodium, Potassium, Protein)</option>
-                  <option value="obesity">Obesity (Calories, Sugars, Sat Fat)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Mode Code (Identifier)</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. cardio_metabolic"
-                  value={newModeCode}
-                  onChange={(e) => setNewModeCode(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Display Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Cardio-Metabolic Protocol"
-                  value={newModeName}
-                  onChange={(e) => setNewModeName(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Clinical Objective / Description</label>
-                <textarea
-                  rows={2}
-                  placeholder="Clinical objectives and patient cohort suitability..."
-                  value={newModeDesc}
-                  onChange={(e) => setNewModeDesc(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 text-xs font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm"
-                >
-                  Create Mode
-                </button>
-              </div>
-            </form>
-          </div>
+      <dialog
+        ref={addModalRef}
+        onClose={() => setShowAddModal(false)}
+        className="backdrop:bg-black/50 backdrop:backdrop-blur-xs rounded-2xl bg-surface border border-border-control p-6 max-w-md w-full text-foreground shadow-xl m-auto"
+      >
+        <div className="flex items-center justify-between pb-3 border-b border-border-control/20">
+          <h3 className="text-[16px] font-bold text-strong">Create Clinical Health Mode</h3>
+          <button
+            type="button"
+            onClick={() => setShowAddModal(false)}
+            aria-label="Close dialog"
+            className="p-1 rounded-lg text-muted hover:text-strong cursor-pointer"
+          >
+            <X size={18} />
+          </button>
         </div>
-      )}
 
-      {/* Add Rule Modal with Nutrient Picker & Catalog Coverage */}
-      {showAddRule && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-slate-900">Add Nutrient Rule</h3>
-            <p className="text-xs text-slate-500">
-              Select a tracked nutrient and calibrate its threshold based on clinical evidence.
-            </p>
+        <form onSubmit={handleCreateMode} className="mt-4 flex flex-col gap-4 text-xs">
+          <Select
+            label="Preset Template"
+            value={selectedPreset}
+            onChange={(e) => handleApplyPreset(e.target.value)}
+          >
+            <option value="none">Custom Blank Mode</option>
+            <option value="diabetes">Diabetes (Sugars, Carbs, Calories, Fibre)</option>
+            <option value="hypertension">Hypertension (Sodium, Sat Fat)</option>
+            <option value="kidney">Kidney Disease (Sodium, Potassium, Protein)</option>
+            <option value="obesity">Obesity (Calories, Sugars, Sat Fat)</option>
+          </Select>
 
-            <form onSubmit={handleAddRule} className="space-y-4 text-sm">
-              {/* Nutrient Picker with Coverage */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tracked Nutrient (Catalog Coverage)
-                </label>
-                <select
-                  value={ruleNutrient}
-                  onChange={(e) => setRuleNutrient(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
-                >
-                  {TRACKED_NUTRIENTS.map((n) => (
-                    <option key={n.code} value={n.code}>
-                      {n.name} ({n.code}) &middot; {n.catalogCoveragePct}% catalog coverage [{n.unit}]
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <Input
+            label="Mode Code (Identifier)"
+            type="text"
+            required
+            placeholder="e.g. cardio_metabolic"
+            value={newModeCode}
+            onChange={(e) => setNewModeCode(e.target.value)}
+          />
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700">Comparator</label>
-                  <select
-                    value={ruleComparator}
-                    onChange={(e) => setRuleComparator(e.target.value as any)}
-                    className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
-                  >
-                    <option value="lte">&le; (Less than or equal - Max limit)</option>
-                    <option value="lt">&lt; (Strictly less than)</option>
-                    <option value="gte">&ge; (Greater than or equal - Min target)</option>
-                    <option value="gt">&gt; (Strictly greater than)</option>
-                  </select>
-                </div>
+          <Input
+            label="Display Name"
+            type="text"
+            required
+            placeholder="e.g. Cardio-Metabolic Protocol"
+            value={newModeName}
+            onChange={(e) => setNewModeName(e.target.value)}
+          />
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700">
-                    Threshold Value ({TRACKED_NUTRIENTS.find((n) => n.code === ruleNutrient)?.unit || 'g'} / 100g)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    required
-                    value={ruleThreshold}
-                    onChange={(e) => setRuleThreshold(parseFloat(e.target.value))}
-                    className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Alert Severity</label>
-                <select
-                  value={ruleSeverity}
-                  onChange={(e) => setRuleSeverity(e.target.value as any)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
-                >
-                  <option value="critical">Critical (Hard warning on card & flyout)</option>
-                  <option value="high">High (Elevated warning)</option>
-                  <option value="warning">Warning (Standard threshold breach)</option>
-                  <option value="advisory">Advisory (Informational recommendation)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Clinical Rationale & Evidence</label>
-                <textarea
-                  rows={2}
-                  required
-                  placeholder="e.g. MOH Kenya salt reduction guidelines for hypertension management"
-                  value={ruleRationale}
-                  onChange={(e) => setRuleRationale(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddRule(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 text-xs font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm"
-                >
-                  Add Rule
-                </button>
-              </div>
-            </form>
+          <div className="flex flex-col gap-1">
+            <label className="text-[12px] font-medium text-strong">
+              Clinical Objective / Description
+            </label>
+            <textarea
+              rows={2}
+              placeholder="Clinical objectives and patient cohort suitability..."
+              value={newModeDesc}
+              onChange={(e) => setNewModeDesc(e.target.value)}
+              className="p-3 bg-surface text-foreground text-[12px] rounded-xl border border-border-control outline-none focus-visible:ring-2 focus-visible:ring-focus leading-relaxed"
+            />
           </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-border-control/20">
+            <Button type="button" variant="secondary" onClick={() => setShowAddModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Create Mode
+            </Button>
+          </div>
+        </form>
+      </dialog>
+
+      {/* Add Rule Modal */}
+      <dialog
+        ref={addRuleModalRef}
+        onClose={() => setShowAddRule(false)}
+        className="backdrop:bg-black/50 backdrop:backdrop-blur-xs rounded-2xl bg-surface border border-border-control p-6 max-w-lg w-full text-foreground shadow-xl m-auto"
+      >
+        <div className="flex items-center justify-between pb-3 border-b border-border-control/20">
+          <h3 className="text-[16px] font-bold text-strong">Add Nutrient Rule</h3>
+          <button
+            type="button"
+            onClick={() => setShowAddRule(false)}
+            aria-label="Close dialog"
+            className="p-1 rounded-lg text-muted hover:text-strong cursor-pointer"
+          >
+            <X size={18} />
+          </button>
         </div>
-      )}
+
+        <p className="mt-2 text-[12px] text-muted">
+          Select a tracked nutrient and calibrate its threshold based on clinical evidence.
+        </p>
+
+        <form onSubmit={handleAddRule} className="mt-4 flex flex-col gap-4 text-xs">
+          <Select
+            label="Tracked Nutrient (Catalog Coverage)"
+            value={ruleNutrient}
+            onChange={(e) => setRuleNutrient(e.target.value)}
+          >
+            {TRACKED_NUTRIENTS.map((n) => (
+              <option key={n.code} value={n.code}>
+                {n.name} ({n.code}) &middot; {n.catalogCoveragePct}% catalog coverage [{n.unit}]
+              </option>
+            ))}
+          </Select>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Select
+              label="Comparator"
+              value={ruleComparator}
+              onChange={(e) => setRuleComparator(e.target.value as any)}
+            >
+              <option value="lte">≤ (Less than or equal - Max limit)</option>
+              <option value="lt">&lt; (Strictly less than)</option>
+              <option value="gte">≥ (Greater than or equal - Min target)</option>
+              <option value="gt">&gt; (Strictly greater than)</option>
+            </Select>
+
+            <Input
+              label={`Threshold (${TRACKED_NUTRIENTS.find((n) => n.code === ruleNutrient)?.unit || 'g'} / 100g)`}
+              type="number"
+              step="0.1"
+              required
+              value={ruleThreshold}
+              onChange={(e) => setRuleThreshold(parseFloat(e.target.value))}
+            />
+          </div>
+
+          <Select
+            label="Alert Severity"
+            value={ruleSeverity}
+            onChange={(e) => setRuleSeverity(e.target.value as any)}
+          >
+            <option value="critical">Critical (Hard warning on card & flyout)</option>
+            <option value="high">High (Elevated warning)</option>
+            <option value="warning">Warning (Standard threshold breach)</option>
+            <option value="advisory">Advisory (Informational recommendation)</option>
+          </Select>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[12px] font-medium text-strong">Clinical Rationale & Evidence</label>
+            <textarea
+              rows={2}
+              required
+              placeholder="e.g. MOH Kenya salt reduction guidelines for hypertension management"
+              value={ruleRationale}
+              onChange={(e) => setRuleRationale(e.target.value)}
+              className="p-3 bg-surface text-foreground text-[12px] rounded-xl border border-border-control outline-none focus-visible:ring-2 focus-visible:ring-focus leading-relaxed"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-border-control/20">
+            <Button type="button" variant="secondary" onClick={() => setShowAddRule(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Add Rule
+            </Button>
+          </div>
+        </form>
+      </dialog>
     </div>
   )
 }
+export default HealthModesView

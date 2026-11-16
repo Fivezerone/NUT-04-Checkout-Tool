@@ -1,10 +1,28 @@
+import React, { useState } from 'react'
 import type { ComponentType } from 'react'
-import { Activity, Building2, CreditCard, FileText, HeartPulse, Link2, Settings, ShieldCheck, UserCheck, X } from 'lucide-react'
+import {
+  Activity,
+  Building2,
+  CreditCard,
+  FileText,
+  HeartPulse,
+  Link2,
+  Settings,
+  ShieldCheck,
+  UserCheck,
+  ChevronDown,
+  ChevronRight,
+  X,
+} from 'lucide-react'
 import type { CadRole } from '../types'
 import { getCadNavigationIds, type CadNavigationId } from '../navigation'
 
 type NavIcon = ComponentType<{ className?: string; size?: number }>
-export interface CadNavigationItem { id: string; label: string; icon: NavIcon }
+export interface CadNavigationItem {
+  id: CadNavigationId
+  label: string
+  icon: NavIcon
+}
 
 const ALL_ITEMS: Record<CadNavigationId, CadNavigationItem> = {
   overview: { id: 'overview', label: 'Overview', icon: Activity },
@@ -18,19 +36,133 @@ const ALL_ITEMS: Record<CadNavigationId, CadNavigationItem> = {
   platform: { id: 'platform', label: 'Platform tenants', icon: Building2 },
 }
 
-export function SidebarNavigation({ role, currentTab, setCurrentTab, open, onClose }: { role: CadRole; currentTab: string; setCurrentTab: (tab: string) => void; open: boolean; onClose: () => void }) {
-  return <>
-    {open ? <button className="cad-nav-scrim" onClick={onClose} aria-label="Close navigation" /> : null}
-    <aside className={`cad-rail ${open ? 'cad-rail-open' : ''}`} aria-label="Primary navigation">
-      <div className="cad-rail-heading"><span className="ui-eyebrow">Workspace</span><button className="ui-icon-button lg:hidden" onClick={onClose} aria-label="Close navigation"><X size={20} /></button></div>
-      <nav className="cad-nav-list">
-        {getCadNavigationIds(role).map((id) => {
-          const { label, icon: Icon } = ALL_ITEMS[id]
-          const active = currentTab === id || (id === 'platform' && currentTab === 'overview' && role === 'super_admin')
-          return <button key={id} type="button" className={`cad-nav-item ${active ? 'cad-nav-item-active' : ''}`} onClick={() => { setCurrentTab(id === 'platform' ? 'overview' : id); onClose() }} aria-current={active ? 'page' : undefined}><Icon size={18} aria-hidden="true" /><span>{label}</span></button>
-        })}
-      </nav>
-      <p className="cad-rail-note">Clinical access is recorded in the immutable audit trail.</p>
-    </aside>
-  </>
+interface NavGroup {
+  id: 'care' | 'admin' | 'govern'
+  label: string
+  items: CadNavigationId[]
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    id: 'care',
+    label: 'Care',
+    items: ['overview', 'targets', 'modes', 'consent'],
+  },
+  {
+    id: 'admin',
+    label: 'Administer',
+    items: ['users', 'billing', 'platform'],
+  },
+  {
+    id: 'govern',
+    label: 'Govern',
+    items: ['audit', 'settings'],
+  },
+]
+
+export function SidebarNavigation({
+  role,
+  currentTab,
+  setCurrentTab,
+  open,
+  onClose,
+}: {
+  role: CadRole
+  currentTab: string
+  setCurrentTab: (tab: string) => void
+  open: boolean
+  onClose: () => void
+}) {
+  const allowedIds = new Set(getCadNavigationIds(role))
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }))
+  }
+
+  return (
+    <>
+      {open && (
+        <button
+          className="cad-nav-scrim"
+          onClick={onClose}
+          aria-label="Close navigation"
+          tabIndex={-1}
+        />
+      )}
+      <aside
+        className={`cad-rail ${open ? 'cad-rail-open' : ''} flex flex-col justify-between`}
+        aria-label="Primary navigation"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="cad-rail-heading flex items-center justify-between pb-2 border-b border-border-control/20">
+            <span className="ui-eyebrow text-strong font-bold">Clinical Workspace</span>
+            <button
+              className="ui-icon-button lg:hidden cursor-pointer"
+              onClick={onClose}
+              aria-label="Close navigation"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <nav className="flex flex-col gap-4" aria-label="Workspaces">
+            {NAV_GROUPS.map((group) => {
+              const visibleItems = group.items.filter((id) => allowedIds.has(id))
+              if (visibleItems.length === 0) return null
+
+              const isCollapsed = !!collapsedGroups[group.id]
+
+              return (
+                <div key={group.id} className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.id)}
+                    className="flex items-center justify-between px-2 py-1 text-[12px] font-bold uppercase tracking-wider text-muted hover:text-strong transition-colors cursor-pointer"
+                  >
+                    <span>{group.label}</span>
+                    {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                  </button>
+
+                  {!isCollapsed && (
+                    <div className="flex flex-col gap-0.5">
+                      {visibleItems.map((id) => {
+                        const { label, icon: Icon } = ALL_ITEMS[id]
+                        // D-09 fix: strictly single active item
+                        const active = currentTab === id
+
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            className={`cad-nav-item flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12px] font-medium transition-colors cursor-pointer text-left ${
+                              active
+                                ? 'cad-nav-item-active bg-surface-raised font-bold text-strong border-l-4 border-brand-mint'
+                                : 'text-muted hover:text-strong hover:bg-surface-raised/50'
+                            }`}
+                            onClick={() => {
+                              setCurrentTab(id)
+                              onClose()
+                            }}
+                            aria-current={active ? 'page' : undefined}
+                          >
+                            <Icon size={18} aria-hidden="true" className={active ? 'text-brand-mint' : ''} />
+                            <span>{label}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </nav>
+        </div>
+
+        <p className="cad-rail-note text-[12px] text-muted p-2 border-t border-border-control/20">
+          Clinical access is recorded in the immutable audit trail.
+        </p>
+      </aside>
+    </>
+  )
 }

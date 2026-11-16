@@ -3,7 +3,6 @@
 import { useRef, type MouseEvent } from "react";
 import { EmptyChart, isFiniteNum } from "./EmptyChart";
 
-
 interface Size {
   width: number;
   height: number;
@@ -45,6 +44,7 @@ export function DonutChart({
   const selected = data.find((d) => d.id === selectedId && d.value > 0) ?? null;
 
   // Center label: shows the selected segment's count, else the total.
+  // WCAG 2.2 AA: strict 12px font floor.
   const centerLabel = (
     <>
       <text
@@ -53,7 +53,7 @@ export function DonutChart({
         textAnchor="middle"
         fontSize={22}
         fontWeight={700}
-        fill={selected ? selected.color : "var(--foreground)"}
+        fill={selected ? selected.color : "var(--color-text-strong, var(--foreground))"}
       >
         {selected ? selected.value : total}
       </text>
@@ -61,8 +61,8 @@ export function DonutChart({
         x={cx}
         y={cy + 16}
         textAnchor="middle"
-        fontSize={10}
-        fill="var(--muted-foreground)"
+        fontSize={12}
+        fill="var(--color-text-muted, var(--muted-foreground))"
       >
         {selected ? `${selected.label} items` : "total items"}
       </text>
@@ -76,25 +76,38 @@ export function DonutChart({
 
   const nonZero = data.filter((d) => d.value > 0);
 
-  // Single non-zero slice -> full ring (arcs can't draw a 360Â° path).
+  // Single non-zero slice -> full ring (arcs can't draw a 360° path).
   if (nonZero.length === 1) {
     const only = nonZero[0];
     const isSel = selectedId === only.id;
     return (
-      <svg width={width} height={height} role="img" aria-label="Basket quality">
-        <circle
-          cx={cx}
-          cy={cy}
-          r={(r + inner) / 2}
-          fill="none"
-          stroke={only.color}
-          strokeWidth={r - inner}
-          opacity={selectedId && !isSel ? 0.35 : 1}
-          style={{ cursor: onSelect ? "pointer" : "default" }}
-          onClick={() => onSelect?.(only.id)}
-        />
-        {centerLabel}
-      </svg>
+      <div className="flex flex-col items-center">
+        <svg width={width} height={height} role="img" aria-label="Basket quality">
+          <circle
+            cx={cx}
+            cy={cy}
+            r={(r + inner) / 2}
+            fill="none"
+            stroke={only.color}
+            strokeWidth={r - inner}
+            opacity={selectedId && !isSel ? 0.35 : 1}
+            style={{ cursor: onSelect ? "pointer" : "default" }}
+            onClick={() => onSelect?.(only.id)}
+          />
+          {centerLabel}
+        </svg>
+        <details className="mt-2 text-[12px] text-muted w-full text-left">
+          <summary className="cursor-pointer hover:underline">Show data table</summary>
+          <table className="w-full mt-1 border border-border-control/20 rounded text-[12px]">
+            <tbody>
+              <tr>
+                <td className="p-1 font-medium">{only.label}</td>
+                <td className="p-1 text-right font-semibold">{only.value} items (100%)</td>
+              </tr>
+            </tbody>
+          </table>
+        </details>
+      </div>
     );
   }
 
@@ -126,34 +139,49 @@ export function DonutChart({
       `A ${inner} ${inner} 0 ${large} 0 ${xi0} ${yi0}`,
       "Z",
     ].join(" ");
-    return { id: d.id, label: d.label, path, color: d.color, isSel };
+    return { id: d.id, label: d.label, path, color: d.color, isSel, value: d.value, pct: Math.round(frac * 100) };
   });
 
   return (
-    <svg width={width} height={height} role="img" aria-label="Basket quality">
-      {arcs.map((a) => (
-        <path
-          key={a.id}
-          d={a.path}
-          fill={a.color}
-          stroke="#fff"
-          strokeWidth={2}
-          opacity={selectedId && !a.isSel ? 0.35 : 1}
-          style={{ cursor: onSelect ? "pointer" : "default", transition: "opacity 0.15s", outline: "none" }}
-          onClick={() => onSelect?.(a.id)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              onSelect?.(a.id);
-            }
-          }}
-          tabIndex={onSelect ? 0 : -1}
-          role={onSelect ? "button" : undefined}
-          aria-label={onSelect ? `Show count for ${a.label}` : undefined}
-        />
-      ))}
-      {centerLabel}
-    </svg>
+    <div className="flex flex-col items-center">
+      <svg width={width} height={height} role="img" aria-label="Basket quality">
+        {arcs.map((a) => (
+          <path
+            key={a.id}
+            d={a.path}
+            fill={a.color}
+            stroke="#fff"
+            strokeWidth={2}
+            opacity={selectedId && !a.isSel ? 0.35 : 1}
+            style={{ cursor: onSelect ? "pointer" : "default", transition: "opacity 0.15s", outline: "none" }}
+            onClick={() => onSelect?.(a.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect?.(a.id);
+              }
+            }}
+            tabIndex={onSelect ? 0 : -1}
+            role={onSelect ? "button" : undefined}
+            aria-label={onSelect ? `Show count for ${a.label}` : undefined}
+          />
+        ))}
+        {centerLabel}
+      </svg>
+      <details className="mt-2 text-[12px] text-muted w-full text-left">
+        <summary className="cursor-pointer hover:underline">Show data table</summary>
+        <table className="w-full mt-1 border border-border-control/20 rounded text-[12px]">
+          <tbody>
+            {arcs.map((a) => (
+              <tr key={a.id} className="border-b border-border-control/10 last:border-0">
+                <td className="p-1 font-medium">{a.label}</td>
+                <td className="p-1 text-right font-semibold">{a.value} items ({a.pct}%)</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </div>
   );
 }
 
@@ -173,15 +201,13 @@ export interface TrendPoint {
 const DV = { sodium: 2300, sugar: 50, satFat: 20 } as const;
 
 // D-26: neutral chart tokens — never use grade colours for risk nutrients
-// (Sat Fat was coloured green A-grade, implying it's 'good')
-// Each series also has a distinct strokeDasharray for colour-blind users (WCAG 1.4.1)
 const TREND_SERIES = [
-  { key: "sodium" as const, label: "Sodium",  color: "var(--chart-1, #3b82f6)", dash: "0" },
-  { key: "sugar"  as const, label: "Sugar",   color: "var(--chart-2, #f59e0b)", dash: "6 4" },
-  { key: "satFat" as const, label: "Sat Fat", color: "var(--chart-3, #8b5cf6)", dash: "2 3" },
+  { key: "sodium" as const, label: "Sodium",  color: "var(--color-chart-1, var(--chart-1, #3b82f6))", dash: "0" },
+  { key: "sugar"  as const, label: "Sugar",   color: "var(--color-chart-2, var(--chart-2, #f59e0b))", dash: "6 4" },
+  { key: "satFat" as const, label: "Sat Fat", color: "var(--color-chart-3, var(--chart-3, #8b5cf6))", dash: "2 3" },
 ] satisfies { key: "sodium" | "sugar" | "satFat"; label: string; color: string; dash: string }[];
 
-// Monotone cubic Hermite interpolation (Fritsch-Carlson algorithm). Produces smooth, organic SVG cubic bezier curves that never overshoot.
+// Monotone cubic Hermite interpolation
 function monotonePath(pts: { x: number; y: number }[]): string {
   if (pts.length === 0) return "";
   if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
@@ -231,7 +257,7 @@ export function LineTrend({
     satFat: finiteNonNegative(s.satFat)
   }));
   const { width, height } = size;
-  const padL = 44, padR = 16, padT = 14, padB = 28;
+  const padL = 48, padR = 16, padT = 16, padB = 32;
   const plotW = Math.max(1, width - padL - padR);
   const plotH = Math.max(1, height - padT - padB);
   const MAX_PCT = 150;
@@ -239,12 +265,10 @@ export function LineTrend({
   const toPct = (key: "sodium" | "sugar" | "satFat", val: number) =>
     Math.min(MAX_PCT, (val / DV[key]) * 100);
 
-  // FIX 1 — X-axis: always plot strictly left→right.
-  // Single point → left edge (x = padL), not centre. Multi-point → fill full width.
   const x = (i: number) =>
     data.length <= 1
-      ? padL                                              // single point anchors at left origin
-      : padL + (i / (data.length - 1)) * plotW;          // multi-point fills full width
+      ? padL
+      : padL + (i / (data.length - 1)) * plotW;
 
   const y = (pct: number) => padT + plotH - (pct / MAX_PCT) * plotH;
 
@@ -257,9 +281,6 @@ export function LineTrend({
     return true;
   });
 
-  // FIX 2 — Gap-bridging: zero/empty buckets → flat y(0) baseline (not nearest-real).
-  // This ensures periods of zero intake render as a continuous bottom baseline
-  // rather than floating mid-air between two adjacent real values.
   const buildPath = (key: "sodium" | "sugar" | "satFat"): string => {
     if (data.length === 0) return "";
 
@@ -267,19 +288,18 @@ export function LineTrend({
       const hasReal = d.hasData !== false && d[key] > 0;
       return {
         x: x(i),
-        y: hasReal ? y(toPct(key, d[key])) : y(0),   // zero periods → bottom baseline
+        y: hasReal ? y(toPct(key, d[key])) : y(0),
       };
     });
 
-    // If all points are at the baseline, don't render a path (nothing to show).
     if (filled.every(p => p.y === y(0))) return "";
 
     return monotonePath(filled);
   };
 
-  const Y_TICKS = [0, 25, 50, 75, 100];
+  const Y_TICKS = [0, 50, 100];
   const tooltipRef = useRef<SVGGElement>(null);
-  const boxW = 144;
+  const boxW = 150;
 
   const handleMove = (e: MouseEvent<SVGRectElement>) => {
     if (data.length === 0 || !tooltipRef.current) return;
@@ -309,7 +329,6 @@ export function LineTrend({
       if (lname) lname.setAttribute("x", String(boxX + 20));
       const lval = tooltipRef.current!.querySelector(`.ch-lval-${s.key}`);
       if (lval) {
-        // D-26: show unclamped rawPct in tooltip so hypertension users see real overshoot
         const rawPctUnclamped = (data[nearest][s.key] / DV[s.key]) * 100;
         const hasDataPt = data[nearest].hasData !== false && data[nearest][s.key] > 0;
         lval.setAttribute("x", String(boxX + boxW - 8));
@@ -324,7 +343,6 @@ export function LineTrend({
 
   const handleLeave = () => { if (tooltipRef.current) tooltipRef.current.style.display = "none"; };
 
-  // D-25: empty array OR all-zero data (draws a meaningless empty grid)
   const hasAnyData = data.some(d =>
     (isFiniteNum(d.sodium) && d.sodium > 0) ||
     (isFiniteNum(d.sugar) && d.sugar > 0) ||
@@ -335,91 +353,109 @@ export function LineTrend({
   }
 
   return (
-    <svg width={width} height={height} role="img" aria-label="Nutrient trends (% Daily Value)">
-      {/* Y-axis gridlines + % DV labels */}
-      {Y_TICKS.map((pct) => {
-        const gy = y(pct);
-        return (
-          <g key={`grid-${pct}`}>
-            <line x1={padL} y1={gy} x2={width - padR} y2={gy}
-              stroke={pct === 0 ? "#ccc" : pct === 100 ? "#f9a825" : "#eee"}
-              strokeWidth={pct === 100 ? 1.5 : 1}
-              strokeDasharray={pct === 0 ? undefined : pct === 100 ? "6 3" : "3 3"} />
-            <text x={padL - 4} y={gy + 4} fontSize={9} textAnchor="end"
-              fill={pct === 100 ? "#f9a825" : "var(--muted-foreground)"}
-              fontWeight={pct === 100 ? 700 : 400}>{pct}%</text>
-          </g>
-        );
-      })}
-      <text x={width - padR} y={y(100) - 4} fontSize={8} textAnchor="end"
-        fill="#f9a825" opacity={0.75}>Daily limit</text>
+    <div className="flex flex-col">
+      <svg width={width} height={height} role="img" aria-label="Nutrient trends (% Daily Value)">
+        {/* Y-axis gridlines + labels (strictly 12px font) */}
+        {Y_TICKS.map((pct) => {
+          const gy = y(pct);
+          return (
+            <g key={`grid-${pct}`}>
+              <line x1={padL} y1={gy} x2={width - padR} y2={gy}
+                stroke={pct === 0 ? "var(--color-border-control, #ccc)" : pct === 100 ? "var(--color-status-warning, #f9a825)" : "var(--color-border-control, #eee)"}
+                strokeWidth={pct === 100 ? 1.5 : 1}
+                strokeDasharray={pct === 0 ? undefined : pct === 100 ? "6 3" : "3 3"} />
+              <text x={padL - 6} y={gy + 4} fontSize={12} textAnchor="end"
+                fill={pct === 100 ? "var(--color-status-warning, #f9a825)" : "var(--color-text-muted, var(--muted-foreground))"}
+                fontWeight={pct === 100 ? 700 : 400}>{pct}%</text>
+            </g>
+          );
+        })}
+        <text x={width - padR} y={y(100) - 6} fontSize={12} textAnchor="end"
+          fill="var(--color-status-warning, #f9a825)" opacity={0.85}>Daily limit</text>
 
-      {/* Subtle area fill — primary series only */}
-      {visibleSeries
-        .filter(s => s.key === primaryKey)
-        .map((s) => {
+        {/* Subtle area fill — primary series only */}
+        {visibleSeries
+          .filter(s => s.key === primaryKey)
+          .map((s) => {
+            const pathD = buildPath(s.key);
+            if (!pathD) return null;
+            return (
+              <path key={`fill-${s.key}`}
+                d={`${pathD} L ${x(data.length - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`}
+                fill={s.color} opacity={0.08} />
+            );
+          })}
+
+        {visibleSeries.map((s) => {
           const pathD = buildPath(s.key);
           if (!pathD) return null;
+          const isPrimary = s.key === primaryKey;
           return (
-            <path key={`fill-${s.key}`}
-              d={`${pathD} L ${x(data.length - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`}
-              fill={s.color} opacity={0.08} />
+            <path key={s.key} d={pathD}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={isPrimary ? 2.5 : 1.5}
+              strokeDasharray={isPrimary ? undefined : s.dash}
+              opacity={isPrimary ? 1 : 0.8} />
           );
         })}
 
-      {/* FIX 3 — Dual-series distinction:
-          Primary key → solid 2.5px stroke (high-contrast focal line).
-          Secondary keys → dashed 1.5px stroke (supporting context line). */}
-      {visibleSeries.map((s) => {
-        const pathD = buildPath(s.key);
-        if (!pathD) return null;
-        const isPrimary = s.key === primaryKey;
-        return (
-          <path key={s.key} d={pathD}
-            fill="none"
-            stroke={s.color}
-            strokeWidth={isPrimary ? 2.5 : 1.5}
-            strokeDasharray={isPrimary ? undefined : "6 4"}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            opacity={isPrimary ? 1 : 0.75}
-          />
-        );
-      })}
+        {/* X-axis date labels */}
+        {data.map((d, i) => {
+          if (i % xStride !== 0 && i !== data.length - 1) return null;
+          return (
+            <text key={d.id} x={x(i)} y={height - 8}
+              fontSize={12} textAnchor="middle" fill="var(--color-text-muted, var(--muted-foreground))">{d.label}</text>
+          );
+        })}
 
-      {/* X-axis labels */}
-      {data.map((d, i) =>
-        i % xStride === 0 ? (
-          <text key={`xl-${d.id}`} x={x(i)} y={height - 6}
-            fontSize={9} textAnchor="middle" fill="var(--muted-foreground)">{d.label}</text>
-        ) : null
-      )}
+        {/* Tooltip */}
+        <g ref={tooltipRef} style={{ display: "none", pointerEvents: "none" }}>
+          <line className="ch-line" y1={padT} y2={padT + plotH} stroke="var(--color-text-muted, var(--muted-foreground))" strokeWidth={1} strokeDasharray="2 2" />
+          <rect className="ch-box" y={padT} width={boxW} height={20 + visibleSeries.length * 20}
+            rx={8} fill="var(--color-surface, #fff)" stroke="var(--color-border-control, #e2e8f0)" strokeWidth={1} />
+          <text className="ch-title" y={padT + 16} fontSize={12} fontWeight={700} fill="var(--color-text-strong, var(--foreground))" />
+          {visibleSeries.map((s, idx) => {
+            const rowY = padT + 34 + idx * 18;
+            return (
+              <g key={`tip-${s.key}`}>
+                <circle className={`ch-pnt-${s.key}`} r={4} fill={s.color} stroke="#fff" strokeWidth={1.5} />
+                <circle className={`ch-lcirc-${s.key}`} cy={rowY - 4} r={3} fill={s.color} />
+                <text className={`ch-lname-${s.key}`} y={rowY} fontSize={12} fill="var(--color-text-muted, var(--muted-foreground))">{s.label}</text>
+                <text className={`ch-lval-${s.key}`} y={rowY} fontSize={12} fontWeight={700} textAnchor="end" fill="var(--color-text-strong, var(--foreground))" />
+              </g>
+            );
+          })}
+        </g>
 
-      {/* Hover crosshair */}
-      <g ref={tooltipRef} pointerEvents="none" style={{ display: "none" }}>
-        <line className="ch-line" y1={padT} y2={padT + plotH}
-          stroke="var(--muted-foreground)" strokeWidth={1} strokeDasharray="4 3" opacity={0.6} />
-        {visibleSeries.map((s) => (
-          <circle key={`hp-${s.key}`} className={`ch-pnt-${s.key}`}
-            r={4} fill={s.color} stroke="#fff" strokeWidth={2} />
-        ))}
-        <rect className="ch-box" y={padT + 4} width={boxW}
-          height={28 + visibleSeries.length * 16}
-          rx={6} fill="#fff" stroke="var(--border)" strokeWidth={1} />
-        <text className="ch-title" y={padT + 18} fontSize={10} fontWeight={700} fill="var(--foreground)" />
-        {visibleSeries.map((s, si) => (
-          <g key={`hl-${s.key}`}>
-            <circle className={`ch-lcirc-${s.key}`} cy={padT + 32 + si * 16} r={3.5} fill={s.color} />
-            <text className={`ch-lname-${s.key}`} y={padT + 36 + si * 16}
-              fontSize={10} fill="var(--muted-foreground)">{s.label}</text>
-            <text className={`ch-lval-${s.key}`} y={padT + 36 + si * 16}
-              fontSize={10} fontWeight={700} textAnchor="end" fill="var(--foreground)" />
-          </g>
-        ))}
-      </g>
-      <rect x={padL} y={padT} width={plotW} height={plotH}
-        fill="transparent" onMouseMove={handleMove} onMouseLeave={handleLeave} />
-    </svg>
+        <rect x={padL} y={padT} width={plotW} height={plotH}
+          fill="transparent" onMouseMove={handleMove} onMouseLeave={handleLeave} />
+      </svg>
+
+      <details className="mt-2 text-[12px] text-muted w-full text-left">
+        <summary className="cursor-pointer hover:underline">Show data table</summary>
+        <table className="w-full mt-1 border border-border-control/20 rounded text-[12px]">
+          <thead>
+            <tr className="border-b border-border-control/20 bg-surface-raised/50">
+              <th className="p-1 text-left">Time</th>
+              {showSodium && <th className="p-1 text-right">Sodium (mg)</th>}
+              {showSugar && <th className="p-1 text-right">Sugar (g)</th>}
+              {showSatFat && <th className="p-1 text-right">Sat Fat (g)</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((d) => (
+              <tr key={d.id} className="border-b border-border-control/10 last:border-0">
+                <td className="p-1 font-medium">{d.label}</td>
+                {showSodium && <td className="p-1 text-right">{d.sodium > 0 ? `${d.sodium} mg` : '—'}</td>}
+                {showSugar && <td className="p-1 text-right">{d.sugar > 0 ? `${d.sugar} g` : '—'}</td>}
+                {showSatFat && <td className="p-1 text-right">{d.satFat > 0 ? `${d.satFat} g` : '—'}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </div>
   );
 }
 
@@ -448,7 +484,7 @@ export function HBarChart({ data: rawData, size }: { data: HBar[]; size: Size })
         const yTop = gap + i * (barH + gap);
         return (
           <g key={d.id}>
-            <text x={labelW - 8} y={yTop + barH / 2 + 4} fontSize={11} textAnchor="end" fill="var(--foreground)">{d.label}</text>
+            <text x={labelW - 8} y={yTop + barH / 2 + 4} fontSize={12} textAnchor="end" fill="var(--color-text-strong, var(--foreground))">{d.label}</text>
             <rect x={labelW} y={yTop} width={barW} height={barH} fill={d.color} rx={2} />
           </g>
         );
@@ -457,7 +493,7 @@ export function HBarChart({ data: rawData, size }: { data: HBar[]; size: Size })
   );
 }
 
-// ---------- Stacked horizontal bars — Category Insights (grade segments + price axis) ----------
+// ---------- Stacked horizontal bars — Category Insights ----------
 
 export interface StackedHBarSegment {
   grade: string;    // "A" | "B" | "C" | "D" | "E"
@@ -469,7 +505,7 @@ export interface StackedHBar {
   id: string;
   label: string;
   totalPrice: number;
-  segments: StackedHBarSegment[];  // ordered A to E, empty grades omitted
+  segments: StackedHBarSegment[];
 }
 
 const AXIS_TICKS = [0.25, 0.5, 0.75, 1.0];
@@ -477,13 +513,13 @@ const AXIS_TICKS = [0.25, 0.5, 0.75, 1.0];
 export function StackedHBarChart({ data, size }: { data: StackedHBar[]; size: Size }) {
   const { width, height } = size;
   const labelW = 148;
-  const valueW = 76;
-  const axisH = 20;
-  const gap = 7;
+  const valueW = 86;
+  const axisH = 24;
+  const gap = 8;
   const plotW = Math.max(1, width - labelW - valueW);
   const usableH = height - axisH;
   const barH = data.length > 0
-    ? Math.max(16, (usableH - gap * (data.length + 1)) / data.length)
+    ? Math.max(18, (usableH - gap * (data.length + 1)) / data.length)
     : 0;
   const maxVal = Math.max(1, ...data.map((d) => d.totalPrice));
 
@@ -496,23 +532,23 @@ export function StackedHBarChart({ data, size }: { data: StackedHBar[]; size: Si
         return (
           <g key={t}>
             <line x1={x} y1={gap} x2={x} y2={usableH}
-              stroke="var(--muted-foreground)" strokeOpacity={0.14}
+              stroke="var(--color-border-control, var(--muted-foreground))" strokeOpacity={0.2}
               strokeWidth={1} strokeDasharray="3 3" />
-            <text x={x} y={usableH + 14} fontSize={9} textAnchor="middle" fill="var(--muted-foreground)">
+            <text x={x} y={usableH + 16} fontSize={12} textAnchor="middle" fill="var(--color-text-muted, var(--muted-foreground))">
               {label}
             </text>
           </g>
         );
       })}
       <line x1={labelW} y1={usableH} x2={labelW + plotW} y2={usableH}
-        stroke="var(--muted-foreground)" strokeOpacity={0.2} strokeWidth={1} />
+        stroke="var(--color-border-control, var(--muted-foreground))" strokeOpacity={0.25} strokeWidth={1} />
       {data.map((d, i) => {
         const yTop = gap + i * (barH + gap);
         const totalBarW = (d.totalPrice / maxVal) * plotW;
         let segX = labelW;
         return (
           <g key={d.id}>
-            <text x={labelW - 8} y={yTop + barH / 2 + 4} fontSize={11} textAnchor="end" fill="var(--foreground)">
+            <text x={labelW - 8} y={yTop + barH / 2 + 4} fontSize={12} textAnchor="end" fill="var(--color-text-strong, var(--foreground))">
               {d.label}
             </text>
             <clipPath id={`clip-${d.id}`}>
@@ -543,7 +579,7 @@ export function StackedHBarChart({ data, size }: { data: StackedHBar[]; size: Si
               })}
             </g>
             {d.totalPrice > 0 && (
-              <text x={labelW + totalBarW + 6} y={yTop + barH / 2 + 4} fontSize={10} fill="var(--muted-foreground)">
+              <text x={labelW + totalBarW + 6} y={yTop + barH / 2 + 4} fontSize={12} fill="var(--color-text-muted, var(--muted-foreground))">
                 {`KES ${d.totalPrice.toLocaleString()}`}
               </text>
             )}

@@ -1,18 +1,60 @@
-import { AlertTriangle, CheckCircle2, Info, ShieldAlert } from 'lucide-react'
+import * as React from 'react'
+import { Banner, type AlertTier } from '../../app/components/ui/Banner'
 import { useCadAuth } from '../context/AuthContext'
 
-const HEALTH_COPY = {
-  super_admin: { tone: 'info', message: 'Platform telemetry is available. Review tenant exceptions before making configuration changes.', icon: Info },
-  tenant_admin: { tone: 'warning', message: 'Two staff licences need review before their next clinical shift.', icon: AlertTriangle },
-  writing_clinician: { tone: 'critical', message: 'Six dietary threshold breaches require clinical review today.', icon: ShieldAlert },
-  viewing_dietician: { tone: 'info', message: 'Trend data is read-only and reflects the latest consented shopping events.', icon: Info },
-  compliance_auditor: { tone: 'success', message: 'Audit-chain continuity is currently verified for this tenant.', icon: CheckCircle2 },
-  commercial_stakeholder: { tone: 'info', message: 'Commercial reporting is aggregate-only; small cohorts remain protected.', icon: Info },
-  patient: { tone: 'success', message: 'Your care profile is active. You control which data you share with your clinic.', icon: CheckCircle2 },
-} as const
-
 export function SystemHealthBanner() {
-  const { claims } = useCadAuth()
-  const { tone, message, icon: Icon } = HEALTH_COPY[claims.role]
-  return <div className={`cad-health-banner cad-health-banner-${tone}`} role={tone === 'critical' ? 'alert' : 'status'}><Icon size={18} aria-hidden="true" /><span>{message}</span></div>
+  const { claims, mfaRequired } = useCadAuth()
+
+  // If MFA is required for this staff role but unverified, render Tier 3 alert
+  if (mfaRequired) {
+    return (
+      <Banner
+        tier={3}
+        title="Multi-Factor Authentication Required"
+        message="Two-factor verification (TOTP) is mandatory for clinical and administrative access. Please complete MFA verification to access clinical records."
+        className="mb-4"
+      />
+    )
+  }
+
+  // Role-specific operational context (derived without hardcoded numbers)
+  const getContextualAlert = (): { tier: AlertTier; title?: string; message: string } | null => {
+    switch (claims.role) {
+      case 'super_admin':
+        return {
+          tier: 0,
+          title: 'System Telemetry',
+          message: 'Multi-tenant telemetry and platform configuration are operating normally.',
+        }
+      case 'compliance_auditor':
+        return {
+          tier: 0,
+          title: 'Audit Ledger',
+          message: 'WORM audit hash verification active. Ledger is strictly append-only.',
+        }
+      case 'commercial_stakeholder':
+        return {
+          tier: 0,
+          title: 'Differential Privacy',
+          message: 'Commercial reporting enforces strict k-anonymity (k >= 50); small cohorts remain protected.',
+        }
+      case 'writing_clinician':
+      case 'viewing_dietician':
+      case 'tenant_admin':
+      default:
+        return null
+    }
+  }
+
+  const alert = getContextualAlert()
+  if (!alert) return null
+
+  return (
+    <Banner
+      tier={alert.tier}
+      title={alert.title}
+      message={alert.message}
+      className="mb-4"
+    />
+  )
 }

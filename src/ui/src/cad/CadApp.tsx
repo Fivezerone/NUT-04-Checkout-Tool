@@ -3,6 +3,7 @@
 // Reference: Reports/Plans/CAD_IMPLEMENTATION_PLAN.md (§6.6)
 
 import React, { useState } from 'react'
+import { Router, Route, Switch, useLocation } from 'wouter'
 import { CadAuthProvider, useCadAuth } from './context/AuthContext'
 import { AppShell } from './components/AppShell'
 import { MfaChallenge } from './components/MfaChallenge'
@@ -20,10 +21,19 @@ import { DieticianInsightsView } from './views/DieticianInsightsView'
 import { CommercialInsightsView } from './views/CommercialInsightsView'
 import { PatientCareSummaryView } from './views/PatientCareSummaryView'
 import { Lock, LogIn, AlertCircle } from 'lucide-react'
+import { getCadNavigationIds, type CadNavigationId } from './navigation'
 
 const CadMainContent: React.FC = () => {
   const { user, claims, isLoading, mfaRequired, signIn } = useCadAuth()
-  const [currentTab, setCurrentTab] = useState<string>('overview')
+  const [location, navigate] = useLocation()
+
+  // Compute currentTab from URL path
+  const normalizedPath = location.replace(/^\/cad\/?/, '/').replace(/^\//, '')
+  const currentTab: string = normalizedPath === '' || normalizedPath === 'overview' ? 'overview' : normalizedPath
+
+  const handleNavigate = (tab: string) => {
+    navigate(tab === 'overview' ? '/' : `/${tab}`)
+  }
 
   // Login form state
   const [email, setEmail] = useState('')
@@ -44,10 +54,10 @@ const CadMainContent: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[color:var(--color-canvas)] flex items-center justify-center">
+      <div className="min-h-screen bg-canvas flex items-center justify-center">
         <div className="text-center space-y-3">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-[color:var(--color-brand)] border-t-transparent" />
-          <p className="ui-eyebrow">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-brand-mint border-t-transparent" />
+          <p className="ui-eyebrow text-muted text-[12px]">
             Loading Clinic Admin Dashboard...
           </p>
         </div>
@@ -58,70 +68,70 @@ const CadMainContent: React.FC = () => {
   // Not signed in -> Show CAD Clinical Login
   if (!user) {
     return (
-      <div className="min-h-screen bg-[color:var(--color-canvas)] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-canvas flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans text-xs">
         <div className="sm:mx-auto sm:w-full sm:max-w-md">
           <div className="flex justify-center items-center space-x-2">
-            <span className="bg-[color:var(--color-brand)] text-[color:var(--color-on-brand)] font-black text-2xl px-3 py-1 rounded-lg">
+            <span className="bg-brand-mint text-brand-navy font-black text-2xl px-3 py-1 rounded-xl">
               NutriScore
             </span>
-            <span className="text-xs uppercase font-extrabold tracking-wider bg-[color:var(--color-text-strong)] text-[color:var(--color-on-brand)] px-2 py-0.5 rounded">
+            <span className="text-[12px] uppercase font-extrabold tracking-wider bg-surface-raised text-strong px-2 py-0.5 rounded-md border border-border-control/20">
               CAD
             </span>
           </div>
-          <h1 className="mt-4 text-center text-2xl font-extrabold text-[color:var(--color-text-strong)]">
+          <h1 className="mt-4 text-center text-2xl font-extrabold text-strong">
             Clinic Admin Dashboard
           </h1>
-          <p className="mt-2 text-center text-sm text-[color:var(--color-text-muted)]">
+          <p className="mt-2 text-center text-[12px] text-muted">
             Secure multi-tenant clinical portal &middot; Authorized medical personnel only
           </p>
         </div>
 
         <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-          <div className="ui-card py-8 px-4 sm:px-10">
+          <div className="bg-surface border border-border-control/20 rounded-2xl shadow-sm py-8 px-4 sm:px-10">
             {loginError && (
-              <div className="ui-status-critical mb-4 flex items-center gap-2 rounded-lg px-4 py-3 text-sm">
+              <div className="mb-4 flex items-center gap-2 rounded-xl bg-status-critical-subtle border border-status-critical/30 px-4 py-3 text-[12px] text-status-critical font-medium">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <span>{loginError}</span>
               </div>
             )}
 
-            <form onSubmit={handleLogin} className="space-y-5">
+            <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="ui-field-label">Email address</label>
+                <label className="text-[12px] font-semibold text-strong">Email address</label>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="doctor@hospital.co.ke"
-                  className="ui-input mt-1"
+                  className="mt-1 w-full h-10 px-3 py-2 bg-surface text-foreground text-[12px] rounded-xl border border-border-control outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 />
               </div>
 
               <div>
-                <label className="ui-field-label">Password</label>
+                <label className="text-[12px] font-semibold text-strong">Password</label>
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="ui-input mt-1"
+                  className="mt-1 w-full h-10 px-3 py-2 bg-surface text-foreground text-[12px] rounded-xl border border-border-control outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="ui-button ui-button-primary w-full"
+                className="w-full h-11 px-4 mt-2 bg-brand-mint text-brand-navy rounded-xl font-bold text-[12px] hover:bg-brand-mint/90 transition-colors flex items-center justify-center gap-2 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-focus"
               >
                 <LogIn className="w-4 h-4" />
                 <span>{isSubmitting ? 'Authenticating...' : 'Sign In to CAD'}</span>
               </button>
             </form>
 
-            <div className="mt-6 border-t border-[color:var(--color-border-subtle)] pt-4 text-center">
-              <span className="flex items-center justify-center gap-1 text-xs text-[color:var(--color-text-muted)]">
-                <Lock className="w-3 h-3" />
+            <div className="mt-6 border-t border-border-control/20 pt-4 text-center">
+              <span className="flex items-center justify-center gap-1 text-[12px] text-muted">
+                <Lock className="w-3.5 h-3.5" />
                 <span>DPA s.46 Processor Compliant &middot; TLS 1.3 Encrypted</span>
               </span>
             </div>
@@ -136,26 +146,34 @@ const CadMainContent: React.FC = () => {
     return <MfaChallenge />
   }
 
+  const allowedTabs = getCadNavigationIds(claims.role)
+
   const overview = (() => {
-    if (claims.role === 'super_admin') return <PlatformOverviewView onNavigate={setCurrentTab} />
-    if (claims.role === 'tenant_admin') return <TenantOperationsView onNavigate={setCurrentTab} />
-    if (claims.role === 'writing_clinician') return <ClinicianWorkspaceView onNavigate={setCurrentTab} />
-    if (claims.role === 'viewing_dietician') return <DieticianInsightsView onNavigate={setCurrentTab} />
+    if (claims.role === 'super_admin') return <PlatformOverviewView onNavigate={handleNavigate} />
+    if (claims.role === 'tenant_admin') return <TenantOperationsView onNavigate={handleNavigate} />
+    if (claims.role === 'writing_clinician') return <ClinicianWorkspaceView onNavigate={handleNavigate} />
+    if (claims.role === 'viewing_dietician') return <DieticianInsightsView onNavigate={handleNavigate} />
     if (claims.role === 'compliance_auditor') return <AuditLogView />
     if (claims.role === 'commercial_stakeholder') return <CommercialInsightsView />
     return <PatientCareSummaryView />
   })()
 
   return (
-    <AppShell currentTab={currentTab} setCurrentTab={setCurrentTab}>
-      {currentTab === 'overview' && overview}
-      {currentTab === 'targets' && <PatientTargetsView />}
-      {currentTab === 'modes' && <HealthModesView />}
-      {currentTab === 'consent' && <PatientLinkingConsentView />}
-      {currentTab === 'users' && <UserManagementView />}
-      {currentTab === 'billing' && <BillingSubscriptionView />}
-      {currentTab === 'audit' && <AuditLogView />}
-      {currentTab === 'settings' && <TenantSettingsView />}
+    <AppShell currentTab={currentTab} setCurrentTab={handleNavigate}>
+      <Switch>
+        <Route path="/" component={() => overview} />
+        <Route path="/overview" component={() => overview} />
+        {allowedTabs.includes('targets') && <Route path="/targets" component={PatientTargetsView} />}
+        {allowedTabs.includes('modes') && <Route path="/modes" component={HealthModesView} />}
+        {allowedTabs.includes('consent') && <Route path="/consent" component={PatientLinkingConsentView} />}
+        {allowedTabs.includes('users') && <Route path="/users" component={UserManagementView} />}
+        {allowedTabs.includes('billing') && <Route path="/billing" component={BillingSubscriptionView} />}
+        {allowedTabs.includes('audit') && <Route path="/audit" component={AuditLogView} />}
+        {allowedTabs.includes('settings') && <Route path="/settings" component={TenantSettingsView} />}
+        {allowedTabs.includes('platform') && <Route path="/platform">{() => <PlatformOverviewView onNavigate={handleNavigate} />}</Route>}
+        {/* Fallback to role overview */}
+        <Route component={() => overview} />
+      </Switch>
     </AppShell>
   )
 }
@@ -163,9 +181,10 @@ const CadMainContent: React.FC = () => {
 export const CadApp: React.FC = () => {
   return (
     <CadAuthProvider>
-      <CadMainContent />
+      <Router>
+        <CadMainContent />
+      </Router>
     </CadAuthProvider>
   )
 }
 export default CadApp
-

@@ -4,18 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NutriScore Popup</title>
+    <script src="/theme-init.js"></script>
     <style>
       html, body {
         margin: 0;
         padding: 0;
-        width: 320px;
-        height: fit-content;
+        width: 360px;
+        min-height: 200px;
         overflow-x: hidden;
       }
     </style>
   </head>
-  <body>
-    <script src="/theme-init.js"></script>
+  <body class="bg-canvas text-foreground antialiased selection:bg-brand-mint selection:text-brand-navy">
     <div id="root"></div>
     <script type="module" src="/src/popup.tsx"></script>
   </body>

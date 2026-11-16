@@ -203,50 +203,7 @@ body {
 
   .ui-skeleton { animation: ui-loading 1.4s ease-in-out infinite; background: var(--color-surface-muted); border-radius: var(--ui-radius-md); }
 
-  /* Transitional token bridge for established CAD operational views. New code uses
-     the primitives above; this keeps remaining secured workflows visually aligned
-     while their domain-specific layouts are progressively decomposed. */
-  .cad-main .bg-white { background-color: var(--color-surface); }
-  .cad-main .bg-slate-50,
-  .cad-main .bg-slate-100 { background-color: var(--color-surface-muted); }
-  .cad-main .bg-slate-200 { background-color: var(--color-border-subtle); }
-  .cad-main .border-slate-100,
-  .cad-main .border-slate-200 { border-color: var(--color-border-subtle); }
-  .cad-main .border-slate-300 { border-color: var(--color-border); }
-  .cad-main .text-slate-900,
-  .cad-main .text-slate-800 { color: var(--color-text-strong); }
-  .cad-main .text-slate-700,
-  .cad-main .text-slate-600 { color: var(--color-text); }
-  .cad-main .text-slate-500,
-  .cad-main .text-slate-400 { color: var(--color-text-muted); }
-  .cad-main .bg-emerald-50 { background-color: var(--color-success-subtle); }
-  .cad-main .border-emerald-200 { border-color: var(--color-success-border); }
-  .cad-main .text-emerald-600,
-  .cad-main .text-emerald-700,
-  .cad-main .text-emerald-800 { color: var(--color-success-text); }
-  .cad-main .bg-amber-50,
-  .cad-main .bg-amber-100 { background-color: var(--color-warning-subtle); }
-  .cad-main .border-amber-200 { border-color: var(--color-warning-border); }
-  .cad-main .text-amber-600,
-  .cad-main .text-amber-700,
-  .cad-main .text-amber-800 { color: var(--color-warning-text); }
-  .cad-main .bg-red-50,
-  .cad-main .bg-red-100,
-  .cad-main .bg-rose-50 { background-color: var(--color-critical-subtle); }
-  .cad-main .border-red-200,
-  .cad-main .border-rose-200 { border-color: var(--color-critical-border); }
-  .cad-main .text-red-600,
-  .cad-main .text-red-700,
-  .cad-main .text-red-800,
-  .cad-main .text-rose-600,
-  .cad-main .text-rose-700,
-  .cad-main .text-rose-800 { color: var(--color-critical-text); }
-  .cad-main .bg-blue-50,
-  .cad-main .bg-blue-100 { background-color: var(--color-info-subtle); }
-  .cad-main .border-blue-200 { border-color: var(--color-info-border); }
-  .cad-main .text-blue-600,
-  .cad-main .text-blue-700,
-  .cad-main .text-blue-800 { color: var(--color-info-text); }
+  /* D-01: Legacy .cad-main token bridge removed. Views use semantic tokens and primitives directly. */
 }
 
 @media (max-width: 1023px) {

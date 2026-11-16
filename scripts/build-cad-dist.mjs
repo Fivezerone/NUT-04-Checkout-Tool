@@ -3,12 +3,19 @@
  * scripts/build-cad-dist.mjs
  *
  * Prepares the separate CAD static hosting bundle in `dist-ui/cad`.
- * Copies Vite-compiled `cad.html` -> `dist-ui/cad/index.html`
- * and syncs `assets/` -> `dist-ui/cad/assets/`.
- * Removes `cad.html` from the extension package (D-21).
+ * - Ensures `cad.html` in `dist-ui/cad` is available as `index.html`.
+ * - Verifies zero CAD bundles leaked into `dist/extension/assets`.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  copyFileSync,
+  readdirSync,
+  rmSync,
+} from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -16,40 +23,39 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
 const cadDistDir = resolve(root, 'dist-ui/cad')
 const extDir = resolve(root, 'dist/extension')
-const distDir = resolve(root, 'dist')
 
 mkdirSync(cadDistDir, { recursive: true })
 
-// Check dist/extension/cad.html first, then fallback to dist/cad.html
-const cadHtmlSrc = existsSync(resolve(extDir, 'cad.html'))
-  ? resolve(extDir, 'cad.html')
-  : resolve(distDir, 'cad.html')
-const cadIndexDst = resolve(cadDistDir, 'index.html')
+// 1. In dist-ui/cad, copy cad.html to index.html if needed
+const cadHtml = resolve(cadDistDir, 'cad.html')
+const cadIndex = resolve(cadDistDir, 'index.html')
 
-if (existsSync(cadHtmlSrc)) {
-  try {
-    writeFileSync(cadIndexDst, readFileSync(cadHtmlSrc))
-    console.log('[build-cad-dist] Copied cad.html -> dist-ui/cad/index.html')
-  } catch (err) {
-    console.warn('[build-cad-dist] Warning writing cad index.html:', err.message)
-  }
-  // Clean up cad.html from extension build so CAD is not bundled into shopper extension
-  if (cadHtmlSrc.startsWith(extDir)) {
-    rmSync(cadHtmlSrc, { force: true })
-    console.log('[build-cad-dist] Removed cad.html from extension distribution.')
-  }
-} else {
-  console.warn('[build-cad-dist] cad.html not found. Run vite build first.')
+if (existsSync(cadHtml)) {
+  copyFileSync(cadHtml, cadIndex)
+  console.log('[build-cad-dist] Prepared dist-ui/cad/index.html from cad.html')
+} else if (!existsSync(cadIndex)) {
+  console.warn('[build-cad-dist] Neither cad.html nor index.html found in dist-ui/cad.')
 }
 
-const assetsSrc = existsSync(resolve(extDir, 'assets'))
-  ? resolve(extDir, 'assets')
-  : resolve(distDir, 'assets')
-const assetsDst = resolve(cadDistDir, 'assets')
+// 2. Safeguard: Clean up any accidentally placed cad.html in dist/extension
+const extCadHtml = resolve(extDir, 'cad.html')
+if (existsSync(extCadHtml)) {
+  rmSync(extCadHtml, { force: true })
+  console.log('[build-cad-dist] Removed accidental cad.html from extension package.')
+}
 
-if (existsSync(assetsSrc)) {
-  cpSync(assetsSrc, assetsDst, { recursive: true })
-  console.log('[build-cad-dist] Synced assets/ -> dist-ui/cad/assets/')
-} else {
-  console.warn('[build-cad-dist] assets not found. Run vite build first.')
+// 3. Verify zero CAD chunks in dist/extension/assets
+const extAssetsDir = resolve(extDir, 'assets')
+if (existsSync(extAssetsDir)) {
+  const leakedCadFiles = readdirSync(extAssetsDir).filter((file) => /^cad[-.]/i.test(file))
+  if (leakedCadFiles.length > 0) {
+    console.error(
+      '[build-cad-dist] VIOLATION: CAD files leaked into extension assets:',
+      leakedCadFiles,
+    )
+    leakedCadFiles.forEach((file) => rmSync(resolve(extAssetsDir, file), { force: true }))
+    console.log('[build-cad-dist] Purged leaked CAD assets from extension distribution.')
+  } else {
+    console.log('[build-cad-dist] Verification passed: Zero CAD assets in extension bundle.')
+  }
 }

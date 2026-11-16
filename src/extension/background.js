@@ -183,14 +183,28 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
     return;
   }
+  if (alarm.name === "ledger-retention") {
+    // ADR-005 & §4.10: 90-day device storage ceiling
+    try {
+      await ensureStorageReady();
+      if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.purgeLedgerOlderThan) return;
+      const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+      await NutriScoreDB.purgeLedgerOlderThan(ninetyDaysAgo);
+    } catch (e) {
+      console.warn("[NutriScore SW] Ledger retention alarm failed:", e.message);
+    }
+    return;
+  }
 });
 
 // F-01/F-16: boot sequence — 0 network calls on a plain wake.
 // - entitlement-refresh alarm runs every 12 h (was: on every wake = ~100 POSTs/day)
 // - catalog-sync only runs when the manifest version changes
+// - ledger-retention purges entries older than 90 days once daily
 // chrome.alarms.create is idempotent when the alarm already exists.
 chrome.alarms.create("entitlement-refresh", { periodInMinutes: 12 * 60 }); // 12 h
 chrome.alarms.create("cache-eviction",      { periodInMinutes: 24 * 60 }); // daily
+chrome.alarms.create("ledger-retention",    { periodInMinutes: 24 * 60 }); // daily
 
 // F-11: wire the SW singleton into NutriEntitlement and NutriCatalogSync so
 // refresh() and sync() never create their own Supabase clients.
@@ -536,10 +550,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // D-14: open the upgrade/renewal page in a new tab from the SW
-  // (content-script calls sendMessage — cannot open tabs directly)
-  if (message.action === 'OPEN_UPGRADE') {
-    chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') + '?mode=renew' });
+  // D-14 / EXT-14: Open the side panel to view swap candidates from the SW
+  // (content-script calls sendMessage — cannot call sidePanel.open directly)
+  if (message.action === 'OPEN_SIDE_PANEL_SWAPS') {
+    const tabId = sender.tab?.id;
+    if (typeof chrome !== 'undefined' && chrome.sidePanel?.open && tabId) {
+      chrome.sidePanel.open({ tabId }, () => {
+        chrome.runtime.sendMessage({
+          action: 'FOCUS_SWAP_CANDIDATES',
+          payload: message.payload || message,
+        }).catch(() => {});
+      });
+    }
     return false;
   }
 

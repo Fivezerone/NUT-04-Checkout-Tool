@@ -14,10 +14,10 @@ const REPO_ROOT  = resolve(__dirname, '..', '..', '..', '..', '..');
 
 function read(rel: string) { return readFileSync(join(REPO_ROOT, rel), 'utf8'); }
 
-describe('D-14 — Upgrade CTA (shared-ui.js + background.js)', () => {
-  test('shared-ui.js uses data-ns-upgrade attribute (not inline onclick)', () => {
+describe('D-14 — Swaps CTA (shared-ui.js + background.js)', () => {
+  test('shared-ui.js uses data-ns-open-sidepanel attribute (not inline onclick)', () => {
     const src = read('src/extension/adapters/shared-ui.js');
-    expect(src).toContain('data-ns-upgrade');
+    expect(src).toContain('data-ns-open-sidepanel');
     expect(src).not.toContain("onclick=\"chrome.runtime");
   });
 
@@ -27,17 +27,17 @@ describe('D-14 — Upgrade CTA (shared-ui.js + background.js)', () => {
     expect(src).not.toContain('onmouseout=');
   });
 
-  test('shared-ui.js wires upgrade CTA click listener in content world', () => {
+  test('shared-ui.js wires swaps CTA click listener in content world', () => {
     const src = read('src/extension/adapters/shared-ui.js');
-    expect(src).toContain("querySelector('[data-ns-upgrade]')");
-    expect(src).toContain("action: 'OPEN_UPGRADE'");
+    expect(src).toContain("querySelector('[data-ns-open-sidepanel]')");
+    expect(src).toContain("action: 'OPEN_SIDE_PANEL_SWAPS'");
   });
 
-  test('background.js has OPEN_UPGRADE handler', () => {
+  test('background.js has OPEN_SIDE_PANEL_SWAPS handler', () => {
     const src = read('src/extension/background.js');
-    expect(src).toContain("message.action === 'OPEN_UPGRADE'");
-    expect(src).toContain("chrome.tabs.create");
-    expect(src).toContain("?mode=renew");
+    expect(src).toContain("message.action === 'OPEN_SIDE_PANEL_SWAPS'");
+    expect(src).toContain("chrome.sidePanel.open");
+    expect(src).toContain("FOCUS_SWAP_CANDIDATES");
   });
 });
 

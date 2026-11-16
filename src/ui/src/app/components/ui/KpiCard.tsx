@@ -58,8 +58,8 @@ export const KpiCard: React.FC<KpiCardProps> = ({
       : favorableDirection === 'down';
 
     const colorClass = isFavorable
-      ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-      : 'text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200 dark:border-amber-800';
+      ? 'text-status-success bg-status-success-subtle border-status-success/30'
+      : 'text-status-warning bg-status-warning-subtle border-status-warning/30';
 
     const ArrowIcon = isPositive ? ArrowUpRight : ArrowDownRight;
 

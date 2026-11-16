@@ -1,0 +1,30 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "color": {
+    "canvas": { "$value": "#04222D", "$type": "color" },
+    "surface": { "$value": "#072C3A", "$type": "color" },
+    "surface_raised": { "$value": "#0B3A4B", "$type": "color" },
+    "surface_muted": { "$value": "#0E3F52", "$type": "color" },
+    "border_subtle": { "$value": "#184A5E", "$type": "color" },
+    "border_control": { "$value": "#5E8190", "$type": "color" },
+    "text_strong": { "$value": "#E6F2F5", "$type": "color" },
+    "text": { "$value": "#CCE2E8", "$type": "color" },
+    "text_muted": { "$value": "#A9C3CC", "$type": "color" },
+    "placeholder": { "$value": "#6B8A96", "$type": "color" },
+    "brand": { "$value": "#06D7A0", "$type": "color" },
+    "brand_hover": { "$value": "#34EAB6", "$type": "color" },
+    "brand_subtle": { "$value": "#07353A", "$type": "color" },
+    "status": {
+      "success": { "$value": "#06D7A0", "$type": "color" },
+      "success_subtle": { "$value": "#07353A", "$type": "color" },
+      "info": { "$value": "#6CC6E3", "$type": "color" },
+      "info_subtle": { "$value": "#08374D", "$type": "color" },
+      "pending": { "$value": "#FFD167", "$type": "color" },
+      "pending_subtle": { "$value": "#3D3110", "$type": "color" },
+      "warning": { "$value": "#F78C6A", "$type": "color" },
+      "warning_subtle": { "$value": "#3D1F16", "$type": "color" },
+      "critical": { "$value": "#FF7A9B", "$type": "color" },
+      "critical_subtle": { "$value": "#3D1220", "$type": "color" }
+    }
+  }
+}

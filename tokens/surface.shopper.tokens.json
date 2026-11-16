@@ -1,0 +1,12 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "surface": {
+    "shopper": {
+      "radius_card": { "$value": "20px", "$type": "dimension" },
+      "row_height": { "$value": "56px", "$type": "dimension" },
+      "card_padding": { "$value": "24px", "$type": "dimension" },
+      "grid_gap": { "$value": "24px", "$type": "dimension" },
+      "action_primary": { "$value": "#04785A", "$type": "color" }
+    }
+  }
+}

@@ -37,6 +37,7 @@ var NutriScoreDB = (() => {
     getCachedProduct: () => getCachedProduct,
     getCatalogMeta: () => getCatalogMeta,
     getDB: () => getDB,
+    getEntriesSince: () => getEntriesSince,
     getPendingCartSyncs: () => getPendingCartSyncs,
     getPremiumAssessment: () => getPremiumAssessment,
     getSettings: () => getSettings,
@@ -47,6 +48,7 @@ var NutriScoreDB = (() => {
     normalizeProductName: () => normalizeProductName,
     normalizedIndexCache: () => normalizedIndexCache,
     purgeAll: () => purgeAll,
+    purgeLedgerOlderThan: () => purgeLedgerOlderThan,
     putCatalogMeta: () => putCatalogMeta,
     resolveDisplayCategory: () => resolveDisplayCategory,
     resolveProductMatch: () => resolveProductMatch,
@@ -1104,6 +1106,27 @@ var NutriScoreDB = (() => {
     const db = await getDB();
     await db.delete("shopping_ledger", id);
   }
+  async function purgeLedgerOlderThan(cutoff) {
+    const db = await getDB();
+    const range = IDBKeyRange.upperBound(cutoff, true);
+    const tx = db.transaction("shopping_ledger", "readwrite");
+    const index = tx.store.index("by-addedAt");
+    let cursor = await index.openCursor(range);
+    let count = 0;
+    while (cursor) {
+      await cursor.delete();
+      count++;
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+    return count;
+  }
+  async function getEntriesSince(start) {
+    const db = await getDB();
+    const range = IDBKeyRange.lowerBound(start);
+    const all = await db.getAllFromIndex("shopping_ledger", "by-addedAt", range);
+    return all.reverse();
+  }
   async function savePendingCartSync(payload) {
     const db = await getDB();
     const id = payload.retailer;
@@ -1127,7 +1150,8 @@ var NutriScoreDB = (() => {
   // src/ui/src/app/lib/db/analytics.ts
   function resolveTimeframe(timeframeKey, now = Date.now()) {
     const start = new Date(now);
-    let bucketUnit = "day", bucketCount = 1;
+    let bucketUnit = "day";
+    let bucketCount;
     const tickLabelFormat = "short";
     if (timeframeKey === "today") {
       start.setHours(0, 0, 0, 0);
@@ -1146,14 +1170,11 @@ var NutriScoreDB = (() => {
       start.setHours(0, 0, 0, 0);
       bucketUnit = "week";
       bucketCount = 12;
-    } else if (timeframeKey === "year") {
-      start.setFullYear(start.getFullYear() - 1);
-      bucketUnit = "month";
+    } else {
+      start.setMonth(start.getMonth() - 3);
+      start.setHours(0, 0, 0, 0);
+      bucketUnit = "week";
       bucketCount = 12;
-    } else if (timeframeKey === "all") {
-      start.setFullYear(2020);
-      bucketUnit = "month";
-      bucketCount = 60;
     }
     const tickLabelFn = (ts) => {
       const d = new Date(ts);

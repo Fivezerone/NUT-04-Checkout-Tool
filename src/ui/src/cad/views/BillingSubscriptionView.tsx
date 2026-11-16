@@ -51,11 +51,11 @@ export const BillingSubscriptionView: React.FC = () => {
     <div className="space-y-6 max-w-5xl">
       {/* Status Warning Banners */}
       {subStatus === 'past_due' && (
-        <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-xl shadow-sm flex items-start space-x-3">
-          <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-          <div className="text-sm">
-            <h4 className="font-bold text-amber-900">Subscription Past Due (Grace Period Active)</h4>
-            <p className="text-amber-800 mt-0.5">
+        <div className="bg-status-warning-subtle border-l-4 border-status-warning p-4 rounded-r-2xl shadow-xs flex items-start space-x-3">
+          <AlertTriangle className="w-5 h-5 text-status-warning mt-0.5 flex-shrink-0" />
+          <div className="text-xs">
+            <h4 className="font-bold text-strong">Subscription Past Due (Grace Period Active)</h4>
+            <p className="text-muted mt-0.5">
               Renewal payment failed. Your clinic is currently in a <strong>{graceDaysLeft}-day grace period</strong>. 
               All clinical monitoring and patient target bundles continue functioning normally during grace.
             </p>
@@ -64,11 +64,11 @@ export const BillingSubscriptionView: React.FC = () => {
       )}
 
       {subStatus === 'suspended' && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl shadow-sm flex items-start space-x-3">
-          <Ban className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-          <div className="text-sm">
-            <h4 className="font-bold text-red-900">Facility Account Suspended</h4>
-            <p className="text-red-800 mt-0.5">
+        <div className="bg-status-error-subtle border-l-4 border-status-error p-4 rounded-r-2xl shadow-xs flex items-start space-x-3">
+          <Ban className="w-5 h-5 text-status-error mt-0.5 flex-shrink-0" />
+          <div className="text-xs">
+            <h4 className="font-bold text-strong">Facility Account Suspended</h4>
+            <p className="text-muted mt-0.5">
               Subscription grace period has concluded without payment. The dashboard is in <strong>read-only mode</strong>. 
               Existing patient targets are <em>never silently dropped</em> and will expire naturally at their scheduled valid date.
             </p>
@@ -77,24 +77,24 @@ export const BillingSubscriptionView: React.FC = () => {
       )}
 
       {/* Subscription Card */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-5">
+      <div className="bg-surface p-6 rounded-2xl border border-border-control shadow-xs">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-border-control/20 pb-5">
           <div>
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Facility Subscription</span>
-            <h2 className="text-xl font-bold text-slate-900 mt-0.5">{activeTenant?.name || 'Clinic Tenant'}</h2>
-            <p className="text-xs text-slate-500 mt-1">
+            <span className="text-xs font-semibold text-muted uppercase tracking-wider">Facility Subscription</span>
+            <h2 className="text-xl font-bold text-strong mt-0.5">{activeTenant?.name || 'Clinic Tenant'}</h2>
+            <p className="text-xs text-muted mt-1">
               Current Period: <strong>15 Oct 2026 – 15 Nov 2026</strong> &middot; Plan: <strong>Clinic Monthly Tier</strong>
             </p>
           </div>
 
           <div className="flex items-center space-x-2">
-            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase ${
-              subStatus === 'active' ? 'bg-emerald-100 text-emerald-800' :
-              subStatus === 'past_due' ? 'bg-amber-100 text-amber-800' :
-              'bg-red-100 text-red-800'
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase border ${
+              subStatus === 'active' ? 'bg-status-success-subtle text-status-success border-status-success/30' :
+              subStatus === 'past_due' ? 'bg-status-warning-subtle text-status-warning border-status-warning/30' :
+              'bg-status-error-subtle text-status-error border-status-error/30'
             }`}>
-              {subStatus === 'active' && <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />}
-              {subStatus === 'past_due' && <Clock className="w-3.5 h-3.5 mr-1 text-amber-600" />}
+              {subStatus === 'active' && <CheckCircle2 className="w-3.5 h-3.5 mr-1" />}
+              {subStatus === 'past_due' && <Clock className="w-3.5 h-3.5 mr-1" />}
               {subStatus.replace('_', ' ')}
             </span>
           </div>
@@ -104,68 +104,68 @@ export const BillingSubscriptionView: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
           <div
             onClick={() => setSelectedPlan('clinic_monthly')}
-            className={`cursor-pointer p-4 rounded-xl border-2 transition-all ${
+            className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${
               selectedPlan === 'clinic_monthly'
-                ? 'border-emerald-600 bg-emerald-50/40 shadow-sm'
-                : 'border-slate-200 hover:border-slate-300'
+                ? 'border-brand-mint bg-surface-raised shadow-xs'
+                : 'border-border-control/30 hover:border-border-control'
             }`}
           >
             <div className="flex justify-between items-center">
-              <span className="text-xs font-bold text-slate-700">Monthly Tier</span>
+              <span className="text-xs font-bold text-strong">Monthly Tier</span>
               {selectedPlan === 'clinic_monthly' && (
-                <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                <span className="w-2 h-2 rounded-full bg-brand-mint" />
               )}
             </div>
             <div className="mt-2">
-              <span className="text-2xl font-black text-slate-900">KES 5,000</span>
-              <span className="text-xs text-slate-500"> / month</span>
+              <span className="text-2xl font-black text-strong">KES 5,000</span>
+              <span className="text-xs text-muted"> / month</span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-2">Billed every 30 days &middot; Full cohort analytics & targets</p>
+            <p className="text-xs text-muted mt-2">Billed every 30 days &middot; Full cohort analytics & targets</p>
           </div>
 
           <div
             onClick={() => setSelectedPlan('clinic_quarterly')}
-            className={`cursor-pointer p-4 rounded-xl border-2 transition-all ${
+            className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${
               selectedPlan === 'clinic_quarterly'
-                ? 'border-emerald-600 bg-emerald-50/40 shadow-sm'
-                : 'border-slate-200 hover:border-slate-300'
+                ? 'border-brand-mint bg-surface-raised shadow-xs'
+                : 'border-border-control/30 hover:border-border-control'
             }`}
           >
             <div className="flex justify-between items-center">
-              <span className="text-xs font-bold text-slate-700">Quarterly Tier</span>
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">10% OFF</span>
+              <span className="text-xs font-bold text-strong">Quarterly Tier</span>
+              <span className="text-xs bg-status-success-subtle text-status-success font-bold px-1.5 py-0.5 rounded border border-status-success/30">10% OFF</span>
             </div>
             <div className="mt-2">
-              <span className="text-2xl font-black text-slate-900">KES 13,500</span>
-              <span className="text-xs text-slate-500"> / 90 days</span>
+              <span className="text-2xl font-black text-strong">KES 13,500</span>
+              <span className="text-xs text-muted"> / 90 days</span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-2">Save KES 1,500 every quarter</p>
+            <p className="text-xs text-muted mt-2">Save KES 1,500 every quarter</p>
           </div>
 
           <div
             onClick={() => setSelectedPlan('clinic_annual')}
-            className={`cursor-pointer p-4 rounded-xl border-2 transition-all ${
+            className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${
               selectedPlan === 'clinic_annual'
-                ? 'border-emerald-600 bg-emerald-50/40 shadow-sm'
-                : 'border-slate-200 hover:border-slate-300'
+                ? 'border-brand-mint bg-surface-raised shadow-xs'
+                : 'border-border-control/30 hover:border-border-control'
             }`}
           >
             <div className="flex justify-between items-center">
-              <span className="text-xs font-bold text-slate-700">Annual Tier</span>
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">20% OFF</span>
+              <span className="text-xs font-bold text-strong">Annual Tier</span>
+              <span className="text-xs bg-status-success-subtle text-status-success font-bold px-1.5 py-0.5 rounded border border-status-success/30">20% OFF</span>
             </div>
             <div className="mt-2">
-              <span className="text-2xl font-black text-slate-900">KES 48,000</span>
-              <span className="text-xs text-slate-500"> / year</span>
+              <span className="text-2xl font-black text-strong">KES 48,000</span>
+              <span className="text-xs text-muted"> / year</span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-2">Best value for established hospitals & centres</p>
+            <p className="text-xs text-muted mt-2">Best value for established hospitals & centres</p>
           </div>
         </div>
 
         {/* Payment Initiation Box */}
         {isTenantAdmin && (
-          <form onSubmit={handleInitiatePayment} className="mt-6 pt-5 border-t border-slate-100">
-            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">
+          <form onSubmit={handleInitiatePayment} className="mt-6 pt-5 border-t border-border-control/20">
+            <h4 className="text-xs font-bold text-strong uppercase tracking-wider mb-3">
               Renew or Top-Up Subscription via M-Pesa STK Push
             </h4>
             <div className="flex flex-col sm:flex-row items-center gap-3">
@@ -175,21 +175,21 @@ export const BillingSubscriptionView: React.FC = () => {
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
                   placeholder="e.g. 254..."
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3 py-2 border border-border-control rounded-xl text-xs font-mono bg-surface text-foreground focus:outline-none focus:ring-2 focus:ring-focus"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isProcessing}
-                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center justify-center space-x-2 disabled:opacity-50"
+                className="w-full sm:w-auto px-6 py-2.5 bg-brand-mint text-brand-navy hover:bg-brand-mint/90 rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
               >
                 <CreditCard className="w-4 h-4" />
                 <span>{isProcessing ? 'Initiating STK Push...' : 'Send M-Pesa STK Push'}</span>
               </button>
             </div>
             {stkSent && (
-              <p className="text-xs text-emerald-700 mt-2 flex items-center">
+              <p className="text-xs text-status-success mt-2 flex items-center">
                 <CheckCircle2 className="w-4 h-4 mr-1" />
                 STK push sent to {phoneNumber}. Enter M-Pesa PIN on handset to activate.
               </p>
@@ -199,17 +199,17 @@ export const BillingSubscriptionView: React.FC = () => {
       </div>
 
       {/* Invoices and Receipts History */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-            <Receipt className="w-4 h-4 text-emerald-600" />
+      <div className="bg-surface rounded-2xl border border-border-control shadow-xs">
+        <div className="p-5 border-b border-border-control/20 flex justify-between items-center">
+          <h3 className="text-xs font-bold text-strong flex items-center space-x-2">
+            <Receipt className="w-4 h-4 text-brand-mint" />
             <span>Invoices & Official Payment Receipts</span>
           </h3>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead className="bg-slate-50 font-semibold text-slate-600">
+          <table className="min-w-full divide-y divide-border-control/20 text-left text-xs">
+            <thead className="bg-surface-raised font-semibold text-muted">
               <tr>
                 <th className="px-4 py-3">Invoice ID</th>
                 <th className="px-4 py-3">Billing Coverage</th>
@@ -220,38 +220,38 @@ export const BillingSubscriptionView: React.FC = () => {
                 <th className="px-4 py-3 text-right">Download</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
+            <tbody className="divide-y divide-border-control/10 text-foreground">
               {invoices.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-xs text-slate-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-xs text-muted">
                     No billing invoices recorded yet.
                   </td>
                 </tr>
               ) : (
                 invoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-mono font-bold text-slate-900">
+                  <tr key={inv.id} className="hover:bg-surface-raised transition-colors">
+                    <td className="px-4 py-3 font-mono font-bold text-strong">
                       {inv.id}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-muted">
                       {inv.period}
                     </td>
-                    <td className="px-4 py-3 font-bold text-slate-900">
+                    <td className="px-4 py-3 font-bold text-strong">
                       KES {inv.amount_kes.toLocaleString()}
                     </td>
                     <td className="px-4 py-3 capitalize">
                       {inv.method.replace('_', ' ')}
                     </td>
-                    <td className="px-4 py-3 font-mono text-emerald-700 font-bold">
+                    <td className="px-4 py-3 font-mono text-status-success font-bold">
                       {inv.receipt}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-status-success-subtle text-status-success uppercase border border-status-success/30">
                         {inv.status}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button className="text-xs text-slate-500 hover:text-slate-800 p-1 rounded hover:bg-slate-100">
+                      <button className="text-xs text-muted hover:text-strong p-1 rounded hover:bg-surface-raised">
                         <Download className="w-3.5 h-3.5" />
                       </button>
                     </td>

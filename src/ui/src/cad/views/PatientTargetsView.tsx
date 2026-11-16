@@ -2,21 +2,25 @@
 // Clinician Nutrient Target Prescription & Bundle Management
 // Reference: Reports/Plans/CAD_IMPLEMENTATION_PLAN.md (§8.1, §8.2, §8.3)
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useCadAuth } from '../context/AuthContext'
 import type { NutrientTarget } from '../types'
-import { Plus, CheckCircle, Clock } from 'lucide-react'
-import { PageHeader, StatusBadge } from '../components/Primitives'
+import { Plus, CheckCircle, X } from 'lucide-react'
+import { PageHeader } from '../components/Primitives'
+import { DataTable } from '../../app/components/ui/DataTable'
+import { Badge } from '../../app/components/ui/Badge'
+import { Button } from '../../app/components/ui/Button'
+import { Input } from '../../app/components/ui/Input'
+import { Select } from '../../app/components/ui/Select'
 
 export const PatientTargetsView: React.FC = () => {
   const { claims, activeTenant } = useCadAuth()
   const isWritingClinician = claims.role === 'writing_clinician' || claims.role === 'super_admin'
 
-  // STAGE B: Hardcoded patient references and demo clinician IDs purged.
-  // Initial state starts empty; populated via API in Stage C.
   const [targets, setTargets] = useState<NutrientTarget[]>([])
-
   const [showModal, setShowModal] = useState(false)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
   const [patientRef, setPatientRef] = useState('')
   const [nutrientCode, setNutrientCode] = useState('SodiumMG')
   const [comparator, setComparator] = useState<'lte' | 'lt' | 'gte' | 'gt'>('lte')
@@ -24,6 +28,20 @@ export const PatientTargetsView: React.FC = () => {
   const [unit, setUnit] = useState<'mg' | 'g'>('mg')
   const [severity, setSeverity] = useState<'info' | 'caution' | 'critical'>('critical')
   const [reason, setReason] = useState('')
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    if (showModal) {
+      if (!dialog.open) {
+        dialog.showModal()
+      }
+    } else {
+      if (dialog.open) {
+        dialog.close()
+      }
+    }
+  }, [showModal])
 
   const handleCreateTarget = (e: React.FormEvent) => {
     e.preventDefault()
@@ -64,8 +82,8 @@ export const PatientTargetsView: React.FC = () => {
               status: 'active',
               cosigned_by: claims.userId || 'clinician',
             }
-          : t
-      )
+          : t,
+      ),
     )
   }
 
@@ -74,187 +92,214 @@ export const PatientTargetsView: React.FC = () => {
       <PageHeader
         eyebrow="Clinical targets"
         title="Nutrient targets and signed bundles"
-        description={<>Clinic: <strong>{activeTenant?.name || claims.tenantId}</strong>. Targets are compiled into ES256-signed client bundles.</>}
-        actions={isWritingClinician ? <button onClick={() => setShowModal(true)} className="ui-button ui-button-primary"><Plus size={17} /> Prescribe target</button> : undefined}
+        description={
+          <>
+            Clinic: <strong>{activeTenant?.name || claims.tenantId}</strong>. Targets are compiled
+            into ES256-signed client bundles.
+          </>
+        }
+        actions={
+          isWritingClinician ? (
+            <Button variant="primary" onClick={() => setShowModal(true)}>
+              <Plus size={17} /> Prescribe target
+            </Button>
+          ) : undefined
+        }
       />
 
-      {/* Targets Table */}
-      <div className="ui-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="ui-table min-w-full text-left">
-            <thead>
-              <tr>
-                <th className="px-4 py-3">Scope / Subject</th>
-                <th className="px-4 py-3">Nutrient</th>
-                <th className="px-4 py-3">Rule Constraint</th>
-                <th className="px-4 py-3">Severity</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Reason / Clinical Evidence</th>
-                <th className="px-4 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {targets.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-[color:var(--color-text-muted)]">
-                    No clinical targets prescribed yet.
-                  </td>
-                </tr>
-              ) : (
-                targets.map((tgt) => (
-                <tr key={tgt.target_id}>
-                  <td>
-                    <div className="font-semibold text-[color:var(--color-text-strong)]">{tgt.subject_ref || 'Tenant Default'}</div>
-                    <div className="mt-1 text-xs text-[color:var(--color-text-muted)] capitalize">{tgt.scope} scope</div>
-                  </td>
-                  <td className="font-semibold text-[color:var(--color-text-strong)]">
-                    {tgt.nutrient_code}
-                  </td>
-                  <td className="font-mono font-bold text-[color:var(--color-text-strong)]">
-                    {tgt.comparator.toUpperCase()} {tgt.value} {tgt.unit} / {tgt.basis.replace('_', ' ')}
-                  </td>
-                  <td>
-                    <StatusBadge tone={tgt.severity === 'critical' ? 'critical' : tgt.severity === 'caution' ? 'warning' : 'info'}>{tgt.severity}</StatusBadge>
-                  </td>
-                  <td>
-                    {tgt.status === 'active' ? (
-                      <StatusBadge tone="success"><CheckCircle size={14} /> Active</StatusBadge>
-                    ) : tgt.status === 'pending_cosign' ? (
-                      <StatusBadge tone="warning"><Clock size={14} /> Pending co-sign</StatusBadge>
-                    ) : (
-                      <StatusBadge tone="neutral">{tgt.status}</StatusBadge>
-                    )}
-                  </td>
-                  <td className="min-w-[180px] break-words text-wrap" title={tgt.reason}>
-                    {tgt.reason}
-                  </td>
-                  <td className="text-right">
-                    {tgt.status === 'pending_cosign' && isWritingClinician && (
-                      <button
-                        onClick={() => handleCosign(tgt.target_id)}
-                        className="ui-button ui-button-secondary"
-                      >
-                        Co-Sign Rule
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              )))}
-            </tbody>
-          </table>
+      {/* Targets DataTable: No truncation, Reason placed second */}
+      <DataTable<NutrientTarget>
+        columns={[
+          {
+            id: 'subject_ref',
+            header: 'Patient Ref',
+            accessor: (r) => r.subject_ref || 'Cohort Baseline',
+            cell: (v) => <span className="font-mono font-bold text-strong">{v}</span>,
+            sortable: true,
+            priority: 1,
+            kind: 'id',
+          },
+          {
+            id: 'reason',
+            header: 'Clinical Reason & Evidence',
+            accessor: (r) => r.reason,
+            cell: (v) => <span className="text-foreground break-words leading-relaxed">{v || '—'}</span>,
+            priority: 1,
+            kind: 'text',
+          },
+          {
+            id: 'constraint',
+            header: 'Rule Constraint',
+            accessor: (r) => `${r.nutrient_code} ${r.comparator} ${r.value}${r.unit}`,
+            cell: (_v, r) => (
+              <div className="flex items-center gap-1.5 font-semibold text-strong">
+                <span>{r.nutrient_code.replace('MG', '').replace('G', '')}</span>
+                <span className="font-mono text-muted">
+                  {r.comparator === 'lte' ? '≤' : r.comparator === 'lt' ? '<' : '≥'}
+                </span>
+                <span>
+                  {r.value} {r.unit}/day
+                </span>
+              </div>
+            ),
+            sortable: true,
+            priority: 2,
+            kind: 'text',
+          },
+          {
+            id: 'severity',
+            header: 'Severity',
+            accessor: (r) => r.severity,
+            cell: (v) => (
+              <Badge variant={v === 'critical' ? 'critical' : v === 'caution' ? 'warning' : 'info'}>
+                {v}
+              </Badge>
+            ),
+            sortable: true,
+            priority: 2,
+            kind: 'status',
+          },
+          {
+            id: 'status',
+            header: 'Status',
+            accessor: (r) => r.status,
+            cell: (v) => (
+              <Badge variant={v === 'active' ? 'success' : 'warning'}>
+                {v === 'active' ? 'Active' : 'Pending Cosign'}
+              </Badge>
+            ),
+            sortable: true,
+            priority: 2,
+            kind: 'status',
+          },
+          {
+            id: 'actions',
+            header: 'Action',
+            accessor: (r) => r.target_id,
+            cell: (id, r) =>
+              r.status === 'pending_cosign' && isWritingClinician ? (
+                <Button size="sm" variant="secondary" onClick={() => handleCosign(id)}>
+                  <CheckCircle size={14} /> Cosign
+                </Button>
+              ) : null,
+            priority: 1,
+            kind: 'actions',
+          },
+        ]}
+        data={targets}
+        keyExtractor={(r) => r.target_id}
+        searchable
+        searchPlaceholder="Filter targets by patient ref, nutrient, or clinical reason..."
+        emptyTitle="No clinical targets prescribed yet"
+        emptyDescription="Writing clinicians can prescribe patient-specific thresholds compiled into cryptographic Dietary Profile Tokens."
+        caption="Active clinical nutrient prescription rules"
+      />
+
+      {/* Native <dialog> Modal with showModal() */}
+      <dialog
+        ref={dialogRef}
+        onClose={() => setShowModal(false)}
+        className="backdrop:bg-black/50 backdrop:backdrop-blur-xs rounded-2xl bg-surface border border-border-control p-6 max-w-lg w-full text-foreground shadow-xl m-auto"
+      >
+        <div className="flex items-center justify-between pb-3 border-b border-border-control/20">
+          <h2 className="text-[16px] font-bold text-strong">Prescribe clinical nutrient target</h2>
+          <button
+            type="button"
+            onClick={() => setShowModal(false)}
+            aria-label="Close dialog"
+            className="p-1 rounded-lg text-muted hover:text-strong hover:bg-surface-raised cursor-pointer"
+          >
+            <X size={18} />
+          </button>
         </div>
-      </div>
 
-      {/* Target Prescription Modal */}
-      {showModal && (
-        <div className="ui-modal-backdrop" role="presentation">
-          <div className="ui-modal space-y-4" role="dialog" aria-modal="true" aria-labelledby="target-dialog-title">
-            <h2 id="target-dialog-title" className="text-xl font-bold text-[color:var(--color-text-strong)]">Prescribe clinical nutrient target</h2>
-            <form onSubmit={handleCreateTarget} className="space-y-4 text-sm">
-              <div>
-                <label className="ui-field-label">Patient identifier ref</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="patient-ref"
-                  value={patientRef}
-                  onChange={(e) => setPatientRef(e.target.value)}
-                  className="ui-input mt-1"
-                />
-              </div>
+        <form onSubmit={handleCreateTarget} className="mt-4 flex flex-col gap-4 text-xs">
+          <Input
+            label="Patient identifier ref"
+            required
+            placeholder="patient-test-01"
+            value={patientRef}
+            onChange={(e) => setPatientRef(e.target.value)}
+          />
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="ui-field-label">Nutrient</label>
-                  <select
-                    value={nutrientCode}
-                    onChange={(e) => {
-                      setNutrientCode(e.target.value)
-                      if (e.target.value === 'SodiumMG' || e.target.value === 'PotassiumMG') {
-                        setUnit('mg')
-                      } else {
-                        setUnit('g')
-                      }
-                    }}
-                    className="ui-select mt-1"
-                  >
-                    <option value="SodiumMG">Sodium (mg)</option>
-                    <option value="SugarsG">Sugars (g)</option>
-                    <option value="SaturatedFatG">Saturated Fat (g)</option>
-                    <option value="PotassiumMG">Potassium (mg) [Renal]</option>
-                    <option value="PhosphorusMG">Phosphorus (mg) [Renal]</option>
-                    <option value="ProteinG">Protein (g)</option>
-                  </select>
-                </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Select
+              label="Nutrient"
+              value={nutrientCode}
+              onChange={(e) => {
+                setNutrientCode(e.target.value)
+                if (e.target.value === 'SodiumMG' || e.target.value === 'PotassiumMG') {
+                  setUnit('mg')
+                } else {
+                  setUnit('g')
+                }
+              }}
+            >
+              <option value="SodiumMG">Sodium (mg)</option>
+              <option value="SugarsG">Sugars (g)</option>
+              <option value="SaturatedFatG">Saturated Fat (g)</option>
+              <option value="PotassiumMG">Potassium (mg) [Renal]</option>
+              <option value="PhosphorusMG">Phosphorus (mg) [Renal]</option>
+              <option value="ProteinG">Protein (g)</option>
+            </Select>
 
-                <div>
-                  <label className="ui-field-label">Comparator and limit</label>
-                  <div className="flex space-x-2 mt-1">
-                    <select
-                      value={comparator}
-                      onChange={(e) => setComparator(e.target.value as any)}
-                      className="ui-select w-auto"
-                    >
-                      <option value="lte">&le; (Max)</option>
-                      <option value="lt">&lt; (Less)</option>
-                      <option value="gte">&ge; (Min)</option>
-                    </select>
-                    <input
-                      type="number"
-                      required
-                      value={value}
-                      onChange={(e) => setValue(Number(e.target.value))}
-                      className="ui-input flex-1 font-bold"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="ui-field-label">Severity</label>
+            <div className="flex flex-col gap-1">
+              <label className="text-[12px] font-medium text-strong">Comparator & Limit</label>
+              <div className="flex gap-2">
                 <select
-                  value={severity}
-                  onChange={(e) => setSeverity(e.target.value as any)}
-                  className="ui-select mt-1"
+                  value={comparator}
+                  onChange={(e) => setComparator(e.target.value as any)}
+                  className="h-10 px-2.5 bg-surface text-foreground text-[12px] rounded-xl border border-border-control outline-none focus-visible:ring-2 focus-visible:ring-focus"
                 >
-                  <option value="critical">Critical (Breach triggers emergency alert)</option>
-                  <option value="caution">Caution (Warning on high concentration)</option>
-                  <option value="info">Informational</option>
+                  <option value="lte">≤</option>
+                  <option value="lt">&lt;</option>
+                  <option value="gte">≥</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="ui-field-label">Clinical rationale and evidence reference</label>
-                <textarea
+                <input
+                  type="number"
                   required
-                  rows={2}
-                  placeholder="Clinical indication (e.g. KDIGO 2024 Guidelines, Stage 3 CKD management)..."
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  className="ui-textarea mt-1"
+                  value={value}
+                  onChange={(e) => setValue(Number(e.target.value))}
+                  className="h-10 px-3 bg-surface text-foreground font-bold text-[12px] rounded-xl border border-border-control outline-none focus-visible:ring-2 focus-visible:ring-focus w-full"
                 />
               </div>
-
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="ui-button ui-button-secondary"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="ui-button ui-button-primary"
-                >
-                  Publish Target
-                </button>
-              </div>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
+
+          <Select
+            label="Severity"
+            value={severity}
+            onChange={(e) => setSeverity(e.target.value as any)}
+          >
+            <option value="critical">Critical (Breach triggers emergency alert)</option>
+            <option value="caution">Caution (Warning on high concentration)</option>
+            <option value="info">Informational</option>
+          </Select>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[12px] font-medium text-strong">
+              Clinical rationale & evidence reference
+            </label>
+            <textarea
+              required
+              rows={3}
+              placeholder="Clinical indication (e.g. KDIGO 2024 Guidelines, Stage 3 CKD management)..."
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="p-3 bg-surface text-foreground text-[12px] rounded-xl border border-border-control outline-none focus-visible:ring-2 focus-visible:ring-focus leading-relaxed"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-border-control/20">
+            <Button type="button" variant="secondary" onClick={() => setShowModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary">
+              Publish Target
+            </Button>
+          </div>
+        </form>
+      </dialog>
     </div>
   )
 }
-

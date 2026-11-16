@@ -212,8 +212,8 @@ export function Options() {
           </div>
 
           <div className="sm:text-right">
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-status-success-subtle text-status-success border border-status-success/30">
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-status-success" />
               <span>Active Care Enrollment</span>
             </span>
             <p className="text-xs text-[color:var(--t-color-text-muted)] mt-1">{profile.clinicName}</p>
@@ -247,7 +247,7 @@ export function Options() {
           {/* Active Targets Table */}
           <div className="space-y-2 pt-1">
             <h3 className="text-xs font-semibold text-[color:var(--t-color-text-strong)]">Active Prescribed Nutrient Thresholds</h3>
-            <div className="border border-[color:var(--t-color-border-subtle)] rounded-xl overflow-hidden text-xs">
+            <div className="border border-[color:var(--t-color-border-subtle)] rounded-xl overflow-x-auto text-xs">
               <table className="min-w-full divide-y divide-[color:var(--t-color-border-subtle)]">
                 <thead className="bg-[color:var(--t-color-surface-subtle)] text-[color:var(--t-color-text-muted)] font-semibold">
                   <tr>
@@ -271,7 +271,7 @@ export function Options() {
 
           {/* Clinical Authority Advisory */}
           <div className="p-3.5 bg-[color:var(--t-color-surface-subtle)] rounded-xl border border-[color:var(--t-color-border-subtle)] text-xs text-[color:var(--t-color-text-muted)] flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <AlertTriangle className="w-4 h-4 text-status-warning shrink-0 mt-0.5" />
             <span>
               Health modes and dietary thresholds are calibrated exclusively by your primary care clinician (
               <strong className="text-[color:var(--t-color-text-strong)]">{profile.clinicianName}</strong>). Patients cannot self-modify conditions. To review or adjust your care targets, please consult your clinic.
@@ -386,7 +386,7 @@ export function Options() {
                 onClick={() => setShowPurgeConfirm(true)}
                 className="px-3.5 py-2 border border-[color:var(--t-color-border-control)] hover:bg-[color:var(--t-color-surface-subtle)] text-[color:var(--t-color-text-strong)] rounded-xl font-semibold flex items-center gap-1.5 transition-colors"
               >
-                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <Trash2 className="w-3.5 h-3.5 text-status-error" />
                 <span>Clear Local Cache</span>
               </button>
             </div>
@@ -399,7 +399,7 @@ export function Options() {
               <button
                 type="button"
                 onClick={() => setShowSignOutConfirm(true)}
-                className="px-3.5 py-2 border border-rose-300 text-rose-700 hover:bg-rose-50 rounded-xl font-semibold flex items-center gap-1.5 transition-colors"
+                className="px-3.5 py-2 border border-status-error/30 text-status-error hover:bg-status-error-subtle rounded-xl font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 <span>Sign Out</span>

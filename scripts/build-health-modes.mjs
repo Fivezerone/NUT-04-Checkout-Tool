@@ -6,16 +6,15 @@ import { HEALTH_MODES } from '../src/shared/health-modes.mjs'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// Generate CSS
-let css = '/* Generated from src/shared/health-modes.mjs - do not edit directly */\n\n'
-for (const [key, mode] of Object.entries(HEALTH_MODES)) {
+// Generate CSS — Neutral chip tokens only; surface/header recolouring eliminated per Part C §4.2 / D-03
+let css = '/* Generated from src/shared/health-modes.mjs - do not edit directly */\n'
+css += '/* Surface and header recolouring removed per Part C §4.2 / D-03 */\n\n'
+
+for (const [, mode] of Object.entries(HEALTH_MODES)) {
   css += `:root[data-health-condition="${mode.id}"] {\n`
-  css += `  --condition-primary: ${mode.palette.primary};\n`
-  css += `  --condition-accent-bg: ${mode.palette.accentBg};\n`
-  css += `  --condition-border: ${mode.palette.border};\n`
-  css += `  --condition-header-bg: ${mode.palette.headerBg};\n`
-  css += `  --condition-header-text: ${mode.palette.headerText};\n`
-  css += `  --condition-header-sub: ${mode.palette.headerSub};\n`
+  css += `  --condition-chip-color: ${mode.palette.primary};\n`
+  css += `  --condition-chip-bg: ${mode.palette.accentBg};\n`
+  css += `  --condition-chip-border: ${mode.palette.border};\n`
   css += `}\n\n`
 }
 

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "surface": {
+    "clinical": {
+      "radius_card": { "$value": "12px", "$type": "dimension" },
+      "radius_control": { "$value": "8px", "$type": "dimension" },
+      "row_height": { "$value": "40px", "$type": "dimension" },
+      "row_height_compact": { "$value": "36px", "$type": "dimension" },
+      "card_padding": { "$value": "16px", "$type": "dimension" },
+      "grid_gap": { "$value": "16px", "$type": "dimension" },
+      "action_primary": { "$value": "#0B6E91", "$type": "color" }
+    }
+  }
+}

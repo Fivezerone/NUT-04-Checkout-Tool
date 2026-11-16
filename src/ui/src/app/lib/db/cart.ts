@@ -223,6 +223,36 @@ export async function deleteLedgerEntry(id: string): Promise<void> {
   await db.delete("shopping_ledger", id);
 }
 
+/**
+ * ADR-005 & §4.10: 90-Day Device Storage Ceiling
+ * Purges shopping ledger entries older than the cutoff timestamp.
+ */
+export async function purgeLedgerOlderThan(cutoff: number): Promise<number> {
+  const db = await getDB();
+  const range = IDBKeyRange.upperBound(cutoff, true);
+  const tx = db.transaction("shopping_ledger", "readwrite");
+  const index = tx.store.index("by-addedAt");
+  let cursor = await index.openCursor(range);
+  let count = 0;
+  while (cursor) {
+    await cursor.delete();
+    count++;
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+  return count;
+}
+
+/**
+ * Retrieves shopping ledger entries added on or after the start timestamp.
+ */
+export async function getEntriesSince(start: number): Promise<ShoppingLedgerRow[]> {
+  const db = await getDB();
+  const range = IDBKeyRange.lowerBound(start);
+  const all = await db.getAllFromIndex("shopping_ledger", "by-addedAt", range);
+  return all.reverse(); // newest first
+}
+
 // ── M2: Pending cart-sync helpers (SW-termination-resilient alarm retry) ─────
 
 /**

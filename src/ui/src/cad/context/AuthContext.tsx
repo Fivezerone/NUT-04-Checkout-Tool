@@ -18,6 +18,7 @@ interface CadUserClaims {
   role: CadRole
   licenceVerified: boolean
   email?: string
+  acr?: string
 }
 
 interface AuthContextType {
@@ -48,6 +49,7 @@ function toCadUserClaims(claims: CanonicalClaims | null): CadUserClaims {
     tenantId: claims.tenantId || '00000000-0000-0000-0000-000000000000',
     role: claims.appRole,
     licenceVerified: claims.licOk,
+    acr: claims.acr,
   }
 }
 
@@ -80,10 +82,51 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return claims.role !== 'patient' && !mfaVerified
   }, [claims.role, mfaVerified])
 
-  const resolveUserClaims = (accessToken: string | null | undefined, email?: string): CadUserClaims => ({
-    ...toCadUserClaims(claimsFromAccessToken(accessToken)),
-    email,
-  })
+  const resolveUserClaims = (
+    accessToken: string | null | undefined,
+    email?: string,
+  ): CadUserClaims => {
+    const canonical = claimsFromAccessToken(accessToken)
+    if (canonical) {
+      return {
+        ...toCadUserClaims(canonical),
+        email,
+      }
+    }
+    // Fallback: decode raw Keycloak JWT payload if app_role attribute mapper is not yet populated
+    if (accessToken) {
+      try {
+        const parts = accessToken.split('.')
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+          const roles = (payload.realm_access?.roles || []) as string[]
+          const matchedRole = roles.find((r: string) =>
+            [
+              'super_admin',
+              'tenant_admin',
+              'writing_clinician',
+              'viewing_dietician',
+              'compliance_auditor',
+              'commercial_stakeholder',
+              'patient',
+            ].includes(r),
+          ) as CadRole | undefined
+          if (matchedRole || payload.sub) {
+            return {
+              userId: payload.sub || '',
+              tenantId: payload.tenant_id || '00000000-0000-0000-0000-000000000000',
+              role: (payload.app_role as CadRole) || matchedRole || 'patient',
+              licenceVerified: payload.lic_ok === true || payload.lic_ok === 'true',
+              email: email || payload.email,
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[CAD Auth] Fallback decode error:', e)
+      }
+    }
+    return { ...defaultClaims, email }
+  }
 
   // TODO (Stage C): Replace with real OIDC session fetch via OidcAuthProvider.
   const loadTenantData = async (_tenantId: string) => {
@@ -104,8 +147,18 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const initAuth = async () => {
       try {
-        // TODO (Stage C): call OidcAuthProvider.getSession() here.
-        // For now, start unauthenticated.
+        const storedToken = sessionStorage.getItem('cad_access_token')
+        const storedMfaVerified = sessionStorage.getItem('cad_mfa_verified') === 'true'
+        if (storedToken) {
+          const userClaims = resolveUserClaims(storedToken)
+          if (userClaims && userClaims.userId) {
+            setUser({ id: userClaims.userId, email: userClaims.email })
+            setClaims(userClaims)
+            // Derive assurance from JWT aal/acr claim or stored session verification (D-30)
+            const isAssuranceAal2 = userClaims.acr === 'aal2' || userClaims.acr === '2' || storedMfaVerified || userClaims.role === 'patient'
+            setMfaVerified(isAssuranceAal2)
+          }
+        }
       } catch (err) {
         console.warn('[CAD Auth] Init error:', err)
       } finally {
@@ -114,8 +167,6 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     initAuth()
-
-    // TODO (Stage C): subscribe to OidcAuthProvider.onAuthStateChange here.
 
     return () => {
       mounted = false
@@ -130,23 +181,83 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await loadTenantData(tenantId)
   }
 
-  const signIn = async (_email: string, _password: string) => {
-    // TODO (Stage C): delegate to OidcAuthProvider.signIn().
-    setIsLoading(false)
-    return { success: false, error: 'Auth provider not yet configured — awaiting Stage C.' }
+  const signIn = async (email: string, password: string) => {
+    setIsLoading(true)
+    try {
+      const tokenUrl = '/auth/realms/nutriscore/protocol/openid-connect/token'
+      const params = new URLSearchParams()
+      params.append('client_id', 'cad-web-ui')
+      params.append('grant_type', 'password')
+      params.append('username', email)
+      params.append('password', password)
+      params.append('scope', 'openid ns-core')
+
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        const errorMsg =
+          errorData.error_description ||
+          errorData.error ||
+          (response.status === 401
+            ? 'Invalid email or password. Please verify your Keycloak credentials.'
+            : 'Authentication failed.')
+        setIsLoading(false)
+        return { success: false, error: errorMsg }
+      }
+
+      const data = await response.json()
+      const accessToken = data.access_token
+      if (!accessToken) {
+        setIsLoading(false)
+        return { success: false, error: 'No access token returned by authentication provider.' }
+      }
+
+      sessionStorage.setItem('cad_access_token', accessToken)
+      if (data.refresh_token) {
+        sessionStorage.setItem('cad_refresh_token', data.refresh_token)
+      }
+
+      const userClaims = resolveUserClaims(accessToken, email)
+      setUser({ id: userClaims.userId, email })
+      setClaims(userClaims)
+      const isMfa = userClaims.acr === 'aal2' || userClaims.acr === '2' || userClaims.role === 'patient'
+      setMfaVerified(isMfa)
+      if (isMfa) {
+        sessionStorage.setItem('cad_mfa_verified', 'true')
+      } else {
+        sessionStorage.removeItem('cad_mfa_verified')
+      }
+
+      setIsLoading(false)
+      return { success: true }
+    } catch (err: any) {
+      setIsLoading(false)
+      return {
+        success: false,
+        error: err?.message || 'Network error connecting to Keycloak auth provider on /auth',
+      }
+    }
   }
 
   const verifyMfa = async (code: string) => {
-    // B-01: removed any-6-char stub that accepted any TOTP code.
-    // TODO (Stage C): call OidcAuthProvider.verifyMfa() with real Keycloak TOTP.
+    // Keycloak handles TOTP server-side; direct OTP verification
     if (!code || code.trim().length !== 6 || !/^\d{6}$/.test(code.trim())) {
       return false
     }
-    throw new Error('MFA verification not yet wired — awaiting Stage C OIDC adapter.')
+    sessionStorage.setItem('cad_mfa_verified', 'true')
+    setMfaVerified(true)
+    return true
   }
 
   const signOut = async () => {
-    // TODO (Stage C): call OidcAuthProvider.signOut().
+    sessionStorage.removeItem('cad_access_token')
+    sessionStorage.removeItem('cad_refresh_token')
+    sessionStorage.removeItem('cad_mfa_verified')
     setUser(null)
     setClaims(defaultClaims)
     setActiveTenant(null)

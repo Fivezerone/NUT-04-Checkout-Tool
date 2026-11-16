@@ -4,10 +4,8 @@
 
 import * as React from "react";
 import { useState, useEffect, lazy, Suspense } from "react";
-// @ts-ignore
-window.React = React;
 import { createRoot } from "react-dom/client";
-import { Dashboard } from "./app/components/Dashboard";
+import { ShopperShell } from "./app/components/ShopperShell";
 import { ThemeProvider } from "./app/context/ThemeContext";
 import { supabase, signOutUser, setOnboardingCompleted } from "./services/storage";
 import { AlertTriangle } from "lucide-react";
@@ -25,54 +23,6 @@ interface UserProfile {
   patientEmail?: string;
   clinician?: string;
   clinic?: string;
-}
-
-/**
- * applyPersonalization — DOM-level greeting update for the static HTML scaffold.
- * Greet with first name only per Phase 4 requirements.
- */
-function applyPersonalization(profile: UserProfile) {
-  const { name, initials, primaryMetric } = profile;
-
-  // 1. Dynamic Greeting with FIRST NAME ONLY
-  const firstName = (name || "").trim().split(" ")[0] || "Shopper";
-  const hour = new Date().getHours();
-  const timeStr = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const greetingEl = document.getElementById("user-greeting");
-  const subtitleEl = document.getElementById("user-subtitle");
-  if (greetingEl) greetingEl.textContent = `${timeStr}, ${firstName}`;
-  if (subtitleEl) subtitleEl.textContent = "Shopper Dashboard — Shopping Analytics";
-
-  // 2. Avatar
-  const avatarEl = document.getElementById("user-avatar-badge");
-  if (avatarEl) avatarEl.textContent = initials || "";
-
-  // 3. Metric legend sort (primary metric sorted first)
-  const metricList = document.getElementById("nutrient-legend-list");
-  if (metricList) {
-    const items = Array.from(metricList.children);
-    items.sort((a) => ((a.textContent ?? "").includes(primaryMetric || "") ? -1 : 1));
-    items.forEach((item) => metricList.appendChild(item));
-  }
-
-  // 4. Ledger empty state
-  const ledgerEmptyState = document.getElementById("ledger-empty-msg");
-  if (ledgerEmptyState) {
-    ledgerEmptyState.replaceChildren();
-    const wrap = document.createElement("div");
-    wrap.style.cssText = "padding:48px 0;text-align:center;";
-
-    const h4 = document.createElement("h4");
-    h4.style.cssText = "font-weight:700;color:#334155;margin-bottom:4px;";
-    h4.textContent = `Ready to track your ${primaryMetric}?`;
-
-    const p = document.createElement("p");
-    p.style.cssText = "font-size:0.75rem;color:#64748b;margin-bottom:16px;";
-    p.textContent = "Add items to your cart to activate real-time alerts.";
-
-    wrap.append(h4, p);
-    ledgerEmptyState.appendChild(wrap);
-  }
 }
 
 // D-11: definitive JWT error codes that warrant a sign-out
@@ -260,21 +210,10 @@ function DashboardRoot() {
     setBootKey((k) => k + 1);
   };
 
-  useEffect(() => {
-    if (profile) applyPersonalization(profile);
-  }, [profile]);
-
-  const handleOnboardingComplete = (p?: UserProfile) => {
-    if (p) {
-      setProfile(p);
-      setAuthState("active");
-    }
-  };
-
   if (!ready) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <p className="text-sm text-slate-500 font-medium">Loading Shopper Dashboard...</p>
+      <div className="min-h-screen flex items-center justify-center bg-canvas">
+        <p className="text-[12px] text-muted font-medium">Loading Shopper Dashboard...</p>
       </div>
     );
   }
@@ -282,12 +221,12 @@ function DashboardRoot() {
   if (authState === 'offline') {
     return (
       <ThemeProvider>
-        <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-6 text-center bg-slate-50">
-          <p className="text-sm font-semibold text-slate-800">Connection Offline</p>
-          <p className="text-xs text-slate-500">Could not verify clinic enrollment status.</p>
+        <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-6 text-center bg-canvas">
+          <p className="text-[14px] font-semibold text-strong">Connection Offline</p>
+          <p className="text-[12px] text-muted">Could not verify clinic enrollment status.</p>
           <button
             type="button"
-            className="px-4 py-2 text-xs rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition"
+            className="px-4 py-2 text-[12px] rounded-xl bg-brand-mint text-brand-navy font-semibold hover:bg-brand-mint/90 transition cursor-pointer"
             onClick={retryInit}
           >
             Retry
@@ -302,8 +241,8 @@ function DashboardRoot() {
       <ThemeProvider>
         <Suspense
           fallback={
-            <div className="min-h-screen flex items-center justify-center">
-              <p className="text-sm text-slate-400">Loading...</p>
+            <div className="min-h-screen flex items-center justify-center bg-canvas">
+              <p className="text-[12px] text-muted">Loading...</p>
             </div>
           }
         >
@@ -322,18 +261,18 @@ function DashboardRoot() {
   if (authState === "suspended") {
     return (
       <ThemeProvider>
-        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center font-sans">
-          <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm">
+        <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-6 text-center font-sans">
+          <div className="w-12 h-12 bg-status-warning-subtle text-status-warning rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-xs">
             <AlertTriangle className="w-6 h-6" />
           </div>
-          <h2 className="text-base font-bold text-slate-900">Clinical Care Enrollment Paused</h2>
-          <p className="text-xs text-slate-600 max-w-sm mt-1.5 leading-relaxed">
+          <h2 className="text-[16px] font-bold text-strong">Clinical Care Enrollment Paused</h2>
+          <p className="text-[12px] text-muted max-w-sm mt-1.5 leading-relaxed">
             Your clinical nutrition monitoring has been paused or deactivated by your clinical care team. Please contact your primary clinic to review your care enrollment.
           </p>
           <button
             type="button"
             onClick={() => signOutUser().then(() => (window.location.href = "onboarding.html"))}
-            className="mt-5 px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition"
+            className="mt-5 px-4 py-2 border border-border-control hover:bg-surface-raised text-strong rounded-xl text-[12px] font-semibold transition cursor-pointer"
           >
             Sign Out
           </button>
@@ -344,11 +283,8 @@ function DashboardRoot() {
 
   return (
     <ThemeProvider>
-      <div
-        className="min-h-screen overflow-auto"
-        style={{ backgroundColor: "var(--background)" }}
-      >
-        <Dashboard onBack={() => window.close()} />
+      <div className="min-h-screen bg-canvas">
+        <ShopperShell onBack={() => window.close()} />
       </div>
     </ThemeProvider>
   );

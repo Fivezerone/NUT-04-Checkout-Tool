@@ -11,7 +11,8 @@ import type { Grade } from "../nutriscore";
 
 export function resolveTimeframe(timeframeKey: string, now = Date.now()) {
   const start = new Date(now);
-  let bucketUnit = "day", bucketCount = 1;
+  let bucketUnit = "day";
+  let bucketCount: number;
   const tickLabelFormat = "short";
 
   if (timeframeKey === "today") {
@@ -31,14 +32,12 @@ export function resolveTimeframe(timeframeKey: string, now = Date.now()) {
     start.setHours(0, 0, 0, 0);
     bucketUnit = "week";
     bucketCount = 12;
-  } else if (timeframeKey === "year") {
-    start.setFullYear(start.getFullYear() - 1);
-    bucketUnit = "month";
+  } else {
+    // 90-day device ceiling (ADR-005): 'year' and 'all' are banned; fallback to 3-month window
+    start.setMonth(start.getMonth() - 3);
+    start.setHours(0, 0, 0, 0);
+    bucketUnit = "week";
     bucketCount = 12;
-  } else if (timeframeKey === "all") {
-    start.setFullYear(2020);
-    bucketUnit = "month";
-    bucketCount = 60;
   }
 
   const tickLabelFn = (ts: number) => {

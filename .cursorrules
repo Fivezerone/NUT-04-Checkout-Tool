@@ -1,0 +1,33 @@
+# .cursorrules — Cursor IDE Architecture & Safety Rules
+
+# Master Mandate: Read AGENTS.md before modifying any file.
+# Repository: NUT-04 Checkout Tool (NutriScore Kenya Digital Health Platform)
+
+1. HOST ISOLATION (Rule R4):
+   - Never run node, npm, python, psql, or build scripts on the host terminal.
+   - Use `.\bin\nut.ps1 <verb>` on Windows or `./bin/nut <verb>` on Linux/macOS.
+   - Container execution: `docker compose exec toolchain <cmd>`.
+
+2. ZERO HARDCODED PATIENT PII OR CLINIC IDENTIFIERS (Rule R5 & Stage B):
+   - Never insert PAT-XXXX, pat-anon-XXXX, @knh.or.ke, @akuh.ac.ke, real hospital names, or phone numbers.
+   - Initialize arrays with empty literals (`[]`) and show clean empty states.
+   - Use synthetic `.test` fixtures only.
+
+3. ZERO SUPABASE DEPENDENCIES (ADR-001):
+   - Supabase is completely decommissioned. Do not import `@supabase/*` or add `VITE_SUPABASE_*` variables.
+   - Use Keycloak (OIDC on `/auth/*`), PostgREST (RLS on `/api/*`), Fastify API (on `/api/v1/*`), and Caddy Gateway.
+
+4. DIETARY PROFILE TOKEN (DPT) PRIVACY (ADR-010):
+   - Never place medical diagnoses or condition strings in tokens. Use `ALLOWLISTED_KEYS` (e.g. `sodium_mg_per_100g_max`).
+   - Fail-closed on food swaps: never recommend a swap if nutrition data is missing or unverified (`review_state >= ESTIMATED`).
+
+5. IMMUTABLE WORM AUDIT & RLS (ADR-008 & ADR-012):
+   - Enforce Row Level Security checking `app_private.claims()->>'tenant_id'` on all multi-tenant tables.
+   - Never execute UPDATE, DELETE, or TRUNCATE on `audit.ledger` or `clinical.clinical_records`.
+
+6. 90-DAY DEVICE STORAGE CEILING (ADR-005):
+   - Shopping history in IndexedDB is purged after 90 days. UI queries are limited to `today`, `week`, `month`, and `3months`.
+
+7. MANDATORY CI CHECK BEFORE COMMIT:
+   - Run `.\bin\nut.ps1 ci` (must pass with 0 errors across all 12 gates).
+

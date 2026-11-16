@@ -199,41 +199,315 @@ docker compose exec toolchain node scripts/check-manifest-globals.mjs
 
 ---
 
-## Section 2 — Keycloak OIDC Authentication & JWT Claims Contract
+## Section 2 — Keycloak Auth Provider Configuration & Multi-Role User Manual
 
-**Goal:** Verify the enterprise OIDC authentication flow and ensure strict claims adherence (no PHI or raw PII in tokens).
+> [!NOTE]
+> **Diagnostic Context (The "Auth Provider Not Yet Configured" Alert):**  
+> If you enter credentials on `http://localhost:8080/cad/` and encounter the alert banner:  
+> `Auth provider not yet configured — awaiting Stage C.`  
+> This occurs because the CAD frontend login form requires the Keycloak `nutriscore` realm to have the `cad-web-ui` client configured with **Direct Access Grants** enabled and user accounts provisioned in Keycloak. Follow the step-by-step procedures below to configure Keycloak as Super Admin, provision healthcare users, and operate all CAD workflows.
 
-### 2.1 Sign In to the CAD Web Application
+---
 
-Navigate in Chrome to the dedicated CAD entrypoint:
+### Part 2.1 — Configuring Keycloak Auth Provider for CAD Access
 
-- **Docker Compose Gateway:**  
-  `http://localhost:8080/cad/`  
-  *(Note: navigating to `http://localhost:8080/cad.html` or `http://localhost:8080/cad` automatically redirects with HTTP 301 to `/cad/`)*.  
-  The Caddy gateway reverse-proxies `/cad/*` to the dedicated Nginx container (`cad:8080`), `/auth/*` to Keycloak (`keycloak:8080`), and `/api/*` to PostgREST (`postgrest:3000`).
+#### Step 1: Access the Keycloak Admin Console
+1. Open Google Chrome and navigate to:  
+   `http://localhost:8080/auth/admin` (or `http://localhost:8080/admin/`)
+2. Sign in to the Master Realm Administration Console using the bootstrap credentials:
+   - **Username:** `admin`
+   - **Password:** Preloaded in `.secrets/kc_admin_password` (default: `nutriscore_dev_secret_kc_admin_2026`)
+3. Upon successful sign-in, locate the realm dropdown in the top-left corner (initially showing `master`).
+4. Click the dropdown and select the **`nutriscore`** realm.
 
-1. Open Chrome and navigate to `http://localhost:8080/cad/`.
-2. The CAD Clinical Login portal renders cleanly with NutriScore branding, email, and password fields.
-3. Sign in with the test clinician account:
-   - **Username / Email:** `clinician.one@clinic.test`
-   - **Password:** Preloaded via `infra/keycloak-realm.json` or `.secrets/`
+#### Step 2: Configure the CAD Web UI Client (`cad-web-ui`)
+1. In the left navigation sidebar under **Manage**, click **Clients**.
+2. In the clients list, click on **`cad-web-ui`** (NutriScore Clinical Assessment Dashboard UI).
+3. In the **Settings** tab, verify and configure the following parameters:
+   - **Client type:** `OpenID Connect`
+   - **Client ID:** `cad-web-ui`
+   - **Client authentication:** `OFF` (Public client — browser single-page applications cannot protect secrets)
+   - **Authentication flow checkboxes:**
+     - [x] **Standard flow** (Authorization Code Flow with PKCE)
+     - [x] **Direct access grants** (Enables direct authentication from the CAD sign-in form)
+     - [ ] *Implicit flow* (Must remain disabled)
+   - **Access settings:**
+     - **Root URL:** `http://localhost:8080`
+     - **Home URL:** `http://localhost:8080/cad/`
+     - **Valid redirect URIs:** Add the following four patterns:
+       - `http://localhost:8080/*`
+       - `http://localhost:8080/cad/*`
+       - `http://localhost:5173/*`
+       - `https://cad.nutriscore.co.ke/*`
+     - **Valid post logout redirect URIs:** `http://localhost:8080/*`
+     - **Web origins:** `+` (or `*`, `http://localhost:8080`)
+4. Click **Save** at the bottom of the page.
 
-### 2.2 Inspect the JWT Token in Chrome DevTools
-1. Press `F12` to open DevTools → Navigate to the **Network** tab.
-2. Filter for `token` or look for the Keycloak OIDC token exchange response:
-   `POST http://localhost:8080/auth/realms/nutriscore/protocol/openid-connect/token`
-3. Copy the returned `access_token`.
-4. Inspect the payload claims using the toolchain container:
+#### Step 3: Verify Client Scopes & Protocol Mappers
+1. Still inside `cad-web-ui`, click the **Client scopes** tab.
+2. Confirm that **`ns-core`** is listed under **Default** client scopes.
+3. If missing, click **Add client scope** → select `ns-core` → choose **Default**.
+4. To inspect the claim mappers, navigate to **Client scopes** in the left sidebar → click **`ns-core`** → **Mappers** tab. Verify the 6 authoritative protocol mappers are present:
+   - `tenant_id` (maps user attribute `tenant_id` → JWT claim `tenant_id`)
+   - `app_role` (maps user attribute `app_role` → JWT claim `app_role`)
+   - `lic_ok` (maps user attribute `lic_ok` → boolean JWT claim `lic_ok`)
+   - `auditor_scope` (maps user attribute `auditor_scope` → JWT claim `auditor_scope`)
+   - `ver` (hardcoded int claim `1`)
+   - `sid` (session note `sessionId` → JWT claim `sid`)
+
+---
+
+### Part 2.2 — Creating the Super Administrator User in Keycloak
+
+To log in as Super Admin and initialize the CAD platform, create the user inside Keycloak:
+
+> [!CAUTION]
+> **Verify Active Realm (`nutriscore` vs `master`):**  
+> If the top-left dropdown shows **`master`**, all roles you see will be internal Keycloak server roles (such as `realm-management realm-admin`, `manage-clients`, etc.).  
+> **Do NOT assign `realm-admin`:** The CAD application validates application-specific roles defined in `src/shared/claims.ts`. `realm-admin` is not a valid CAD role and will result in an authorization failure. You MUST switch to the **`nutriscore`** realm where the authoritative **`super_admin`** realm role resides.
+
+> [!NOTE]
+> **Keycloak 26 Declarative User Profile & The "Attributes" Tab:**  
+> In Keycloak 26, the Declarative User Profile feature is active by default. If unmanaged attributes are disabled, Keycloak hides the **Attributes** tab from the user edit screen.  
+> The `nutriscore` realm has been configured with `unmanagedAttributePolicy: "ADMIN_EDIT"`, which enables the **Attributes** tab for adding arbitrary claims (`app_role`, `tenant_id`, `lic_ok`). If you do not see the tab, refresh your browser.
+
+#### Step 1: Add New User
+1. In the left sidebar of Keycloak (under `nutriscore` realm), click **Users**.
+2. Click the **Add user** button (top-right).
+3. Fill in the user profile:
+   - **Username:** `admin@nutriscore.test` (or `alexkibet111@gmail.com`)
+   - **Email:** `alexkibet111@gmail.com`
+   - **First name:** `Platform`
+   - **Last name:** `SuperAdmin`
+   - **Email verified:** Toggle **ON**
+   - **Enabled:** Toggle **ON**
+4. Click **Create**.
+
+#### Step 2: Set Super Admin Password
+1. In the user detail screen, click the **Credentials** tab.
+2. Click **Set password**.
+3. In the dialog:
+   - **Password:** `NutriScoreAdmin2026!` (must satisfy length $\ge 12$ per password policy)
+   - **Password confirmation:** `NutriScoreAdmin2026!`
+   - **Temporary:** Toggle **OFF** (prevents forced password reset on first login)
+4. Click **Save** → click **Set password** to confirm.
+
+#### Step 3: Assign the `super_admin` Realm Role
+1. Click the **Role mapping** tab.
+2. Click **Assign role**.
+3. In the search filter, select **Filter by realm roles**.
+4. Check the box for **`super_admin`**.
+5. Click **Assign**.
+
+#### Step 4: Add Mandatory User Attributes for Claims Contract
+The CAD and PostgREST RLS engine require custom attributes to populate JWT claims:
+1. Click the **Attributes** tab.
+2. Add the following key-value pairs (clicking **Add attribute** for each):
+
+| Attribute Key | Value | Purpose |
+|---|---|---|
+| `app_role` | `super_admin` | Injected into JWT `app_role` for CAD authorization |
+| `tenant_id` | `11111111-1111-1111-1111-111111111111` | Primary platform tenant scoping UUID |
+| `lic_ok` | `true` | Regulatory compliance flag |
+
+3. Click **Save**.
+
+---
+
+### Part 2.3 — Accessing the CAD as Super Admin
+
+Now that Keycloak is configured, sign in to the Clinic Admin Dashboard:
+
+1. Open a new Chrome tab and navigate to:  
+   `http://localhost:8080/cad/`
+2. The **Clinic Admin Dashboard** clinical login portal renders.
+3. Enter the Super Admin credentials:
+   - **Email address:** `alexkibet111@gmail.com` (or `admin@nutriscore.test`)
+   - **Password:** `NutriScoreAdmin2026!`
+4. Click **→ Sign In to CAD**.
+5. **Expected Result:**
+   - The CAD authenticates against `/auth/realms/nutriscore/protocol/openid-connect/token`.
+   - The user session is established in `sessionStorage`.
+   - The CAD shell loads immediately into the **Platform Overview** view (`PlatformOverviewView.tsx`).
+   - The top navigation bar displays the **Super Admin** badge and the current active tenant selector.
+
+---
+
+### Part 2.4 — Complete Multi-Role User Manual & Operating Procedures
+
+This section details how every platform persona performs their responsibilities sequentially in the CAD:
+
+```mermaid
+flowchart TD
+    SA["1. Super Admin (Platform)"] -->|Creates Clinic & Tenant Admin| TA["2. Tenant Admin (Hospital)"]
+    TA -->|Provisions & Verifies Licenses| WC["3. Writing Clinician (Doctor)"]
+    TA -->|Provisions Dietetic Staff| VD["4. Viewing Dietician (Nutritionist)"]
+    WC -->|Admits & Prescribes Targets (DPT)| PT["5. Patient / Shopper"]
+    VD -.->|Monitors Adherence & Insights| PT
+    PT -->|Enrolls with Credentials| EXT["6. Chrome Shopping Assistant\n(Quickmart / Naivas / Carrefour)"]
+```
+
+#### Role 1: Super Administrator (`super_admin`) — Platform Governance
+- **Primary Goal:** Onboard healthcare facilities (clinics, hospitals), provision clinic administrators, and monitor platform health.
+- **Sequential Procedure:**
+  1. **Log in to CAD:** Access `http://localhost:8080/cad/` as Super Admin.
+  2. **Navigate to Tenant Operations:** In the sidebar navigation, click **Tenant Operations** (`/cad/tenant-operations`).
+  3. **Create a Healthcare Facility (Tenant):**
+     - Click **Register New Clinic**.
+     - Input Facility Name (e.g., `Nairobi West Clinic`, slug `nairobi-west-clinic`).
+     - Select Facility County and KMPDC Health Institution Code (e.g., `MED-FAC-2026-081`).
+     - Set initial subscription plan: `clinic_monthly` or `clinic_annual`.
+     - Click **Create Clinic Record**. A new UUID is generated (e.g., `22222222-2222-2222-2222-222222222222`).
+  4. **Provision Hospital's Tenant Administrator in Keycloak:**
+     - Open Keycloak Admin (`http://localhost:8080/auth/admin`) → Realm `nutriscore` → **Users** → **Add user**.
+     - Email: `admin@nairobiwest.test`, Username: `admin@nairobiwest.test`.
+     - Credentials: Set permanent password (e.g., `ClinicAdminPass2026!`).
+     - Role Mapping: Assign realm role **`tenant_admin`**.
+     - Attributes: Add `app_role` = `tenant_admin`, `tenant_id` = `<new-clinic-uuid>`, `lic_ok` = `true`.
+  5. **Inspect Global Audit Ledger:** Navigate to **Audit Logs** (`/cad/audit-log`) to verify the immutable cryptographic record of the newly onboarded clinic.
+
+---
+
+#### Role 2: Tenant Administrator (`tenant_admin`) — Hospital Account Management
+- **Primary Goal:** Manage the clinic profile, maintain institutional licensing, and provision certified clinical medical staff.
+- **Sequential Procedure:**
+  1. **Log in to CAD:** Navigate to `http://localhost:8080/cad/` and sign in with `admin@nairobiwest.test`.
+  2. **Manage Clinic Settings:**
+     - Navigate to **Tenant Settings** (`/cad/tenant-settings`).
+     - Update facility contact phone (`e.g. 254...`), clinical address, and data protection contact.
+     - Confirm subscription billing status in **Billing & Subscription** (`/cad/billing-subscription`).
+  3. **Provision a Writing Clinician (Doctor / Medical Nutritionist):**
+     - Navigate to **User Management** (`/cad/user-management`).
+     - Click **Invite Clinical Staff**.
+     - Select Role: **Writing Clinician** (`writing_clinician`).
+     - Enter Doctor's Institutional Email: `dr.kamau@nairobiwest.test`.
+     - Enter Doctor's Full Name: `Dr. Peter Kamau, MBChB`.
+     - Enter Official **KMPDC Medical License Number:** `Reg-No/2026/04812`.
+     - Click **Send Invitation / Create User**.
+  4. **Verify Clinician Professional License (Regulatory Mandate):**
+     - In the User Management roster, locate the newly created clinician row.
+     - Review certified credentials against the official KMPDC register.
+     - Click the **Verify Licence** action button.
+     - *System Action:* Updates `lic_ok = true` and writes an immutable audit record: `VERIFY_CLINICIAN_LICENCE`.
+     - *Invariant:* A writing clinician cannot prescribe target bundles until `lic_ok = true`.
+  5. **Provision a Viewing Dietician:**
+     - Follow the same workflow, selecting Role: **Viewing Dietician** (`viewing_dietician`) and recording their **KNDI License Number**.
+
+---
+
+#### Role 3: Writing Clinician (`writing_clinician`) — Patient Admission & Prescriptions
+- **Primary Goal:** Admit chronic disease patients, assess clinical nutrition needs, prescribe dietary constraints, and mint cryptographically signed Dietary Profile Tokens (DPTs).
+- **Sequential Procedure:**
+  1. **Log in to CAD:** Sign in with `dr.kamau@nairobiwest.test` and clinician password.
+  2. **Access Clinician Workspace:** Navigate to **Clinician Workspace** (`/cad/clinician-workspace`).
+  3. **Admit a New Patient:**
+     - Click **Admit Patient**.
+     - Enter synthetic patient identifier: e.g., `patient-alpha-01`.
+     - Enter encrypted demographics (Patient Full Name, Date of Birth, Emergency Contact).
+     - *System Action:* Demographics are encrypted client-side using AES-256-GCM before writing to `clinical.clinical_records` (ADR-005).
+     - Select Clinical Focus Condition: e.g., *Hypertension & Cardiovascular Risk*.
+     - Click **Save Patient Record**.
+  4. **Prescribe Dietary Target Boundaries (`/cad/patient-targets`):**
+     - Select the patient and click **Prescribe Dietary Targets**.
+     - Set numerical boundary caps (dimensionless nutrient limits per 100g):
+       - **Sodium Ceiling:** `400` mg/100g (Cardiovascular cap)
+       - **Free Sugar Ceiling:** `5.0` g/100g (Glycemic control)
+       - **Saturated Fat Ceiling:** `3.0` g/100g (Lipid management)
+       - **Dietary Fibre Floor:** `6.0` g/100g (Metabolic floor)
+     - Review the prescription summary.
+  5. **Sign & Authorize Target Bundle (DPT Minting):**
+     - Click **Sign & Issue Target Bundle**.
+     - *System Action:* Invokes `mintDpt()` in `services/api`. Signs payload using clinic Ed25519 private key. Rejects any text mentioning medical conditions (ADR-010).
+     - *Output:* Generates a unique **Patient Extension Linking Credential** (e.g. `patient.alpha01@clinic.test` and enrollment pairing key).
+  6. Deliver the pairing credentials to the patient along with instructions to install the Chrome extension.
+
+---
+
+#### Role 4: Viewing Dietician (`viewing_dietician`) — Adherence Monitoring
+- **Primary Goal:** Monitor grocery shopping adherence, review nutritional variance, and track chronic condition risk without prescribing authority.
+- **Sequential Procedure:**
+  1. **Log in to CAD:** Sign in with dietician credentials (`dietician@nairobiwest.test`).
+  2. **Access Dietician Insights:** Navigate to **Dietician Insights** (`/cad/dietician-insights`).
+  3. **Inspect Patient Cohort:**
+     - View the assigned patient list with real-time adherence scores calculated over 90 days.
+     - Review `<TargetMeter>` visualizers displaying sodium and fiber compliance.
+     - Inspect aggregate shopping basket grade distribution (e.g., 65% Grade A/B, 35% Grade C/D).
+  4. **Safety Enforcements:** Dieticians have read-only permissions; any attempt to alter prescription rules or edit hospital settings is strictly blocked by PostgREST Row Level Security.
+
+---
+
+#### Role 5: Patient / Shopper — Extension Enrollment & Live Shopping
+- **Primary Goal:** Enroll in the NutriScore browser extension, link clinical prescription, and receive real-time grocery health assistance while shopping online.
+- **Sequential Procedure:**
+
+##### Step 5.1: Install the Chrome Extension
+1. Open Google Chrome.
+2. Navigate to `chrome://extensions` and enable **Developer mode**.
+3. Click **Load unpacked** and select `c:\Users\USER\Documents\NUT-04 Checkout Tool\dist\extension`.
+4. Verify the **NutriScore Kenya Shopping Assistant** icon appears in the browser toolbar.
+
+##### Step 5.2: Launch Extension & Access Care Consent Gate
+1. Click the NutriScore extension icon in the toolbar to open the Shopper Popup (`popup.html`).
+2. Because the patient is not yet enrolled, the popup displays:  
+   **"Sign in with Clinic Credentials"** (or **"Complete Care Consent"**).
+3. Click the button. The extension opens `dashboard.html`.
+
+##### Step 5.3: Enter Clinic Enrollment Credentials
+1. In the Shopper Dashboard, enter the clinic credentials provided by Dr. Kamau:
+   - **Email:** `patient.alpha01@clinic.test`
+   - **Password / Enrollment Key:** `<Provided-Temporary-Code>`
+2. Click **Authenticate Care Profile**.
+
+##### Step 5.4: Accept the Kenya DPA 2019 Privacy & Consent Gate
+1. The **NutriScore Care Agreement & Privacy Consent Modal** (`ConsentDocModal.tsx`) displays automatically.
+2. Review the statutory disclosures:
+   - *Data Minimization:* Only grocery product nutrition is evaluated locally on device.
+   - *90-Day Retention Ceiling:* Shopping logs older than 90 days are purged automatically (ADR-005).
+   - *Zero Retailer Leakage:* Medical conditions are never transmitted to Quickmart, Naivas, or Carrefour.
+3. Check the confirmation box: **"I consent to dietary guidance based on my clinic prescription"**.
+4. Click **Accept & Synchronize Care Profile**.
+5. *System Action:* The extension fetches the signed Dietary Profile Token (DPT), verifies the Ed25519 signature, binds an ephemeral DPoP keypair in `chrome.storage.session`, and activates clinical protection.
+
+##### Step 5.5: Live Supermarket Grocery Shopping
+1. In Google Chrome, navigate to any supported Kenyan supermarket:
+   - **Quickmart Kenya:** `https://www.quickmart.co.ke/`
+   - **Naivas Online:** `https://naivas.online/`
+   - **Carrefour Kenya:** `https://www.carrefour.ke/`
+2. Browse to grocery categories (e.g., Breads, Milks, Cooking Oils, or Canned Goods).
+3. **Observe NutriScore Badges:**
+   - Every product card displays a real-time **NutriScore Grade Badge** (A, B, C, D, or E) injected inside an isolated Shadow DOM portal (`NutriSharedUI._ensureGlobalPortal`).
+4. **Trigger a Prescribed Health Alert:**
+   - Inspect a high-sodium product (e.g., canned salted meat or salted bouillon with sodium > 400mg/100g).
+   - The badge renders with a high-contrast clinical alert chip: **"Exceeds Sodium Limit"**.
+   - Notice that the alert **never** mentions "Hypertension" or the patient's medical condition (Rule R5 & ADR-010).
+5. **Inspect Healthy Swap Recommendation:**
+   - The extension flyout recommends a compliant alternative (e.g., Low-Sodium Vegetable Broth, Grade A).
+   - *Fail-Closed Safety:* The alternative is only recommended because its nutritional profile was verified (`review_state >= ESTIMATED`). Unknown items are never recommended as safe swaps.
+6. **Cart Checkout & Retention:**
+   - Add items to the cart. Click the extension toolbar icon to view the **Side Panel** (`sidepanel.html`).
+   - The basket grade recalculates in real-time.
+   - Cart diff entries persist in local IndexedDB for exactly 90 days before daily retention purge.
+
+---
+
+### Part 2.5 — Token Claims Verification Matrix & Immediate Session Revocation
+
+To verify that Keycloak tokens conform to the security contract:
+
+#### Token Inspection via DevTools:
+1. Open Chrome DevTools (`F12`) on `http://localhost:8080/cad/` → **Network** tab.
+2. Locate the token request to `/auth/realms/nutriscore/protocol/openid-connect/token`.
+3. Copy the returned `access_token` and decode it:
    ```powershell
    docker compose exec toolchain node -e "const token = '<PASTE_JWT_HERE>'; console.log(JSON.stringify(JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString()), null, 2));"
    ```
 
-### 2.3 Token Claims Verification Matrix
+#### Token Claims Verification Matrix:
 
 | Claim | Expected Value | Classification / Rule |
 |---|---|---|
-| `app_role` | `writing_clinician` (or selected role) | **Mandatory:** Mapped from Keycloak realm role. |
-| `tenant_id` | `11111111-1111-1111-1111-111111111111` | **Mandatory:** Multi-tenant clinic scoping UUID. |
+| `app_role` | `super_admin`, `tenant_admin`, `writing_clinician`, etc. | **Mandatory:** Injected via protocol mapper. |
+| `tenant_id` | UUID string | **Mandatory:** Multi-tenant clinic scoping UUID. |
 | `lic_ok` | `true` | **Mandatory:** Professional regulatory license flag. |
 | `sid` | UUID string | **Mandatory:** Active session ID for revocation denylist. |
 | `ver` | `1` | **Mandatory:** Token claims schema version. |
@@ -244,9 +518,8 @@ Navigate in Chrome to the dedicated CAD entrypoint:
 | `national_id`| **MUST BE ABSENT** | **PII Protection:** National identity numbers strictly banned. |
 | `callerRank` | **MUST BE ABSENT** | **Security:** Deprecated rank-comparison scheme forbidden. |
 
-### 2.4 Session Denylist & Immediate Revocation Test
-Test that revoking a session instantly denies access across the gateway and PostgREST.
-
+#### Session Denylist & Immediate Revocation Test:
+Test that revoking a session instantly denies access across the gateway and PostgREST:
 1. Obtain the current session ID (`sid`) from the decoded token.
 2. In PowerShell, insert the session into the denylist:
    ```powershell

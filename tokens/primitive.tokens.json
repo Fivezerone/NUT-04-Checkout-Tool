@@ -1,0 +1,75 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "color": {
+    "navy": {
+      "900": { "$value": "#073a4b", "$type": "color" }
+    },
+    "mint": {
+      "50": { "$value": "#e6fbf4", "$type": "color" },
+      "400": { "$value": "#06d7a0", "$type": "color" },
+      "700": { "$value": "#04785a", "$type": "color" },
+      "800": { "$value": "#03644a", "$type": "color" }
+    },
+    "blue": {
+      "50": { "$value": "#e5f4f9", "$type": "color" },
+      "300": { "$value": "#6cc6e3", "$type": "color" },
+      "500": { "$value": "#108ab1", "$type": "color" },
+      "700": { "$value": "#0b6e91", "$type": "color" },
+      "800": { "$value": "#0a5a77", "$type": "color" }
+    },
+    "sun": {
+      "50": { "$value": "#fff6dc", "$type": "color" },
+      "400": { "$value": "#ffd167", "$type": "color" },
+      "800": { "$value": "#7a5400", "$type": "color" }
+    },
+    "coral": {
+      "50": { "$value": "#fff0ea", "$type": "color" },
+      "400": { "$value": "#f78c6a", "$type": "color" },
+      "800": { "$value": "#9a3412", "$type": "color" }
+    },
+    "pink": {
+      "400": { "$value": "#ff7a9b", "$type": "color" },
+      "500": { "$value": "#f04770", "$type": "color" }
+    },
+    "critical": {
+      "50": { "$value": "#fff1f4", "$type": "color" },
+      "600": { "$value": "#c81e4f", "$type": "color" },
+      "800": { "$value": "#9f1239", "$type": "color" }
+    },
+    "grade": {
+      "a": { "$value": "#038141", "$type": "color" },
+      "b": { "$value": "#85bb2f", "$type": "color" },
+      "c": { "$value": "#fecb02", "$type": "color" },
+      "d": { "$value": "#ee8100", "$type": "color" },
+      "e": { "$value": "#e63e11", "$type": "color" }
+    },
+    "on_grade": {
+      "a": { "$value": "#ffffff", "$type": "color" },
+      "b": { "$value": "#14320a", "$type": "color" },
+      "c": { "$value": "#3a2e00", "$type": "color" },
+      "d": { "$value": "#331c00", "$type": "color" },
+      "e": { "$value": "#ffffff", "$type": "color" }
+    }
+  },
+  "space": {
+    "0": { "$value": "0px", "$type": "dimension" },
+    "0-5": { "$value": "0.25rem", "$type": "dimension" },
+    "1": { "$value": "0.5rem", "$type": "dimension" },
+    "1-5": { "$value": "0.75rem", "$type": "dimension" },
+    "2": { "$value": "1rem", "$type": "dimension" },
+    "3": { "$value": "1.5rem", "$type": "dimension" },
+    "4": { "$value": "2rem", "$type": "dimension" },
+    "5": { "$value": "2.5rem", "$type": "dimension" },
+    "6": { "$value": "3rem", "$type": "dimension" },
+    "8": { "$value": "4rem", "$type": "dimension" }
+  },
+  "radius": {
+    "none": { "$value": "0px", "$type": "dimension" },
+    "sm": { "$value": "4px", "$type": "dimension" },
+    "md": { "$value": "8px", "$type": "dimension" },
+    "lg": { "$value": "12px", "$type": "dimension" },
+    "xl": { "$value": "16px", "$type": "dimension" },
+    "2xl": { "$value": "20px", "$type": "dimension" },
+    "full": { "$value": "9999px", "$type": "dimension" }
+  }
+}

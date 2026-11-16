@@ -59,6 +59,8 @@ export {
   getAllEntries,
   syncCart,
   deleteLedgerEntry,
+  purgeLedgerOlderThan,
+  getEntriesSince,
   savePendingCartSync,
   clearPendingCartSync,
   getPendingCartSyncs,

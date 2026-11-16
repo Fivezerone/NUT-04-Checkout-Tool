@@ -39,24 +39,24 @@ const RetailerBadge = React.memo(({ retailer }: { retailer: string }) => {
   const r = (retailer || "").toUpperCase();
   if (r === "QUICKMART") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-xs border bg-red-50 text-red-700 border-red-200">
-        <span className="size-1.5 rounded-full bg-red-600 inline-block" />
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-xs border bg-status-error-subtle text-status-error border-status-error/30">
+        <span className="size-1.5 rounded-full bg-status-error inline-block" />
         Quickmart
       </span>
     );
   }
   if (r === "CARREFOUR") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-xs border bg-blue-50 text-blue-700 border-blue-200">
-        <span className="size-1.5 rounded-full bg-blue-600 inline-block" />
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-xs border bg-status-info-subtle text-status-info border-status-info/30">
+        <span className="size-1.5 rounded-full bg-status-info inline-block" />
         Carrefour
       </span>
     );
   }
   if (r === "NAIVAS") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-xs border bg-emerald-50 text-emerald-700 border-emerald-200">
-        <span className="size-1.5 rounded-full bg-emerald-600 inline-block" />
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold text-xs border bg-status-success-subtle text-status-success border-status-success/30">
+        <span className="size-1.5 rounded-full bg-status-success inline-block" />
         Naivas
       </span>
     );
@@ -75,11 +75,11 @@ const RANGE_OPTIONS: { value: Range; label: string }[] = [
 
 type RetailerFilter = "all" | "NAIVAS" | "CARREFOUR" | "QUICKMART";
 
-const RETAILER_OPTIONS: { value: RetailerFilter; label: string; color?: string }[] = [
+const RETAILER_OPTIONS: { value: RetailerFilter; label: string; colorClass?: string }[] = [
   { value: "all", label: "All Retailers" },
-  { value: "NAIVAS", label: "Naivas", color: "#00843D" },
-  { value: "CARREFOUR", label: "Carrefour", color: "#004e9a" },
-  { value: "QUICKMART", label: "Quickmart", color: "#ee3434" },
+  { value: "NAIVAS", label: "Naivas", colorClass: "bg-status-success" },
+  { value: "CARREFOUR", label: "Carrefour", colorClass: "bg-status-info" },
+  { value: "QUICKMART", label: "Quickmart", colorClass: "bg-status-error" },
 ];
 
 export function Dashboard({ onBack }: DashboardProps) {
@@ -454,10 +454,9 @@ export function Dashboard({ onBack }: DashboardProps) {
                         : "text-[color:var(--t-color-text-muted)] hover:text-[color:var(--t-color-text-strong)]"
                     }`}
                   >
-                    {opt.color && (
+                    {opt.colorClass && (
                       <span
-                        className="inline-block size-2 rounded-full"
-                        style={{ backgroundColor: opt.color }}
+                        className={`inline-block size-2 rounded-full ${opt.colorClass}`}
                         aria-hidden
                       />
                     )}
@@ -668,7 +667,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="inline-flex items-center gap-1.5 text-xs text-rose-600 hover:text-rose-700 font-semibold self-start sm:self-auto"
+                  className="inline-flex items-center gap-1.5 text-xs text-status-error hover:opacity-90 font-semibold self-start sm:self-auto cursor-pointer"
                 >
                   <Trash2 size={14} />
                   <span>Clear All Shopping Data</span>
@@ -766,7 +765,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                             <button
                               type="button"
                               onClick={() => handleDeleteEntry(item.id)}
-                              className="text-[color:var(--t-color-text-muted)] hover:text-rose-600 transition-colors p-1"
+                              className="text-[color:var(--t-color-text-muted)] hover:text-status-error transition-colors p-1 cursor-pointer"
                               title="Delete item"
                               aria-label={`Delete ${item.name}`}
                             >

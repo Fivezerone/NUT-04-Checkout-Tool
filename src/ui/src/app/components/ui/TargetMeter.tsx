@@ -32,17 +32,17 @@ export const TargetMeter: React.FC<TargetMeterProps> = ({
   const isExceeded = percentage > 100;
   const isWarning = percentage >= warningThresholdPercent && !isExceeded;
 
-  let barColor = 'bg-teal-600';
-  let badgeColor = 'bg-teal-50 text-teal-800 border-teal-200 dark:bg-teal-950 dark:text-teal-300';
+  let barColor = 'bg-brand-mint';
+  let badgeColor = 'bg-status-success-subtle text-status-success border-status-success/30';
   let statusText = 'On Target';
 
   if (isExceeded) {
-    barColor = 'bg-red-500';
-    badgeColor = 'bg-red-50 text-red-800 border-red-200 dark:bg-red-950 dark:text-red-300';
+    barColor = 'bg-status-error';
+    badgeColor = 'bg-status-error-subtle text-status-error border-status-error/30';
     statusText = 'Exceeded';
   } else if (isWarning) {
-    barColor = 'bg-amber-500';
-    badgeColor = 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-300';
+    barColor = 'bg-status-warning';
+    badgeColor = 'bg-status-warning-subtle text-status-warning border-status-warning/30';
     statusText = 'Near Limit';
   }
 
@@ -54,7 +54,7 @@ export const TargetMeter: React.FC<TargetMeterProps> = ({
           <span className="text-[color:var(--t-color-text-muted)]">
             <strong className="text-[color:var(--t-color-text-strong)]">{currentVal}</strong> / {targetVal} {unit}
           </span>
-          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${badgeColor}`}>
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${badgeColor}`}>
             {statusText} ({percentage}%)
           </span>
         </div>
@@ -75,7 +75,7 @@ export const TargetMeter: React.FC<TargetMeterProps> = ({
       </div>
 
       {helperText && (
-        <p className="text-[11px] text-[color:var(--t-color-text-muted)]">
+        <p className="text-xs text-[color:var(--t-color-text-muted)]">
           {helperText}
         </p>
       )}

@@ -112,15 +112,15 @@ export const PatientLinkingConsentView: React.FC = () => {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-surface p-6 rounded-2xl border border-border-control shadow-xs">
         <div>
           <div className="flex items-center space-x-2">
-            <h2 className="text-xl font-black text-slate-900">Patient Linking & Consent Ledger</h2>
-            <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">
+            <h2 className="text-xl font-black text-strong">Patient Linking & Consent Ledger</h2>
+            <span className="text-xs bg-status-success-subtle text-status-success border border-status-success/30 font-bold px-2 py-0.5 rounded">
               DPA s.46 / s.40
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-muted mt-1">
             Two-identifier verification links &middot; Purpose-specific consent tracking &middot; Cryptographic right-to-erasure
           </p>
         </div>
@@ -128,7 +128,7 @@ export const PatientLinkingConsentView: React.FC = () => {
         {isWritingClinician && (
           <button
             onClick={handleGenerateLinkCode}
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-sm transition-colors"
+            className="flex items-center space-x-2 bg-brand-mint text-brand-navy hover:bg-brand-mint/90 text-xs font-bold px-4 py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
             <span>Generate Patient Link Code</span>
@@ -138,28 +138,28 @@ export const PatientLinkingConsentView: React.FC = () => {
 
       {/* Generated Code Modal / Alert */}
       {generatedCode && (
-        <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex items-center justify-between">
+        <div className="bg-status-success-subtle border border-status-success/30 p-4 rounded-2xl flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-emerald-600 text-white rounded-lg">
+            <div className="p-2 bg-brand-mint text-brand-navy rounded-xl">
               <Link2 className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-emerald-900">New Single-Use Link Code (Valid 24h)</p>
+              <p className="text-xs font-semibold text-strong">New Single-Use Link Code (Valid 24h)</p>
               <div className="flex items-center space-x-2 mt-1">
-                <span className="text-lg font-mono font-black text-slate-900 tracking-wider">
+                <span className="text-lg font-mono font-black text-strong tracking-wider">
                   {generatedCode}
                 </span>
                 <button
                   onClick={() => handleCopy(generatedCode)}
-                  className="p-1 hover:bg-emerald-200 rounded text-emerald-800 transition-colors"
+                  className="p-1 hover:bg-surface-raised rounded text-strong transition-colors cursor-pointer"
                   title="Copy code"
                 >
-                  {copiedCode ? <CheckCircle2 className="w-4 h-4 text-emerald-700" /> : <Copy className="w-4 h-4" />}
+                  {copiedCode ? <CheckCircle2 className="w-4 h-4 text-status-success" /> : <Copy className="w-4 h-4" />}
                 </button>
               </div>
             </div>
           </div>
-          <p className="text-xs text-emerald-700 max-w-sm hidden sm:block">
+          <p className="text-xs text-muted max-w-sm hidden sm:block">
             Give this code to the patient. They must enter it in the NutriScore extension and confirm their DOB or ID.
           </p>
         </div>
@@ -167,8 +167,8 @@ export const PatientLinkingConsentView: React.FC = () => {
 
       {/* Erasure Notification Banner */}
       {erasureStatus && (
-        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center space-x-3 text-amber-900 text-xs font-medium">
-          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+        <div className="bg-status-warning-subtle border border-status-warning/30 p-4 rounded-2xl flex items-center space-x-3 text-status-warning text-xs font-medium">
+          <AlertTriangle className="w-5 h-5 text-status-warning flex-shrink-0" />
           <span>{erasureStatus}</span>
         </div>
       )}
@@ -176,52 +176,52 @@ export const PatientLinkingConsentView: React.FC = () => {
       {/* Grid: Active Links & Consent Records */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Patient Links */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+        <div className="bg-surface rounded-2xl border border-border-control shadow-xs overflow-hidden">
+          <div className="p-5 border-b border-border-control/20 flex justify-between items-center">
             <div className="flex items-center space-x-2">
-              <Link2 className="w-4 h-4 text-slate-600" />
-              <h3 className="text-sm font-bold text-slate-900">Clinician–Patient Links</h3>
+              <Link2 className="w-4 h-4 text-muted" />
+              <h3 className="text-xs font-bold text-strong">Clinician–Patient Links</h3>
             </div>
-            <span className="text-xs text-slate-400 font-mono">{links.length} total</span>
+            <span className="text-xs text-muted font-mono">{links.length} total</span>
           </div>
 
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-border-control/10">
             {links.map((link) => (
-              <div key={link.code} className="p-4 hover:bg-slate-50 transition-colors flex justify-between items-center">
+              <div key={link.code} className="p-4 hover:bg-surface-raised transition-colors flex justify-between items-center">
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="font-mono text-xs font-bold text-slate-900">{link.code}</span>
+                    <span className="font-mono text-xs font-bold text-strong">{link.code}</span>
                     <span
-                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                      className={`text-xs uppercase font-bold px-2 py-0.5 rounded-full border ${
                         link.status === 'confirmed'
-                          ? 'bg-emerald-100 text-emerald-800'
+                          ? 'bg-status-success-subtle text-status-success border-status-success/30'
                           : link.status === 'pending'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-slate-100 text-slate-600'
+                          ? 'bg-status-warning-subtle text-status-warning border-status-warning/30'
+                          : 'bg-surface-raised text-muted border-border-control/20'
                       }`}
                     >
                       {link.status}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-600 mt-1 font-medium">
-                    Patient: <span className="font-semibold text-slate-800">{link.patientRef}</span>
+                  <p className="text-xs text-foreground mt-1 font-medium">
+                    Patient: <span className="font-semibold text-strong">{link.patientRef}</span>
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
+                  <p className="text-xs text-muted mt-0.5">
                     Clinician: {link.clinicianName}
                   </p>
                 </div>
 
                 <div className="text-right">
                   {link.status === 'confirmed' ? (
-                    <span className="text-[11px] text-emerald-600 flex items-center justify-end font-medium">
+                    <span className="text-xs text-status-success flex items-center justify-end font-medium">
                       <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Active Link
                     </span>
                   ) : link.status === 'pending' ? (
-                    <span className="text-[11px] text-amber-600 flex items-center justify-end font-medium">
+                    <span className="text-xs text-status-warning flex items-center justify-end font-medium">
                       <Clock className="w-3.5 h-3.5 mr-1" /> Expires soon
                     </span>
                   ) : (
-                    <span className="text-[11px] text-slate-400">Revoked</span>
+                    <span className="text-xs text-muted">Revoked</span>
                   )}
                 </div>
               </div>
@@ -230,35 +230,35 @@ export const PatientLinkingConsentView: React.FC = () => {
         </div>
 
         {/* Right: Consent Records */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+        <div className="bg-surface rounded-2xl border border-border-control shadow-xs overflow-hidden">
+          <div className="p-5 border-b border-border-control/20 flex justify-between items-center">
             <div className="flex items-center space-x-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-bold text-slate-900">Consent Ledger (Purpose Gated)</h3>
+              <ShieldCheck className="w-4 h-4 text-brand-mint" />
+              <h3 className="text-xs font-bold text-strong">Consent Ledger (Purpose Gated)</h3>
             </div>
-            <span className="text-xs text-slate-400 font-mono">{consents.length} entries</span>
+            <span className="text-xs text-muted font-mono">{consents.length} entries</span>
           </div>
 
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-border-control/10">
             {consents.map((consent) => (
-              <div key={consent.id} className="p-4 hover:bg-slate-50 transition-colors flex justify-between items-center">
+              <div key={consent.id} className="p-4 hover:bg-surface-raised transition-colors flex justify-between items-center">
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-xs font-bold text-slate-900">{consent.patientRef}</span>
-                    <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded">
+                    <span className="text-xs font-bold text-strong">{consent.patientRef}</span>
+                    <span className="text-xs bg-surface-raised text-foreground font-semibold px-2 py-0.5 rounded border border-border-control/20">
                       {consent.purpose.replace('_', ' ')}
                     </span>
                     <span
-                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                      className={`text-xs uppercase font-bold px-2 py-0.5 rounded-full border ${
                         consent.status === 'active'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-red-100 text-red-800'
+                          ? 'bg-status-success-subtle text-status-success border-status-success/30'
+                          : 'bg-status-error-subtle text-status-error border-status-error/30'
                       }`}
                     >
                       {consent.status}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
+                  <p className="text-xs text-muted mt-1">
                     Granted: {consent.grantedAt ? new Date(consent.grantedAt).toLocaleDateString() : 'N/A'}
                     {consent.revokedAt && ` · Revoked: ${new Date(consent.revokedAt).toLocaleDateString()}`}
                   </p>
@@ -268,7 +268,7 @@ export const PatientLinkingConsentView: React.FC = () => {
                   {consent.status === 'active' && (
                     <button
                       onClick={() => handleRevokeConsent(consent.patientRef, consent.purpose)}
-                      className="text-xs text-red-600 hover:text-red-700 font-semibold px-2.5 py-1 bg-red-50 hover:bg-red-100 rounded transition-colors"
+                      className="text-xs text-status-error hover:opacity-90 font-semibold px-2.5 py-1 bg-status-error-subtle border border-status-error/30 rounded-xl transition-colors cursor-pointer"
                       title="Revoke consent (Test T26)"
                     >
                       Revoke
@@ -278,7 +278,7 @@ export const PatientLinkingConsentView: React.FC = () => {
                   {!consent.patientRef.startsWith('SHREDDED') && (
                     <button
                       onClick={() => setShredTarget(consent.patientRef)}
-                      className="text-slate-400 hover:text-rose-600 p-1.5 hover:bg-slate-100 rounded transition-colors"
+                      className="text-muted hover:text-status-error p-1.5 hover:bg-surface-raised rounded-lg transition-colors cursor-pointer"
                       title="Crypto-shred patient (Test T27)"
                       aria-label={`Crypto-shred patient ${consent.patientRef}`}
                     >

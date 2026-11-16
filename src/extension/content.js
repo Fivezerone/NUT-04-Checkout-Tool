@@ -79,9 +79,35 @@ class NutriScoreContentEngine {
       }
     });
 
+    const retailerCode = this.adapter ? this.adapter.getRetailerCode() : "";
+    const pauseKey = `paused_${retailerCode.toLowerCase()}`;
+
+    const checkPauseState = () => {
+      if (typeof chrome === "undefined" || !chrome.storage?.local) return;
+      chrome.storage.local.get([pauseKey, 'paused_all'], (res) => {
+        const isPaused = !!(res?.[pauseKey] || res?.paused_all);
+        this.isPaused = isPaused;
+        if (isPaused) {
+          document.querySelectorAll(".nutriscore-isolated-root").forEach((n) => n.remove());
+          NutriSharedUI.showStorePausedPill(retailerCode, () => {
+            chrome.storage.local.set({ [pauseKey]: false, paused_all: false }, () => {
+              this.isPaused = false;
+              this.rescan();
+            });
+          });
+        }
+      });
+    };
+    checkPauseState();
+
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName === 'local' && (changes.uiTheme || changes.settings_live || changes.user_preferences)) {
-        this.rescan();
+      if (areaName === 'local') {
+        if (changes[pauseKey] || changes.paused_all) {
+          checkPauseState();
+          if (!this.isPaused) this.rescan();
+        } else if (changes.uiTheme || changes.settings_live || changes.user_preferences) {
+          this.rescan();
+        }
       }
     });
 
@@ -191,6 +217,7 @@ class NutriScoreContentEngine {
       navigation.addEventListener("navigate", () => {
         setTimeout(() => {
           this.orderDetected = false;
+          this.checkoutCalloutShown = false;
           this.syncCart(true);
           this.checkOrderConfirmation();
         }, 800); // give the new page time to render
@@ -202,6 +229,7 @@ class NutriScoreContentEngine {
           this.lastHref = location.href;
           // Reset order detection flag on new page
           this.orderDetected = false;
+          this.checkoutCalloutShown = false;
           setTimeout(() => {
             this.syncCart(true);
             this.checkOrderConfirmation();
@@ -213,6 +241,7 @@ class NutriScoreContentEngine {
 
   /* Check whether the current page is an order confirmation page. If so, mark all in-cart items as purchased. */
   checkOrderConfirmation() {
+    this.checkCheckoutCallout();
     if (this.orderDetected) return; // only fire once per page load
     if (!this.adapter || !this.adapter.detectOrderConfirmation) return;
 
@@ -227,6 +256,16 @@ class NutriScoreContentEngine {
       }
     } catch (e) {
       console.warn("[NutriScore] detectOrderConfirmation error:", e);
+    }
+  }
+
+  checkCheckoutCallout() {
+    if (!this.adapter || this.checkoutCalloutShown || this.orderDetected) return;
+    const url = location.href.toLowerCase();
+    const isCheckout = url.includes('/checkout') || url.includes('/cart') || url.includes('/panier') || url.includes('/order') || url.includes('/payment');
+    if (isCheckout) {
+      this.checkoutCalloutShown = true;
+      NutriSharedUI.showCheckoutCallout({ itemCount: this.lastCartHadItems ? 1 : 0 });
     }
   }
 

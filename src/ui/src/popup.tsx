@@ -1,6 +1,4 @@
 import * as React from "react";
-// @ts-ignore
-window.React = React;
 import { createRoot } from "react-dom/client";
 import { useEffect, useState } from "react";
 import { Popup } from "./app/components/Popup";

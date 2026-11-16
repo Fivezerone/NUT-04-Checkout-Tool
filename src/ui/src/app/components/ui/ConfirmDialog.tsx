@@ -77,7 +77,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     <dialog
       ref={dialogRef}
       onKeyDown={handleKeyDown}
-      className="fixed inset-0 m-auto p-0 bg-transparent backdrop:bg-slate-900/50 backdrop:backdrop-blur-xs z-50 rounded-2xl shadow-2xl max-w-md w-full border border-border-subtle"
+      className="fixed inset-0 m-auto p-0 bg-transparent backdrop:bg-black/50 backdrop:backdrop-blur-xs z-50 rounded-2xl shadow-2xl max-w-md w-full border border-border-subtle"
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-description"
     >
@@ -87,8 +87,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             <div
               className={`p-2 rounded-xl ${
                 isDestructive || variant === 'danger'
-                  ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400'
-                  : 'bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400'
+                  ? 'bg-status-error-subtle text-status-error'
+                  : 'bg-status-warning-subtle text-status-warning'
               }`}
             >
               <AlertTriangle className="w-5 h-5" />
@@ -100,7 +100,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <button
             type="button"
             onClick={handleClose}
-            className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-surface-raised transition-colors"
             aria-label="Close dialog"
           >
             <X className="w-4 h-4" />
@@ -114,7 +114,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         {expectedPhrase && (
           <div className="space-y-1.5 pt-1">
             <label htmlFor="confirm-phrase-input" className="block text-xs font-semibold text-foreground">
-              Type <span className="font-mono font-bold text-rose-600 underline">{expectedPhrase}</span> to confirm:
+              Type <span className="font-mono font-bold text-status-error underline">{expectedPhrase}</span> to confirm:
             </label>
             <input
               ref={inputRef}
@@ -123,7 +123,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               value={typedInput}
               onChange={(e) => setTypedInput(e.target.value)}
               placeholder={expectedPhrase}
-              className="w-full px-3 py-2 text-xs font-mono border border-border-control rounded-xl bg-surface focus:outline-none focus:ring-2 focus:ring-rose-500"
+              className="w-full px-3 py-2 text-xs font-mono border border-border-control rounded-xl bg-surface focus:outline-none focus:ring-2 focus:ring-focus"
               autoComplete="off"
             />
           </div>
@@ -133,7 +133,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <button
             type="button"
             onClick={handleClose}
-            className="px-4 py-2 text-xs font-semibold rounded-xl border border-border-control hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground transition-colors"
+            className="px-4 py-2 text-xs font-semibold rounded-xl border border-border-control hover:bg-surface-raised text-foreground transition-colors"
           >
             {cancelButtonText}
           </button>
@@ -147,8 +147,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             }}
             className={`px-4 py-2 text-xs font-bold rounded-xl text-white shadow-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
               isDestructive || variant === 'danger'
-                ? 'bg-rose-600 hover:bg-rose-700'
-                : 'bg-amber-600 hover:bg-amber-700'
+                ? 'bg-status-error hover:opacity-90'
+                : 'bg-status-warning hover:opacity-90'
             }`}
           >
             {confirmText}
