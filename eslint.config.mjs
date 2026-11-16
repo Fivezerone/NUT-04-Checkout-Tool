@@ -122,4 +122,61 @@ export default [
       'security/detect-object-injection': 'warn',
     },
   },
+  {
+    files: ['src/ui/src/**/*.{ts,tsx}'],
+    ignores: ['src/ui/src/cad/context/**', 'src/ui/src/cad/auth/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector: "MemberExpression[object.name='claims'][property.name='role']",
+          message:
+            'Direct claims.role access outside cad/auth is deprecated. Use can(action) capability checks instead.',
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/extension/**/*.js', 'src/ui/src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector: "AssignmentExpression[left.property.name='innerHTML'][right.type!='Literal']",
+          message:
+            'Non-literal innerHTML assignment is dangerous. Use textContent or DOM creation methods.',
+        },
+      ],
+    },
+  },
+  {
+    files: ['bff/**/*.{js,mjs,ts}', 'services/**/*.{js,mjs,ts}', 'server/**/*.{js,mjs,ts}'],
+    rules: {
+      'no-restricted-imports': [
+        'warn',
+        {
+          paths: [
+            {
+              name: '../shared/claims',
+              importNames: ['unsafeDecodeClaimsForUi', 'claimsFromAccessToken'],
+              message:
+                'Unverified claims decoders are forbidden in backend/BFF services. Use claimsFromVerifiedToken.',
+            },
+            {
+              name: './claims',
+              importNames: ['unsafeDecodeClaimsForUi', 'claimsFromAccessToken'],
+              message:
+                'Unverified claims decoders are forbidden in backend/BFF services. Use claimsFromVerifiedToken.',
+            },
+            {
+              name: '../../shared/claims',
+              importNames: ['unsafeDecodeClaimsForUi', 'claimsFromAccessToken'],
+              message:
+                'Unverified claims decoders are forbidden in backend/BFF services. Use claimsFromVerifiedToken.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]

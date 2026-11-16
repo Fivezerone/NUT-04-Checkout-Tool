@@ -12,6 +12,7 @@
     "build:cad": "node scripts/build-cad-dist.mjs",
     "build": "npm run build:db && npm run build:ui && npm run build:cad && npm run build:ext",
     "check:manifest": "node scripts/check-manifest-globals.mjs",
+    "check:dist": "node scripts/check-dist.mjs",
     "check:cad-security": "node scripts/check-cad-security.mjs",
     "verify:audit": "node scripts/verify-audit-chain.mjs",
     "dev": "vite",
