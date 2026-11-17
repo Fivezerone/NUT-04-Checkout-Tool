@@ -9,7 +9,9 @@
  */
 
 import { verifyDpt, type DptPayload } from './dpt'
-import { verifyDpopProof } from './dpop'
+import { verifyDpopProof, BoundedReplayCache } from './dpop'
+
+export const defaultDpopReplayCache = new BoundedReplayCache(5000, 120)
 
 export interface SkuNutrition {
   energy_kcal?: number | null
@@ -127,13 +129,14 @@ export function filterCatalogueWithDpt(
   signerPublicKey: any,
   requestUrl: string,
   revokedJtis?: Set<string>,
+  replayCache: BoundedReplayCache | Set<string> = defaultDpopReplayCache,
 ): {
   conformingSkus: CandidateSku[]
   allEvaluations: SkuEvaluationResult[]
   payload: DptPayload
 } {
-  // 1. Verify DPoP proof
-  const dpopResult = verifyDpopProof(dpopProof, 'POST', requestUrl)
+  // 1. Verify DPoP proof with anti-replay protection (X-06)
+  const dpopResult = verifyDpopProof(dpopProof, 'POST', requestUrl, replayCache)
   if (!dpopResult.valid || !dpopResult.jkt) {
     throw new Error(`DPoP verification failed: ${dpopResult.error}`)
   }

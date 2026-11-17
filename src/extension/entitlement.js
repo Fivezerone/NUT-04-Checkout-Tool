@@ -59,6 +59,22 @@ self.NutriEntitlement = (() => {
     );
   }
 
+  async function importEd25519Key(jwkOrRaw) {
+    if (jwkOrRaw.kty === "OKP" && jwkOrRaw.crv === "Ed25519") {
+      return crypto.subtle.importKey(
+        "jwk", jwkOrRaw,
+        { name: "Ed25519" },
+        false, ["verify"]
+      );
+    }
+    const raw = jwkOrRaw instanceof Uint8Array ? jwkOrRaw : base64urlDecode(jwkOrRaw.x || jwkOrRaw);
+    return crypto.subtle.importKey(
+      "raw", raw,
+      { name: "Ed25519" },
+      false, ["verify"]
+    );
+  }
+
   // ── Clock-rollback guard ───────────────────────────────────────────────────
   async function updateTimeGuard(serverNow) {
     const stored = (await chrome.storage.local.get(TIME_GUARD_KEY))[TIME_GUARD_KEY] ?? {};
@@ -82,11 +98,19 @@ self.NutriEntitlement = (() => {
   // ── Token verification ─────────────────────────────────────────────────────
   /**
    * Verify a raw JWT string. Returns { valid: true, payload } or { valid: false, reason }.
+   * Supports legacy ES256 entitlement tokens and modern EdDSA / ns-profile+jwt tokens (ADR-3, WP-06).
+   *
    * @param {string} token
-   * @param {string} expectedSub  — the current session user.id
+   * @param {string|object} expectedSubOrPolicy — current session user.id or policy options
+   * @param {object} [keysManifest]             — optional signed key manifest
+   * @param {object} [revokedSnapshot]          — optional set/array of revoked jtis
+   * @param {number} [customNow]                — current timestamp in seconds
    */
-  async function verifyToken(token, expectedSub) {
+  async function verifyToken(token, expectedSubOrPolicy, keysManifest, revokedSnapshot, customNow) {
     try {
+      if (!token || typeof token !== "string") return { valid: false, reason: "malformed" };
+      if (token.length > 4096) return { valid: false, reason: "token_too_large" };
+
       const parts = token.split(".");
       if (parts.length !== 3) return { valid: false, reason: "malformed" };
 
@@ -94,30 +118,84 @@ self.NutriEntitlement = (() => {
 
       // Decode header
       const header = JSON.parse(new TextDecoder().decode(base64urlDecode(headerB64)));
-      if (header.alg !== "ES256") return { valid: false, reason: "alg_rejected" };
+      const nowSeconds = customNow ?? Math.floor(Date.now() / 1000);
+      const isPolicyObj = expectedSubOrPolicy && typeof expectedSubOrPolicy === "object";
+      const isV2Flag = typeof self !== "undefined" && self.NutriFlags?.isEnabled?.("ns.token.v2");
+      const isV2Token = header.alg === "EdDSA" || header.typ === "ns-profile+jwt" || isPolicyObj || isV2Flag;
 
-      const kid = header.kid;
-      const keys = (NUTRI_CONFIG?.ENTITLEMENT_PUBLIC_KEYS ?? []);
-      const jwk = keys.find(k => k.kid === kid);
-      if (!jwk) return { valid: false, reason: "unknown_kid" };
+      // Algorithm check & signature verification
+      if (header.alg === "EdDSA") {
+        const kid = header.kid;
+        const keys = keysManifest?.keys ?? (NUTRI_CONFIG?.ENTITLEMENT_PUBLIC_KEYS ?? []);
+        const keyDef = keys.find(k => k.kid === kid) || keys[0];
+        if (!keyDef) return { valid: false, reason: "unknown_kid" };
 
-      // Verify signature
-      const publicKey = await importPublicKey(jwk);
-      const dataToVerify = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-      const sigBytes = base64urlDecode(sigB64);
-      const valid = await crypto.subtle.verify(
-        { name: "ECDSA", hash: "SHA-256" }, publicKey, sigBytes, dataToVerify
-      );
-      if (!valid) return { valid: false, reason: "bad_signature" };
+        const publicKey = await importEd25519Key(keyDef);
+        const dataToVerify = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+        const sigBytes = base64urlDecode(sigB64);
+        const valid = await crypto.subtle.verify(
+          { name: "Ed25519" }, publicKey, sigBytes, dataToVerify
+        );
+        if (!valid) return { valid: false, reason: "bad_signature" };
+      } else if (header.alg === "ES256") {
+        const kid = header.kid;
+        const keys = (NUTRI_CONFIG?.ENTITLEMENT_PUBLIC_KEYS ?? []);
+        const jwk = keys.find(k => k.kid === kid);
+        if (!jwk) return { valid: false, reason: "unknown_kid" };
+
+        const publicKey = await importPublicKey(jwk);
+        const dataToVerify = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+        const sigBytes = base64urlDecode(sigB64);
+        const valid = await crypto.subtle.verify(
+          { name: "ECDSA", hash: "SHA-256" }, publicKey, sigBytes, dataToVerify
+        );
+        if (!valid) return { valid: false, reason: "bad_signature" };
+      } else {
+        return { valid: false, reason: "alg_rejected" };
+      }
 
       // Decode payload
       const payload = JSON.parse(new TextDecoder().decode(base64urlDecode(payloadB64)));
 
       // Claim checks
+      if (isV2Token && header.typ === "ns-profile+jwt") {
+        // Blueprint §2.7 profile token checks
+        if (payload.iss !== "https://exchange.nutriscore.co.ke" && payload.iss !== EXPECTED_ISS) {
+          return { valid: false, reason: "wrong_iss" };
+        }
+        if (isPolicyObj && expectedSubOrPolicy.aud && payload.aud !== expectedSubOrPolicy.aud) {
+          return { valid: false, reason: "wrong_aud" };
+        }
+        if (typeof payload.aud !== "string" || !payload.aud.startsWith("ext:")) {
+          return { valid: false, reason: "wrong_aud" };
+        }
+        if (payload.exp && payload.exp <= nowSeconds) return { valid: false, reason: "expired" };
+        if (payload.nbf && payload.nbf > nowSeconds + 60) return { valid: false, reason: "not_yet_valid" };
+
+        // Monotonic profile_ver check
+        if (isPolicyObj && expectedSubOrPolicy.storedProfileVer !== undefined) {
+          if (payload.profile_ver !== undefined && payload.profile_ver < expectedSubOrPolicy.storedProfileVer) {
+            return { valid: false, reason: "rollback_detected" };
+          }
+        }
+
+        // Revocation check
+        if (revokedSnapshot) {
+          const isRevoked = revokedSnapshot instanceof Set
+            ? revokedSnapshot.has(payload.jti)
+            : Array.isArray(revokedSnapshot) && revokedSnapshot.includes(payload.jti);
+          if (isRevoked) return { valid: false, reason: "token_revoked" };
+        }
+
+        return { valid: true, payload };
+      }
+
+      // Legacy entitlement token checks
       if (payload.iss !== EXPECTED_ISS) return { valid: false, reason: "wrong_iss" };
-      if (payload.sub !== expectedSub)  return { valid: false, reason: "wrong_sub" };
-      const nowSeconds = Math.floor(Date.now() / 1000);
+      const expectedSub = typeof expectedSubOrPolicy === "string" ? expectedSubOrPolicy : expectedSubOrPolicy?.sub;
+      if (expectedSub && payload.sub !== expectedSub) return { valid: false, reason: "wrong_sub" };
       if (!payload.exp || payload.exp <= nowSeconds) return { valid: false, reason: "expired" };
+      if (payload.nbf && payload.nbf > nowSeconds + 60) return { valid: false, reason: "not_yet_valid" };
 
       return { valid: true, payload };
     } catch (e) {
@@ -203,7 +281,19 @@ self.NutriEntitlement = (() => {
         }
       );
 
-      // D-06: non-ok means a transient server error — keep whatever token we have
+      // A-05 / Blueprint §2.7:
+      // 401, 403, 410 -> Definitive revocation: purge token, emit token_revoked
+      if (res.status === 401 || res.status === 403 || res.status === 410) {
+        await clear();
+        if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+          try {
+            chrome.runtime.sendMessage({ type: 'token_revoked', status: res.status });
+          } catch (_e) {}
+        }
+        return 'basic';
+      }
+      if (res.status === 304) return 'unchanged';
+      // D-06: non-ok (429, 5xx, network) means a transient server error — keep whatever token we have
       if (!res.ok) return 'unchanged';
 
       const data = await res.json();

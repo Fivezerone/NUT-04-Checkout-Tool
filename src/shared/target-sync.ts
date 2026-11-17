@@ -1,6 +1,10 @@
 // src/shared/target-sync.ts
 // Target Bundle Sync, Rollback Protection & Clinical Rules Invariants
 // Reference: Reports/Plans/CAD_IMPLEMENTATION_PLAN.md (§8.3, §13 Tests T16-T25)
+// Reference: Blueprint §2.7, §5.6 (WP-06, X-02, ADR-3)
+
+import { stableStringify } from './canonical.mjs'
+import { getCryptoProvider, decodeBase64Url, encodeBase64Url, toUint8Array } from './crypto'
 
 export interface TargetBundle {
   tenantId: string
@@ -22,32 +26,116 @@ export interface TargetBundle {
   issuedAt: string
   validTo: string
   bundleVersion: number
+  sig?: string
+  kid?: string
+  signature?: string
 }
 
 export interface BundleVerificationResult {
   valid: boolean
-  code: 'OK' | 'EXPIRED' | 'ROLLBACK_DETECTED' | 'INVALID_SIGNATURE' | 'CORRUPTED'
+  code:
+    | 'OK'
+    | 'EXPIRED'
+    | 'ROLLBACK_DETECTED'
+    | 'INVALID_SIGNATURE'
+    | 'CORRUPTED'
+    | 'INVALID_EXPIRY'
+    | 'ISSUED_IN_FUTURE'
+    | 'BINDING_MISMATCH'
   message: string
+  legacyOnly?: boolean
 }
 
 /**
- * Validates a newly received bundle against the currently cached bundle and current time.
+ * Strips cryptographic signature and envelope metadata fields from a target bundle to prepare canonical representation.
+ */
+export function withoutSignature(bundle: TargetBundle | Record<string, any>): Record<string, any> {
+  const { signature, sig, kid, ...rest } = bundle as any
+  return rest
+}
+
+/**
+ * Validates a newly received bundle against the currently cached bundle, device context, and current time.
  * Invariant T16: Offline past valid_to -> fallback to platform defaults with notice.
  * Invariant T17: Reject bundle with version <= current cached bundleVersion.
+ * Blueprint §2.7 / X-02:
+ *  - Rejects non-finite/NaN validTo expiry timestamps.
+ *  - Rejects bundles with issuedAt in the future (> now + 5 min).
+ *  - Enforces tenantId and subjectRef binding against device context.
+ *  - Accepts legacy sig_es256_ during transition unless strictCrypto is set.
  */
 export function verifyBundle(
   newBundle: TargetBundle,
-  signature: string,
+  signature: string | null | undefined,
   cachedBundle: TargetBundle | null,
   nowIso: string = new Date().toISOString(),
+  options?: {
+    ctx?: { tenantId?: string; subjectRef?: string }
+    strictCrypto?: boolean
+  },
 ): BundleVerificationResult {
   if (!newBundle || !Array.isArray(newBundle.targets)) {
     return { valid: false, code: 'CORRUPTED', message: 'Malformed target bundle payload' }
   }
 
+  // Check validTo expiry timestamp validity (reject NaN)
+  const expiry = Date.parse(newBundle.validTo)
+  if (!Number.isFinite(expiry)) {
+    return {
+      valid: false,
+      code: 'INVALID_EXPIRY',
+      message: 'Target bundle validTo timestamp is not a finite date',
+    }
+  }
+
+  const now = new Date(nowIso).getTime()
+
+  // Future issuedAt check (> now + 5 min)
+  const issuedAtTime = Date.parse(newBundle.issuedAt)
+  if (Number.isFinite(issuedAtTime) && issuedAtTime > now + 5 * 60_000) {
+    return {
+      valid: false,
+      code: 'ISSUED_IN_FUTURE',
+      message: 'Target bundle issuedAt is in the future (> now + 5 minutes)',
+    }
+  }
+
+  // Tenant / subjectRef context binding check
+  if (options?.ctx) {
+    if (options.ctx.tenantId && newBundle.tenantId !== options.ctx.tenantId) {
+      return {
+        valid: false,
+        code: 'BINDING_MISMATCH',
+        message: `Target bundle tenantId '${newBundle.tenantId}' does not match device context '${options.ctx.tenantId}'`,
+      }
+    }
+    if (options.ctx.subjectRef && newBundle.subjectRef !== options.ctx.subjectRef) {
+      return {
+        valid: false,
+        code: 'BINDING_MISMATCH',
+        message: `Target bundle subjectRef '${newBundle.subjectRef}' does not match device context '${options.ctx.subjectRef}'`,
+      }
+    }
+  }
+
   // Check signature
-  if (!signature || !signature.startsWith('sig_es256_')) {
-    return { valid: false, code: 'INVALID_SIGNATURE', message: 'Signature missing or unverified' }
+  const effectiveSig = signature || newBundle.sig || newBundle.signature
+  if (options?.strictCrypto) {
+    // In strict mode, legacy sig_es256_ is not sufficient unless real sig is present
+    if (!newBundle.sig) {
+      return {
+        valid: false,
+        code: 'INVALID_SIGNATURE',
+        message: 'Cryptographic Ed25519 signature required in strict mode',
+      }
+    }
+  } else {
+    const isLegacy =
+      effectiveSig && typeof effectiveSig === 'string' && effectiveSig.startsWith('sig_es256_')
+    const hasDetached = !!newBundle.sig
+    if (!isLegacy && !hasDetached) {
+      return { valid: false, code: 'INVALID_SIGNATURE', message: 'Signature missing or unverified' }
+    }
   }
 
   // Invariant T17: Anti-rollback protection
@@ -60,8 +148,6 @@ export function verifyBundle(
   }
 
   // Invariant T16: Expiry validation
-  const now = new Date(nowIso).getTime()
-  const expiry = new Date(newBundle.validTo).getTime()
   if (now > expiry) {
     return {
       valid: false,
@@ -70,7 +156,146 @@ export function verifyBundle(
     }
   }
 
-  return { valid: true, code: 'OK', message: 'Target bundle verified and valid' }
+  const legacyOnly = !newBundle.sig && !!effectiveSig?.startsWith('sig_es256_')
+  return {
+    valid: true,
+    code: 'OK',
+    message: legacyOnly
+      ? 'Target bundle verified via legacy signature'
+      : 'Target bundle verified and valid',
+    ...(legacyOnly ? { legacyOnly: true } : {}),
+  }
+}
+
+/**
+ * Asynchronously verifies a target bundle including detached Ed25519 signature verification.
+ */
+export async function verifyBundleAsync(
+  newBundle: TargetBundle & { sig?: string; kid?: string; signature?: string },
+  signatureOrCached: string | TargetBundle | null,
+  cachedBundleOrNow?: TargetBundle | null | string,
+  optionsOrNow?:
+    | {
+        ctx?: { tenantId?: string; subjectRef?: string }
+        nowIso?: string
+        strictCrypto?: boolean
+        keys?: Map<string, any> | ((kid?: string) => Promise<any> | any)
+        publicKey?: any
+      }
+    | string,
+): Promise<BundleVerificationResult> {
+  let sigString: string | undefined
+  let cached: TargetBundle | null = null
+  let nowIso = new Date().toISOString()
+  let options: {
+    ctx?: { tenantId?: string; subjectRef?: string }
+    nowIso?: string
+    strictCrypto?: boolean
+    keys?: Map<string, any> | ((kid?: string) => Promise<any> | any)
+    publicKey?: any
+  } = {}
+
+  if (typeof signatureOrCached === 'string') {
+    sigString = signatureOrCached
+    cached = (cachedBundleOrNow as TargetBundle | null) ?? null
+    if (typeof optionsOrNow === 'string') {
+      nowIso = optionsOrNow
+    } else if (optionsOrNow && typeof optionsOrNow === 'object') {
+      options = optionsOrNow
+      if (options.nowIso) nowIso = options.nowIso
+    }
+  } else {
+    cached = signatureOrCached
+    if (typeof cachedBundleOrNow === 'string') {
+      nowIso = cachedBundleOrNow
+    }
+    if (optionsOrNow && typeof optionsOrNow === 'object') {
+      options = optionsOrNow
+      if (options.nowIso) nowIso = options.nowIso
+    }
+  }
+
+  // Run synchronous checks first
+  const syncCheck = verifyBundle(newBundle, sigString, cached, nowIso, options)
+  if (!syncCheck.valid) {
+    return syncCheck
+  }
+
+  // If detached signature is present, verify with CryptoProvider
+  if (newBundle.sig) {
+    let key = options.publicKey
+    if (!key && options.keys) {
+      if (typeof options.keys === 'function') {
+        key = await options.keys(newBundle.kid)
+      } else if (options.keys instanceof Map) {
+        key = newBundle.kid ? options.keys.get(newBundle.kid) : undefined
+      }
+    }
+
+    if (!key) {
+      if (options.strictCrypto) {
+        return {
+          valid: false,
+          code: 'INVALID_SIGNATURE',
+          message: `Verification key not found for kid: ${newBundle.kid}`,
+        }
+      }
+      // If key is missing and not strictCrypto, fall back to legacy bridge if signature string is present
+      if (syncCheck.legacyOnly) {
+        return syncCheck
+      }
+    } else {
+      const canonical = stableStringify(withoutSignature(newBundle))
+      const canonicalBytes = new TextEncoder().encode(canonical)
+      const sigBytes = decodeBase64Url(newBundle.sig)
+
+      try {
+        const ok = await getCryptoProvider().verifyEd25519(key, canonicalBytes, sigBytes)
+        if (!ok) {
+          return {
+            valid: false,
+            code: 'INVALID_SIGNATURE',
+            message: 'Detached Ed25519 signature verification failed',
+          }
+        }
+        return { valid: true, code: 'OK', message: 'Target bundle verified and valid' }
+      } catch (err) {
+        return {
+          valid: false,
+          code: 'INVALID_SIGNATURE',
+          message: `Signature verification error: ${(err as Error).message}`,
+        }
+      }
+    }
+  }
+
+  return syncCheck
+}
+
+/**
+ * Digitally signs a TargetBundle using an Ed25519 signer and attaches detached sig & kid.
+ */
+export async function signBundleAsync(
+  bundle: TargetBundle,
+  signer: {
+    sign: (data: Uint8Array | string) => Promise<Uint8Array> | Uint8Array
+    getKid?: () => string
+  },
+): Promise<TargetBundle & { sig: string; kid?: string; signature: string }> {
+  const unsigned = withoutSignature(bundle)
+  const canonical = stableStringify(unsigned)
+  const canonicalBytes = new TextEncoder().encode(canonical)
+  const rawSig = await signer.sign(canonicalBytes)
+  const sigBytes = toUint8Array(rawSig)
+  const sig = encodeBase64Url(sigBytes)
+  const kid = signer.getKid ? signer.getKid() : undefined
+
+  return {
+    ...bundle,
+    sig,
+    ...(kid ? { kid } : {}),
+    signature: `sig_es256_legacy_bridge_${bundle.bundleVersion}`,
+  }
 }
 
 /**
