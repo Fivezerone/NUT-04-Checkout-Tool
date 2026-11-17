@@ -25,10 +25,11 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  diabetes: true,
-  hypertension: true,
-  kidney: true,
-  obesity: true,
+  // TODO(D-1): apply default false for unset conditions per blueprint §2.1 & E-06
+  diabetes: false,
+  hypertension: false,
+  kidney: false,
+  obesity: false,
   profileName: "Guest",
   primaryMetric: "Sugar",
   condition: "healthy",
@@ -77,10 +78,11 @@ export async function getSettings(): Promise<Settings> {
   ]);
   return {
     ...DEFAULT_SETTINGS,
-    diabetes:      diabetes      ?? true,
-    hypertension:  hypertension  ?? true,
-    kidney:        kidney        ?? true,
-    obesity:       obesity       ?? true,
+    // TODO(D-1): apply default false for unset conditions per blueprint §2.1 & E-06
+    diabetes:      diabetes      ?? false,
+    hypertension:  hypertension  ?? false,
+    kidney:        kidney        ?? false,
+    obesity:       obesity       ?? false,
     profileName:   profileName   || "",
     primaryMetric: primaryMetric || "Sugar",
     condition:     condition     || "healthy",

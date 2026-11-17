@@ -27,11 +27,18 @@ var NutriScoreDB = (() => {
   __export(db_exports, {
     DEFAULT_SETTINGS: () => DEFAULT_SETTINGS,
     NUTRITION_CATEGORY_TO_FSA: () => NUTRITION_CATEGORY_TO_FSA,
+    PLAUSIBILITY_BOUNDS: () => PLAUSIBILITY_BOUNDS,
+    SALT_TO_SODIUM_FACTOR_MG_PER_G: () => SALT_TO_SODIUM_FACTOR_MG_PER_G,
     calculateAnalytics: () => calculateAnalytics,
+    canonicalise: () => canonicalise,
+    clearEvaluationCache: () => clearEvaluationCache,
     clearPendingCartSync: () => clearPendingCartSync,
     computeGradeFromProduct: () => computeGradeFromProduct,
     deleteLedgerEntry: () => deleteLedgerEntry,
+    evaluateItem: () => evaluateItem,
+    evaluatePolicy: () => evaluatePolicy,
     evictStaleCacheEntries: () => evictStaleCacheEntries,
+    gateNutrients: () => gateNutrients,
     getAllEntries: () => getAllEntries,
     getAllProducts: () => getAllProducts,
     getCachedProduct: () => getCachedProduct,
@@ -42,6 +49,8 @@ var NutriScoreDB = (() => {
     getPremiumAssessment: () => getPremiumAssessment,
     getSettings: () => getSettings,
     interpretProduct: () => interpretProduct,
+    isPolicyV2Enabled: () => isPolicyV2Enabled,
+    isScoringV5Enabled: () => isScoringV5Enabled,
     logCartEvent: () => logCartEvent,
     lowerIndexCache: () => lowerIndexCache,
     memCache: () => memCache,
@@ -446,10 +455,11 @@ var NutriScoreDB = (() => {
 
   // src/ui/src/app/lib/db/settings.ts
   var DEFAULT_SETTINGS = {
-    diabetes: true,
-    hypertension: true,
-    kidney: true,
-    obesity: true,
+    // TODO(D-1): apply default false for unset conditions per blueprint §2.1 & E-06
+    diabetes: false,
+    hypertension: false,
+    kidney: false,
+    obesity: false,
     profileName: "Guest",
     primaryMetric: "Sugar",
     condition: "healthy",
@@ -482,10 +492,11 @@ var NutriScoreDB = (() => {
     ]);
     return {
       ...DEFAULT_SETTINGS,
-      diabetes: diabetes ?? true,
-      hypertension: hypertension ?? true,
-      kidney: kidney ?? true,
-      obesity: obesity ?? true,
+      // TODO(D-1): apply default false for unset conditions per blueprint §2.1 & E-06
+      diabetes: diabetes ?? false,
+      hypertension: hypertension ?? false,
+      kidney: kidney ?? false,
+      obesity: obesity ?? false,
       profileName: profileName || "",
       primaryMetric: primaryMetric || "Sugar",
       condition: condition || "healthy",
@@ -626,7 +637,41 @@ var NutriScoreDB = (() => {
     await db.put("dataset_metadata", meta);
   }
 
+  // src/shared/nutrient-completeness.ts
+  function checkNutrientCompleteness(nutrition) {
+    const missing = [];
+    if (nutrition.energyKj == null && nutrition.energyKcal == null) {
+      missing.push("energy");
+    }
+    if (nutrition.sugarsG == null) {
+      missing.push("sugars");
+    }
+    if (nutrition.satFatG == null) {
+      missing.push("saturated_fat");
+    }
+    if (nutrition.sodiumMg == null && nutrition.saltG == null) {
+      missing.push("sodium_or_salt");
+    }
+    if (missing.length > 0) {
+      return { computability: "LIMITED_NUTRITION_INFO", missingFields: missing };
+    }
+    return { computability: "COMPUTABLE", missingFields: [] };
+  }
+
   // src/ui/src/app/lib/db/grading.ts
+  var SALT_TO_SODIUM_FACTOR_MG_PER_G = 400;
+  var PLAUSIBILITY_BOUNDS = Object.freeze({
+    energyKj: { min: 0, max: 4e3 },
+    energyKcal: { min: 0, max: 956 },
+    sugarsG: { min: 0, max: 100 },
+    satFatG: { min: 0, max: 100 },
+    sodiumMg: { min: 0, max: 4e4 },
+    fatG: { min: 0, max: 100 },
+    carbsG: { min: 0, max: 100 },
+    proteinG: { min: 0, max: 100 },
+    fibreG: { min: 0, max: 100 },
+    fvlPct: { min: 0, max: 100 }
+  });
   var VALID_REVIEW_STATES = /* @__PURE__ */ new Set([
     "REJECTED",
     "UNVERIFIED",
@@ -658,20 +703,65 @@ var NutriScoreDB = (() => {
     if (FSACategoryCode) return FSACategoryCode;
     return "Uncategorized";
   }
+  function isScoringV5Enabled() {
+    if (typeof self !== "undefined" && self.NutriFlags && typeof self.NutriFlags.isEnabled === "function") {
+      return self.NutriFlags.isEnabled("ns.scoring.v5");
+    }
+    if (typeof globalThis !== "undefined" && globalThis.NutriFlags && typeof globalThis.NutriFlags.isEnabled === "function") {
+      return globalThis.NutriFlags.isEnabled("ns.scoring.v5");
+    }
+    return false;
+  }
+  function isPolicyV2Enabled() {
+    if (typeof self !== "undefined" && self.NutriFlags && typeof self.NutriFlags.isEnabled === "function") {
+      return self.NutriFlags.isEnabled("ns.policy.v2");
+    }
+    if (typeof globalThis !== "undefined" && globalThis.NutriFlags && typeof globalThis.NutriFlags.isEnabled === "function") {
+      return globalThis.NutriFlags.isEnabled("ns.policy.v2");
+    }
+    return false;
+  }
+  var CACHE_CAPACITY = 512;
+  var evaluationLruCache = /* @__PURE__ */ new Map();
+  function clearEvaluationCache() {
+    evaluationLruCache.clear();
+  }
+  function getFromCache(key) {
+    if (!evaluationLruCache.has(key)) return void 0;
+    const val = evaluationLruCache.get(key);
+    evaluationLruCache.delete(key);
+    evaluationLruCache.set(key, val);
+    return val;
+  }
+  function putInCache(key, val) {
+    if (evaluationLruCache.has(key)) {
+      evaluationLruCache.delete(key);
+    } else if (evaluationLruCache.size >= CACHE_CAPACITY) {
+      const oldestKey = evaluationLruCache.keys().next().value;
+      if (oldestKey !== void 0) evaluationLruCache.delete(oldestKey);
+    }
+    evaluationLruCache.set(key, val);
+  }
   var CATEGORY_ADJUSTMENTS = {
-    BEVERAGE: (n, ctx) => ({
-      nEnergy: ctx.nEnergy <= 0 ? 0 : Math.min(Math.floor(ctx.nEnergy / 30) + 1, 10),
-      nSugars: (n.SugarsG ?? 0) <= 0 ? 0 : Math.min(Math.floor((n.SugarsG ?? 0) / 1.5) + 1, 15),
-      computeLetter: (score) => {
-        if (score <= 1) return "B";
-        if (score <= 5) return "C";
-        if (score <= 9) return "D";
-        return "E";
-      }
-    }),
+    BEVERAGE: (n, ctx, p) => {
+      const isWater = p?.Classification?.NutritionCategory === "Water" || p?.Classification?.FSACategoryCode === "WATER" || String(p?.Identity?.ProductName || "").toLowerCase().includes("water") || String(p?.name || "").toLowerCase().includes("water");
+      const energyKj = n.EnergyKJ ?? (n.EnergyKcal != null ? n.EnergyKcal * 4.184 : 0);
+      const sugars = n.SugarsG ?? n.sugars_g ?? 0;
+      return {
+        nEnergy: energyKj <= 0 ? 0 : Math.min(Math.floor(energyKj / 30) + 1, 10),
+        nSugars: sugars <= 0 ? 0 : Math.min(Math.floor(sugars / 1.5) + 1, 15),
+        computeLetter: (score) => {
+          if (isWater) return "A";
+          if (score <= 1) return "B";
+          if (score <= 5) return "C";
+          if (score <= 9) return "D";
+          return "E";
+        }
+      };
+    },
     ADDED_FAT: (n, ctx) => {
-      const scoreSatFat = n.SaturatedFatG ?? 0;
-      const totalFat = (n.FatG ?? 0) || scoreSatFat * 1.5;
+      const scoreSatFat = n.SaturatedFatG ?? n.satfat_g ?? 0;
+      const totalFat = (n.FatG ?? n.fat_g ?? 0) || scoreSatFat * 1.5;
       const ratio = totalFat > 0 ? scoreSatFat / totalFat * 100 : 0;
       return { nSatFat: Math.min(Math.floor(ratio / 10), 10) };
     },
@@ -684,20 +774,349 @@ var NutriScoreDB = (() => {
     if (score <= 18) return "D";
     return "E";
   };
-  function computeGradeFromProduct(p) {
+  function parseNumber(val) {
+    if (val === null || val === void 0 || val === "") return null;
+    if (typeof val === "object" && val !== null) {
+      if ("ValueMG" in val) return parseNumber(val.ValueMG);
+      if ("ValueG" in val) return parseNumber(val.ValueG);
+      if ("ValueKcal" in val) return parseNumber(val.ValueKcal);
+      if ("value" in val) return parseNumber(val.value);
+    }
+    const n = Number(val);
+    if (isNaN(n) || !isFinite(n) || n < 0) return null;
+    return n;
+  }
+  function canonicalise(record) {
+    if (!record) {
+      return {
+        productId: null,
+        energyKj: null,
+        energyKcal: null,
+        sugarsG: null,
+        satFatG: null,
+        fatG: null,
+        carbsG: null,
+        proteinG: null,
+        fibreG: null,
+        fvlPct: null,
+        sodiumMg: null,
+        saltG: null,
+        sodiumDerivedFromSalt: false,
+        sodiumSaltInconsistent: false,
+        potassiumMg: null,
+        phosphorusMg: null,
+        liquid: false,
+        servingG: null
+      };
+    }
+    const n = record.Nutrition || record.per_100g || record.NutritionInformation || {};
+    const pkg = record.Packaging || {};
+    const identity = record.Identity || {};
+    const safety = record.Safety || {};
+    let energyKj = parseNumber(n.EnergyKJ ?? n.energy_kj ?? n.energyKj);
+    let energyKcal = parseNumber(n.EnergyKcal ?? n.energy_kcal ?? n.energyKcal);
+    if (energyKj === null && energyKcal !== null) {
+      energyKj = energyKcal * 4.184;
+    } else if (energyKcal === null && energyKj !== null) {
+      energyKcal = energyKj / 4.184;
+    }
+    const sugarsG = parseNumber(n.SugarsG ?? n.sugars_g ?? n.sugarsG ?? n.Sugars);
+    const satFatG = parseNumber(n.SaturatedFatG ?? n.satfat_g ?? n.satFatG ?? n.SaturatedFat);
+    const fatG = parseNumber(n.FatG ?? n.fat_g ?? n.fatG ?? n.TotalFat);
+    const carbsG = parseNumber(n.CarbohydratesG ?? n.carbs_g ?? n.carbsG ?? n.Carbohydrates);
+    const proteinG = parseNumber(n.ProteinG ?? n.protein_g ?? n.proteinG ?? n.Protein);
+    const fibreG = parseNumber(n.FibreG ?? n.fibre_g ?? n.fibreG ?? n.Fibre);
+    const fvlPct = parseNumber(n.FVL?.Percentage ?? n.fvl_pct ?? n.fvlPct);
+    const rawSodium = n.SodiumMG ?? n.sodium_mg ?? n.sodiumMg ?? n.Sodium?.ValueMG ?? n.Sodium;
+    const rawSalt = n.SaltG ?? n.salt_g ?? n.saltG ?? n.Salt;
+    const sMg = parseNumber(rawSodium);
+    const saltG = parseNumber(rawSalt);
+    let sodiumMg = null;
+    let resolvedSaltG = null;
+    let sodiumDerivedFromSalt = false;
+    let sodiumSaltInconsistent = false;
+    if (sMg !== null && saltG !== null) {
+      sodiumMg = sMg;
+      resolvedSaltG = saltG;
+      const derivedMg = saltG * SALT_TO_SODIUM_FACTOR_MG_PER_G;
+      const maxVal = Math.max(sMg, derivedMg);
+      sodiumSaltInconsistent = maxVal > 0 && Math.abs(sMg - derivedMg) / maxVal > 0.2;
+    } else if (sMg !== null) {
+      sodiumMg = sMg;
+      resolvedSaltG = sMg / SALT_TO_SODIUM_FACTOR_MG_PER_G;
+    } else if (saltG !== null) {
+      sodiumMg = saltG * SALT_TO_SODIUM_FACTOR_MG_PER_G;
+      resolvedSaltG = saltG;
+      sodiumDerivedFromSalt = true;
+    }
+    const potassiumMg = parseNumber(n.PotassiumMG ?? n.potassium_mg ?? n.potassiumMg);
+    const phosphorusMg = parseNumber(n.PhosphorusMG ?? n.phosphorus_mg ?? n.phosphorusMg);
+    const unit = String(pkg.PackSizeUnit || record.packSizeUnit || record.sizeUnit || "").trim().toLowerCase();
+    const liquid = unit === "ml" || unit === "l" || unit === "cl";
+    const servingG = parseNumber(pkg.ServingSizeG || record.ServingSizeG || record.servingSizeG);
+    let allergens = void 0;
+    if (Array.isArray(safety.Allergens)) {
+      allergens = [...safety.Allergens];
+    } else if (Array.isArray(record.Allergens)) {
+      allergens = [...record.Allergens];
+    }
+    return {
+      productId: identity.ProductID || record.productId || record.GroceryProductID || null,
+      energyKj,
+      energyKcal,
+      sugarsG,
+      satFatG,
+      fatG,
+      carbsG,
+      proteinG,
+      fibreG,
+      fvlPct,
+      sodiumMg,
+      saltG: resolvedSaltG,
+      sodiumDerivedFromSalt,
+      sodiumSaltInconsistent,
+      potassiumMg,
+      phosphorusMg,
+      allergens,
+      liquid,
+      servingG
+    };
+  }
+  function gateNutrients(record, vec) {
+    const missing = [];
+    if (vec.energyKj === null && vec.energyKcal === null) missing.push("energy");
+    if (vec.sugarsG === null) missing.push("sugars");
+    if (vec.satFatG === null) missing.push("saturated_fat");
+    if (vec.sodiumMg === null && vec.saltG === null) missing.push("sodium_or_salt");
     const plausibleFields = [];
-    if (!p || !p.Nutrition) {
+    const checkField = (key, val, unit, bounds) => {
+      if (val !== null && val >= bounds.min && val <= bounds.max) {
+        plausibleFields.push({ key, value: val, unit });
+      }
+    };
+    checkField("energyKj", vec.energyKj, "kJ", PLAUSIBILITY_BOUNDS.energyKj);
+    checkField("sugarsG", vec.sugarsG, "g", PLAUSIBILITY_BOUNDS.sugarsG);
+    checkField("satFatG", vec.satFatG, "g", PLAUSIBILITY_BOUNDS.satFatG);
+    checkField("sodiumMg", vec.sodiumMg, "mg", PLAUSIBILITY_BOUNDS.sodiumMg);
+    checkField("fatG", vec.fatG, "g", PLAUSIBILITY_BOUNDS.fatG);
+    checkField("carbsG", vec.carbsG, "g", PLAUSIBILITY_BOUNDS.carbsG);
+    checkField("proteinG", vec.proteinG, "g", PLAUSIBILITY_BOUNDS.proteinG);
+    checkField("fibreG", vec.fibreG, "g", PLAUSIBILITY_BOUNDS.fibreG);
+    const g1 = plausibleFields.length > 0;
+    const g2 = missing.length === 0;
+    return { g1, g2, missing, plausibleFields };
+  }
+  var NONE_POLICY_DECISION = Object.freeze({
+    action: "none",
+    reason_class: null,
+    triggers: Object.freeze([]),
+    min_conf_ok: true
+  });
+  var POLICY_NUTRIENT_MAP = {
+    sugars_g_per_100g_max: "sugarsG",
+    sugars_g_100g_max: "sugarsG",
+    sugars_g: "sugarsG",
+    SugarsG: "sugarsG",
+    sodium_mg_per_100g_max: "sodiumMg",
+    sodium_mg_100g_max: "sodiumMg",
+    sodium_mg: "sodiumMg",
+    SodiumMG: "sodiumMg",
+    satfat_g_per_100g_max: "satFatG",
+    satfat_g_100g_max: "satFatG",
+    satfat_g: "satFatG",
+    SaturatedFatG: "satFatG",
+    energy_kcal_per_100g_max: "energyKcal",
+    energy_kcal_100g_max: "energyKcal",
+    energy_kcal: "energyKcal",
+    EnergyKcal: "energyKcal",
+    carbs_g_per_100g_max: "carbsG",
+    carbs_g_100g_max: "carbsG",
+    carbs_g: "carbsG",
+    CarbohydratesG: "carbsG",
+    fibre_g_per_100g_min: "fibreG",
+    fibre_g_100g_min: "fibreG",
+    fibre_g: "fibreG",
+    FibreG: "fibreG",
+    protein_g_per_100g_min: "proteinG",
+    protein_g_100g_min: "proteinG",
+    protein_g: "proteinG",
+    ProteinG: "proteinG"
+  };
+  function evaluatePolicy(vec, gate, tier, policy) {
+    if (!policy) return { ...NONE_POLICY_DECISION, triggers: [] };
+    const triggers = [];
+    const per100gFlags = policy.per100gFlags || [];
+    for (const f of per100gFlags) {
+      if (!f || !f.n) continue;
+      if (f.basis === "per_day" || String(f.n).includes("per_day")) continue;
+      const mappedKey = POLICY_NUTRIENT_MAP[f.n] || f.n;
+      const val = vec[mappedKey];
+      if (val === null || val === void 0 || typeof val !== "number") continue;
+      if (f.gt != null && val > f.gt) {
+        triggers.push({ n: f.n, actual: val, limit: f.gt, cmp: "gt" });
+      } else if (f.lt != null && val < f.lt) {
+        triggers.push({ n: f.n, actual: val, limit: f.lt, cmp: "lt" });
+      }
+    }
+    const exclude = policy.exclude || [];
+    if (exclude.length > 0) {
+      if (vec.allergens === void 0) {
+        return {
+          action: "caution",
+          reason_class: "allergen_data_unavailable",
+          triggers,
+          min_conf_ok: false,
+          profile_ver: policy.profileVer ?? null
+        };
+      }
+      for (const a of exclude) {
+        if (Array.isArray(vec.allergens) && vec.allergens.includes(a)) {
+          return {
+            action: policy.blockMode || "block",
+            reason_class: "safety_hard",
+            triggers: [{ allergen: a, actual: true, limit: false, cmp: "eq" }, ...triggers],
+            min_conf_ok: true,
+            profile_ver: policy.profileVer ?? null
+          };
+        }
+      }
+    }
+    const confirmed = tier === "confirmed" || tier === "high_confidence";
+    if (!triggers.length || !confirmed || !gate.g2) {
+      return {
+        action: "none",
+        reason_class: null,
+        triggers,
+        min_conf_ok: confirmed,
+        profile_ver: policy.profileVer ?? null
+      };
+    }
+    return {
+      action: policy.blockMode || "warn",
+      reason_class: "clinical_soft",
+      triggers,
+      min_conf_ok: true,
+      profile_ver: policy.profileVer ?? null
+    };
+  }
+  function evaluateItem(record, policy = null, options = {}) {
+    try {
+      const catVersion = options.catalogueVersion || "catalog-v1";
+      const profileVer = policy ? policy.profileVer ?? 1 : null;
+      const productId = record?.Identity?.ProductID || record?.productId || record?.GroceryProductID || null;
+      if (productId && !options.bypassCache) {
+        const cacheKey = `${productId}:${catVersion}:v5:${profileVer ?? "none"}`;
+        const cached = getFromCache(cacheKey);
+        if (cached) return cached;
+      }
+      const versions = {
+        scoring: "v5",
+        algorithm: "fsa-nps-2023",
+        catalogue: catVersion,
+        profile: profileVer
+      };
+      if (!record || !record.Nutrition && !record.per_100g && !record.NutritionInformation) {
+        return {
+          status: "NOT_ATTEMPTED",
+          grade: null,
+          score: null,
+          facts: [],
+          missing: ["energy", "sugars", "saturated_fat", "sodium_or_salt"],
+          assumptions: [],
+          tier: "not_rated",
+          decision: { ...NONE_POLICY_DECISION, triggers: [] },
+          versions
+        };
+      }
+      const vec = canonicalise(record);
+      const gate = gateNutrients(record, vec);
+      const validation = record.Validation || {};
+      const reviewState = validation.ReviewState || record.review_state || "UNVERIFIED";
+      const reviewStateToTier = {
+        HIGH_CONFIDENCE: "high_confidence",
+        VERIFIED: "confirmed",
+        ESTIMATED: "estimated",
+        UNVERIFIED: "not_rated",
+        REJECTED: "not_rated"
+      };
+      const tier = reviewStateToTier[reviewState] ?? "not_rated";
+      if (!gate.g2 || tier === "not_rated") {
+        const evalResult2 = {
+          status: "INSUFFICIENT_DATA",
+          grade: null,
+          score: null,
+          facts: gate.plausibleFields,
+          missing: gate.missing,
+          assumptions: [],
+          tier,
+          decision: { ...NONE_POLICY_DECISION, triggers: [] },
+          versions
+        };
+        if (productId && !options.bypassCache) {
+          putInCache(`${productId}:${catVersion}:v5:${profileVer ?? "none"}`, evalResult2);
+        }
+        return evalResult2;
+      }
+      const gradeRes = computeGradeFromProduct(record, { scoringVersion: "v5" });
+      const status = tier === "estimated" ? "COMPUTED_PROVISIONAL" : "COMPUTED_CONFIRMED";
+      const decision = policy ? evaluatePolicy(vec, gate, tier, policy) : { ...NONE_POLICY_DECISION, triggers: [] };
+      const evalResult = {
+        status,
+        grade: gradeRes.grade === "UNKNOWN" ? null : gradeRes.grade,
+        score: gradeRes.score ?? null,
+        facts: gate.plausibleFields,
+        missing: [],
+        assumptions: gradeRes.assumptions || [],
+        tier,
+        decision,
+        versions
+      };
+      if (productId && !options.bypassCache) {
+        putInCache(`${productId}:${catVersion}:v5:${profileVer ?? "none"}`, evalResult);
+      }
+      return evalResult;
+    } catch (err) {
+      try {
+        if (typeof self !== "undefined" && self.NutriObs?.count) {
+          self.NutriObs.count("eval_error", 1);
+        } else if (typeof globalThis !== "undefined" && globalThis.NutriObs?.count) {
+          globalThis.NutriObs.count("eval_error", 1);
+        }
+      } catch (_ignored) {
+      }
+      return {
+        status: "NOT_ATTEMPTED",
+        grade: null,
+        score: null,
+        facts: [],
+        missing: [],
+        assumptions: [],
+        tier: "not_rated",
+        decision: { action: "none", reason_class: null, triggers: [], min_conf_ok: false },
+        error_code: err && err.message ? String(err.message) : "UNKNOWN_ERROR",
+        versions: {
+          scoring: "v5",
+          algorithm: "fsa-nps-2023",
+          catalogue: options.catalogueVersion || "catalog-v1",
+          profile: null
+        }
+      };
+    }
+  }
+  function computeGradeFromProduct(p, options = {}) {
+    const plausibleFields = [];
+    if (!p || !p.Nutrition && !p.per_100g && !p.NutritionInformation) {
       return { grade: "UNKNOWN", status: "not_attempted", plausibleFields };
     }
-    const n = p.Nutrition;
+    const n = p.Nutrition || p.per_100g || p.NutritionInformation;
     const fsaCat = p.Classification?.FSACategoryCode || NUTRITION_CATEGORY_TO_FSA[p.Classification?.NutritionCategory] || "GENERAL_FOOD";
     const energy = n.EnergyKJ ?? (n.EnergyKcal != null ? n.EnergyKcal * 4.184 : null);
-    const sugars = n.SugarsG ?? null;
-    const satFat = n.SaturatedFatG ?? null;
-    const sodium = n.SodiumMG ?? (n.SaltG != null ? n.SaltG / 2.5 * 1e3 : null) ?? n.Sodium?.ValueMG ?? null;
-    const fibre = n.FibreG ?? null;
-    const protein = n.ProteinG ?? null;
-    const fvlPct = n.FVL?.Percentage ?? null;
+    const sugars = n.SugarsG ?? n.sugars_g ?? null;
+    const satFat = n.SaturatedFatG ?? n.satfat_g ?? null;
+    const sodium = n.SodiumMG ?? n.sodium_mg ?? (n.SaltG != null ? n.SaltG * SALT_TO_SODIUM_FACTOR_MG_PER_G : null) ?? (n.salt_g != null ? n.salt_g * SALT_TO_SODIUM_FACTOR_MG_PER_G : null) ?? n.Sodium?.ValueMG ?? null;
+    const fibre = n.FibreG ?? n.fibre_g ?? null;
+    const protein = n.ProteinG ?? n.protein_g ?? null;
+    const fvlPct = n.FVL?.Percentage ?? n.fvl_pct ?? null;
     const addField = (field, val, unit, lo, hi) => {
       if (val != null && val >= lo && val <= hi) plausibleFields.push({ field, value: val, unit });
     };
@@ -707,6 +1126,47 @@ var NutriScoreDB = (() => {
     addField("Sodium", sodium, "mg", 0, 4e4);
     addField("Fibre", fibre, "g", 0, 100);
     addField("Protein", protein, "g", 0, 100);
+    const useV5 = options.scoringVersion === "v5" || isScoringV5Enabled();
+    if (useV5) {
+      const miss = [];
+      if (energy == null) miss.push("energy");
+      if (sugars == null) miss.push("sugars");
+      if (satFat == null) miss.push("saturated_fat");
+      if (sodium == null) miss.push("sodium_or_salt");
+      if (miss.length > 0) {
+        return { grade: "UNKNOWN", status: "insufficient_data", plausibleFields, missing: miss };
+      }
+      const assumptions = [
+        fibre == null && "fibre_zero",
+        protein == null && "protein_zero",
+        fvlPct == null && "fvl_zero"
+      ].filter(Boolean);
+      const ctx2 = {
+        nEnergy: Math.min(Math.floor(energy / 335), 10),
+        nSugars: Math.min(Math.floor(sugars / 3.4), 15),
+        nSatFat: Math.min(Math.floor(satFat / 1), 10),
+        nSodium: Math.min(Math.floor(sodium / 80), 20),
+        pFibre: fibre == null ? 0 : Math.min(Math.floor(fibre / 0.9), 5),
+        pProtein: protein == null ? 0 : Math.min(Math.floor(protein / 2.4), 7),
+        pFVL: fvlPct == null || fvlPct <= 40 ? 0 : fvlPct > 80 ? 5 : fvlPct > 60 ? 2 : 1,
+        get nPoints() {
+          return this.nEnergy + this.nSugars + this.nSatFat + this.nSodium;
+        },
+        computeFinalScore() {
+          if (fsaCat === "CHEESE") return this.nPoints - this.pFibre - this.pProtein - this.pFVL;
+          if (this.nPoints >= 11 && this.pFVL < 5) return this.nPoints - this.pFibre - this.pFVL;
+          return this.nPoints - this.pFibre - this.pProtein - this.pFVL;
+        },
+        computeLetter: GENERAL_LETTER
+      };
+      const adjust2 = CATEGORY_ADJUSTMENTS[fsaCat];
+      if (adjust2) {
+        Object.assign(ctx2, adjust2(n, ctx2, p));
+      }
+      const finalScore2 = ctx2.computeFinalScore();
+      const letter2 = ctx2.computeLetter(finalScore2);
+      return { grade: letter2, status: "computed", plausibleFields, missing: [], assumptions, score: finalScore2 };
+    }
     if (energy == null) {
       return { grade: "UNKNOWN", status: "insufficient_data", plausibleFields };
     }
@@ -731,7 +1191,7 @@ var NutriScoreDB = (() => {
     };
     const adjust = CATEGORY_ADJUSTMENTS[fsaCat];
     if (adjust) {
-      Object.assign(ctx, adjust(n, ctx));
+      Object.assign(ctx, adjust(n, ctx, p));
     }
     const finalScore = ctx.computeFinalScore();
     const letter = ctx.computeLetter(finalScore);
@@ -739,9 +1199,7 @@ var NutriScoreDB = (() => {
   }
   function validateReviewState(rawReviewState, dataQualityFlags) {
     if (rawReviewState && !VALID_REVIEW_STATES.has(rawReviewState)) {
-      console.error(
-        `[NutriScoreDB] \xA78 anomaly: unrecognised ReviewState "${rawReviewState}"`
-      );
+      console.error(`[NutriScoreDB] \xA78 anomaly: unrecognised ReviewState "${rawReviewState}"`);
       dataQualityFlags.push("unrecognised_review_state");
       return "UNVERIFIED";
     }
@@ -762,7 +1220,7 @@ var NutriScoreDB = (() => {
       novaConfidence: classification.NOVA?.Confidence ?? null
     };
   }
-  function interpretProduct(record) {
+  function interpretProduct(record, options = {}) {
     if (!record) return { canDisplayGrade: false, scoringStatus: "not_attempted" };
     const validation = record.Validation || {};
     const prov = record.NutritionProvenance || {};
@@ -788,8 +1246,22 @@ var NutriScoreDB = (() => {
     if (novaLevel == null && !nutrientAlgorithmVariant) return baseEarlyReturn;
     if (reviewState === "REJECTED" || reviewState === "UNVERIFIED") return baseEarlyReturn;
     if (!nutrientAlgorithmVariant || foodCategory === "Uncategorized") return baseEarlyReturn;
-    const n = record.Nutrition || {};
-    const gate2Passed = n.EnergyKJ != null || n.EnergyKcal != null;
+    const n = record.Nutrition || record.per_100g || record.NutritionInformation || {};
+    const useV5 = options.scoringVersion === "v5" || isScoringV5Enabled();
+    let gate2Passed;
+    if (useV5) {
+      const completeness = checkNutrientCompleteness({
+        energyKj: n.EnergyKJ ?? n.energy_kj ?? null,
+        energyKcal: n.EnergyKcal ?? n.energy_kcal ?? null,
+        sugarsG: n.SugarsG ?? n.sugars_g ?? null,
+        satFatG: n.SaturatedFatG ?? n.satfat_g ?? null,
+        sodiumMg: n.SodiumMG ?? n.sodium_mg ?? (n.Sodium?.ValueMG ?? null),
+        saltG: n.SaltG ?? n.salt_g ?? null
+      });
+      gate2Passed = completeness.computability === "COMPUTABLE";
+    } else {
+      gate2Passed = n.EnergyKJ != null || n.EnergyKcal != null || n.energy_kj != null || n.energy_kcal != null;
+    }
     const checks = validation.ConsistencyChecks || {};
     const reviewStateToBadgeTier = {
       HIGH_CONFIDENCE: "high_confidence",
@@ -1368,3 +1840,7 @@ var NutriScoreDB = (() => {
   }
   return __toCommonJS(db_exports);
 })();
+if (typeof module !== "undefined" && module.exports) { module.exports = NutriScoreDB; }
+if (typeof globalThis !== "undefined") { globalThis.NutriScoreDB = NutriScoreDB; }
+if (typeof self !== "undefined") { self.NutriScoreDB = NutriScoreDB; }
+

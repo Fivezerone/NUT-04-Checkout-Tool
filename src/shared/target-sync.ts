@@ -143,14 +143,21 @@ export function convertServingTo100g(
 export function verifyAtwaterEnergy(
   declaredKj: number,
   macros: { fatG: number; carbsG: number; proteinG: number; fibreG?: number },
+  options: { tolerance?: number } = {},
 ): { consistent: boolean; expectedKj: number; deltaPct: number } {
   // Atwater factors: Fat = 37 kJ/g, Protein = 17 kJ/g, Carbs = 17 kJ/g, Fibre = 8 kJ/g
   const fibre = macros.fibreG || 0
   const expectedKj = macros.fatG * 37 + macros.proteinG * 17 + macros.carbsG * 17 + fibre * 8
   const deltaPct = Math.abs(declaredKj - expectedKj) / (expectedKj || 1)
+  const expectedKcal = expectedKj / 4.184
+
+  // Blueprint §2.5 & X-12: 15% tolerance window when calculated energy exceeds 20 kcal.
+  // The stricter 8% window remains configurable for data curation linting.
+  const tolerance =
+    options.tolerance !== undefined ? options.tolerance : expectedKcal > 20 ? 0.15 : 0.08
 
   return {
-    consistent: deltaPct <= 0.08, // 8% tolerance window (T23)
+    consistent: deltaPct <= tolerance,
     expectedKj: Math.round(expectedKj),
     deltaPct: Number((deltaPct * 100).toFixed(2)),
   }

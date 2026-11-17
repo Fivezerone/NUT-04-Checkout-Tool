@@ -23,15 +23,30 @@ const HealthFlags = {
     return { flag: null, detail: { reason: "missing_sodium_and_salt_data" } };
   },
 
-  isDiabeticFriendlyPredicate(sugar, fibre, liquid, thresholds) {
-    if (sugar.status === "present" && fibre.status === "present") {
+  isDiabeticFriendlyPredicate(sugar, fibre, liquid, thresholds, carbs) {
+    if (sugar.status === "present") {
       const sugarThreshold = liquid ? thresholds.highSugar.liquidG : thresholds.highSugar.solidG;
       const highSugar = sugar.value > sugarThreshold;
-      const lowFibre = fibre.value < thresholds.lowFibreG;
-      return {
-        flag: !(highSugar || lowFibre),
-        detail: { highSugar, lowFibre, sugarThreshold, fibreThreshold: thresholds.lowFibreG }
-      };
+      const carbVal = carbs && carbs.status === "present" ? carbs.value : null;
+      const lowCarb = carbVal !== null ? carbVal <= (liquid ? 5.0 : 20.0) : !highSugar;
+
+      // E-07: drop the fibre < 3g disqualifier for items whose sugars and carbohydrates are both below the policy limit
+      const lowFibre = (!lowCarb || highSugar) && fibre && fibre.status === "present"
+        ? fibre.value < thresholds.lowFibreG
+        : false;
+
+      if (fibre && fibre.status === "present") {
+        return {
+          flag: !(highSugar || lowFibre),
+          detail: { highSugar, lowFibre, sugarThreshold, fibreThreshold: thresholds.lowFibreG }
+        };
+      } else if (!highSugar && lowCarb) {
+        // Sugar-free item with low carbohydrates passes diabetic friendly even if fibre data is absent
+        return {
+          flag: true,
+          detail: { highSugar: false, lowFibre: false, sugarThreshold, reason: "sugar_and_carbs_below_limit" }
+        };
+      }
     }
     return { flag: null, detail: { reason: "missing_sugar_or_fibre_data" } };
   },
@@ -76,7 +91,13 @@ const HealthFlags = {
   buildHealthFlags(normalized, servingGrams, servingBasis, servingConfidence, thresholds) {
     const energyRes = this.isEnergyDensePredicate(normalized.values.EnergyKcal, normalized.liquid, thresholds);
     const sodiumRes = this.isHighSodiumPredicate(normalized.sodiumMg, thresholds);
-    const diabeticRes = this.isDiabeticFriendlyPredicate(normalized.values.SugarsG, normalized.values.FibreG, normalized.liquid, thresholds);
+    const diabeticRes = this.isDiabeticFriendlyPredicate(
+      normalized.values.SugarsG,
+      normalized.values.FibreG,
+      normalized.liquid,
+      thresholds,
+      normalized.values.CarbohydratesG
+    );
     const renalRes = this.isRenalSafePredicate(normalized, servingGrams, servingBasis, servingConfidence, thresholds);
 
     return {
