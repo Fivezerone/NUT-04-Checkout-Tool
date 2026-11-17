@@ -82,19 +82,46 @@ export async function recordHash(obj) {
 }
 
 /**
+ * Pure Unicode code-unit comparator (Invariant X-10).
+ * Prevents platform ICU differences from altering key or row sort orders.
+ */
+export function codeUnitCompare(a, b) {
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
+}
+
+/**
+ * Legacy locale-sensitive comparator preserved for pre-blueprint hash verification.
+ */
+export function legacyCompare(a, b) {
+  return a.localeCompare(b, 'en', { sensitivity: 'variant' })
+}
+
+/**
  * Compute the catalog_hash over a set of {retailer, product_id, record_hash} entries.
  * Line format: "{retailer}|{product_id}|{record_hash}\n"
- * Rows sorted by (retailer, product_id) using plain string comparison.
+ * Rows sorted by (retailer, product_id) using code-unit comparison (default) or legacy comparator.
  *
  * @param {Array<{retailer:string, product_id:string, record_hash:string}>} rows
+ * @param {{ legacy?: boolean }} [options]
  * @returns {Promise<string>} hex string
  */
-export async function computeCatalogHash(rows) {
-  const sorted = [...rows].sort((a, b) => {
-    const r = a.retailer.localeCompare(b.retailer, 'en', { sensitivity: 'variant' })
-    if (r !== 0) return r
-    return a.product_id.localeCompare(b.product_id, 'en', { sensitivity: 'variant' })
-  })
+export async function computeCatalogHash(rows, options = {}) {
+  const isLegacy = options.legacy === true
+  const comparator = isLegacy
+    ? (a, b) => {
+        const r = legacyCompare(a.retailer, b.retailer)
+        if (r !== 0) return r
+        return legacyCompare(a.product_id, b.product_id)
+      }
+    : (a, b) => {
+        const r = codeUnitCompare(a.retailer, b.retailer)
+        if (r !== 0) return r
+        return codeUnitCompare(a.product_id, b.product_id)
+      }
+
+  const sorted = [...rows].sort(comparator)
   const lines = sorted.map((r) => `${r.retailer}|${r.product_id}|${r.record_hash}\n`).join('')
   return sha256Hex(lines)
 }
