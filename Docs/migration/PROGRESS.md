@@ -34,7 +34,7 @@ Evaluated via `checkNutrientCompleteness` from `src/shared/target-sync.ts` (Inva
 | Work Package | Title | Status | Findings Closed | Flags Introduced | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **WP-00** | Orientation, verification, baseline & guardrails | **Completed** | F-08 | — | Baseline recorded, 5 verification items confirmed, completeness benchmarked, guardrails staged |
-| **WP-01** | Measurement foundation & low-risk hot fixes | *Ready* | O-01, A-06 (hotfix), A-12 | `ns.obs.sdk` | Next up |
+| **WP-01** | Measurement foundation & low-risk hot fixes | **Completed** | O-01, A-06 (hotfix), A-12 | `ns.obs.sdk` | Observability SDK (`obs/obs.js`) with microsecond benchmarks (avg mark ~2.4µs, 10-batch ~0.32ms; budget <= 1.2ms), deterministic SHA-256 idempotency key for observed-orders sync, `check-dist` guardrail wired |
 | **WP-02** | Crypto provider & browser-safe shared primitives | *Pending* | X-05(e), X-10, ADR-3 | — | — |
 | **WP-03** | Signed flag manifest client | *Pending* | 3.8, ADR-5 | `ns.global.neutral` | — |
 | **WP-04** | Scoring & policy v5 | *Pending* | E-01..E-07, X-07, X-12, ADR-8 | `ns.scoring.v5`, `ns.policy.v2` | — |

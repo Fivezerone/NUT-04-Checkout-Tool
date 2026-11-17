@@ -3,6 +3,7 @@
 // STAGE A (A-07): supabase.js removed from importScripts (deleted; decision 7).
 // TODO (Stage C): add oidc-client.js when OidcAuthProvider is implemented.
 importScripts(
+  "obs/obs.js",
   "config.js",
   "db.js",
   "entitlement.js",

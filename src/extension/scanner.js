@@ -168,6 +168,17 @@ class NutriScanner {
     while (this._queue.length > 0 && this._inflight < NUTRI_SCANNER_MAX_INFLIGHT) {
       const batch = this._queue.splice(0, NUTRI_SCANNER_MAX_BATCH);
       this._inflight++;
+      const obs = typeof NutriObs !== "undefined" ? NutriObs : null;
+      const batchId = obs?.startTrace ? obs.startTrace() : `b_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const batchMark = `ns:batch:${batchId}`;
+      const rpcStartMark = `ns:rpc_start:${batchId}`;
+      batch._id = batchId;
+      batch._mk = batchMark;
+      batch._rStart = rpcStartMark;
+      obs?.mark(batchMark);
+      obs?.mark("ns:batch");
+      obs?.mark(rpcStartMark);
+
       void this._score(batch).finally(() => {
         this._inflight--;
         if (this._queue.length > 0) void this._flush();
@@ -178,14 +189,14 @@ class NutriScanner {
   // ── 3. SCORING ────────────────────────────────────────────────────────────
 
   async _score(batch) {
+    const o = self.NutriObs;
     return new Promise((resolve) => {
       const payloads = batch.map((c) => ({
-        product_name: c.item?.name || c.item?.product_name || "",
-        retailer_product_id: c.item?.id || c.item?.retailer_product_id || null,
-        price: c.item?.price ?? null,
-        url: c.item?.url ?? null,
-        name_hash: c.item?.name_hash ?? null,
-        scrapedCategory: c.item?.scrapedCategory ?? null,
+        product_name: c.item?.name || c.item?.product_name,
+        retailer_product_id: c.item?.id || c.item?.retailer_product_id,
+        price: c.item?.price,
+        url: c.item?.url,
+        name_hash: c.item?.name_hash,
       }));
 
       this._safeSend(
@@ -193,18 +204,23 @@ class NutriScanner {
           action: "CHECK_PRODUCT_SCORES_BATCH",
           retailer: this._adapter.getRetailerCode(),
           payloads,
+          trace: { id: batch._id },
         },
         (response) => {
+          o?.measure("sw_rpc_ms", batch._rStart);
           try {
+            if (!response?.ok) { o?.count("sw_rpc_fail", 1); o?.warn("sw_rpc_failed", {}); }
             const results = response?.ok ? (response.response?.results || []) : [];
             batch.forEach((c, i) => {
               const r = results[i];
-              if (!r) { this._retryLater(c); return; }
-              if (r.status === "error" && r.retryable) { this._retryLater(c); return; }
+              if (!r || (r.status === "error" && r.retryable)) { this._retryLater(c); return; }
               const product = (r.status === "SUCCESS" && r.data) ? r.data : (r.data || r);
               this._adapter.inject(c.el, product);
+              o?.mark("ns:painted");
+              o?.measure("badge_ms", batch._mk);
             });
           } catch {
+            o?.count("eval_error", 1);
             batch.forEach((c) => this._retryLater(c));
           }
           resolve();
@@ -216,7 +232,11 @@ class NutriScanner {
   _retryLater(c) {
     const n = (this._attempts.get(c.el) ?? 0) + 1;
     this._attempts.set(c.el, n);
-    if (n >= NUTRI_SCANNER_MAX_ATTEMPTS) return; // give up; next rescan resets counter
+    if (n >= NUTRI_SCANNER_MAX_ATTEMPTS) {
+      const obs = typeof NutriObs !== "undefined" ? NutriObs : null;
+      obs?.count("neutral_fallback", 1);
+      return; // give up; next rescan resets counter
+    }
     this._seen.delete(c.el);                     // eligible for re-discovery
     this._enqueueRoot(c.el);
   }
