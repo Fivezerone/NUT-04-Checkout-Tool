@@ -69,6 +69,46 @@ export interface ShoppingLedgerRow {
     potassiumMg?: number | null;
     energyKcal?: number | null;
   };
+  // Ledger v2 additive fields (Blueprint §2.3)
+  retailerProductId?: string;
+  unitPriceMinor?: number | null;
+  cartEpisodeId?: string;
+  clientSeq?: number;
+  versions?: { scoring: string; catalogue: string; profile: number | null };
+  firstSeenAt?: number;
+  updatedAt?: number;
+}
+
+/**
+ * Ledger v2 target record schema (Blueprint §2.3, C5; E-08, E-09, E-10, E-13).
+ * Derived, versioned, bounded projection of adapter cart snapshot.
+ */
+export interface LedgerRow {
+  id: string;
+  retailer: string;
+  retailerProductId: string;
+  productId: string | null;
+  name?: string;
+  quantity: number; // last known, never summed
+  status: 'in_cart' | 'removed' | 'purchased';
+  scoringStatus: 'scored' | 'unscored' | 'unmatched'; // unscored rows are kept (E-09)
+  gradeSnapshot: Grade | null;
+  unitPriceMinor: number | null;
+  priceSnapshot?: number | null;
+  category?: string;
+  cartEpisodeId: string; // new
+  clientSeq: number; // new, monotonic per install
+  versions: { scoring: string; catalogue: string; profile: number | null }; // new (E-10)
+  firstSeenAt: number;
+  updatedAt: number;
+  addedAt?: number;
+  nutritionSnapshot?: {
+    sodiumMg: number | null;
+    sugarsG: number | null;
+    satFatG: number | null;
+    potassiumMg?: number | null;
+    energyKcal?: number | null;
+  } | null;
 }
 
 // Global metadata about the currently loaded dataset.

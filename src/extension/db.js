@@ -28,14 +28,19 @@ var NutriScoreDB = (() => {
     DEFAULT_SETTINGS: () => DEFAULT_SETTINGS,
     NUTRITION_CATEGORY_TO_FSA: () => NUTRITION_CATEGORY_TO_FSA,
     PLAUSIBILITY_BOUNDS: () => PLAUSIBILITY_BOUNDS,
+    RETENTION_90_DAYS_MS: () => RETENTION_90_DAYS_MS,
     SALT_TO_SODIUM_FACTOR_MG_PER_G: () => SALT_TO_SODIUM_FACTOR_MG_PER_G,
+    _consecutiveAbsentMap: () => _consecutiveAbsentMap,
+    applyCartSnapshot: () => applyCartSnapshot,
     buildNmeIndexForProduct: () => buildNmeIndexForProduct,
     calculateAnalytics: () => calculateAnalytics,
     canonicalise: () => canonicalise,
     clearEvaluationCache: () => clearEvaluationCache,
     clearPendingCartSync: () => clearPendingCartSync,
+    computeCartCoverage: () => computeCartCoverage,
     computeGradeFromProduct: () => computeGradeFromProduct,
     computeTokenSetSimilarity: () => computeTokenSetSimilarity,
+    dedupeActiveCartItems: () => dedupeActiveCartItems,
     deleteLedgerEntry: () => deleteLedgerEntry,
     evaluateItem: () => evaluateItem,
     evaluatePolicy: () => evaluatePolicy,
@@ -45,22 +50,27 @@ var NutriScoreDB = (() => {
     extractUrlSlug: () => extractUrlSlug,
     gateNutrients: () => gateNutrients,
     getAllEntries: () => getAllEntries,
+    getAllLedgerRows: () => getAllLedgerRows,
     getAllProducts: () => getAllProducts,
     getCachedProduct: () => getCachedProduct,
     getCatalogMeta: () => getCatalogMeta,
     getDB: () => getDB,
     getEntriesSince: () => getEntriesSince,
+    getNextClientSeq: () => getNextClientSeq,
+    getOrCreateCartEpisodeId: () => getOrCreateCartEpisodeId,
     getPendingCartSyncs: () => getPendingCartSyncs,
     getPremiumAssessment: () => getPremiumAssessment,
     getSettings: () => getSettings,
     getSizeBucket: () => getSizeBucket,
     interpretProduct: () => interpretProduct,
+    isLedgerV2Enabled: () => isLedgerV2Enabled,
     isNmeV2Enabled: () => isNmeV2Enabled,
     isPolicyV2Enabled: () => isPolicyV2Enabled,
     isScoringV5Enabled: () => isScoringV5Enabled,
     logCartEvent: () => logCartEvent,
     lowerIndexCache: () => lowerIndexCache,
     memCache: () => memCache,
+    normalizeLedgerRow: () => normalizeLedgerRow,
     normalizeProductName: () => normalizeProductName,
     normalizedIndexCache: () => normalizedIndexCache,
     productRecordLru: () => productRecordLru,
@@ -68,6 +78,7 @@ var NutriScoreDB = (() => {
     purgeLedgerOlderThan: () => purgeLedgerOlderThan,
     putCatalogMeta: () => putCatalogMeta,
     rebuildNmeIndex: () => rebuildNmeIndex,
+    resetConsecutiveAbsentTracker: () => resetConsecutiveAbsentTracker,
     resolveBatch: () => resolveBatch,
     resolveDisplayCategory: () => resolveDisplayCategory,
     resolveProductMatch: () => resolveProductMatch,
@@ -460,6 +471,15 @@ var NutriScoreDB = (() => {
           if (oldVersion < 19) {
             if (!db.objectStoreNames.contains("nme_index")) {
               db.createObjectStore("nme_index", { keyPath: "key" });
+            }
+            if (db.objectStoreNames.contains("shopping_ledger")) {
+              const ledger = transaction.objectStore("shopping_ledger");
+              if (!ledger.indexNames.contains("by_episode")) {
+                ledger.createIndex("by_episode", "cartEpisodeId");
+              }
+              if (!ledger.indexNames.contains("by_seq")) {
+                ledger.createIndex("by_seq", "clientSeq");
+              }
             }
           }
         }
@@ -1791,6 +1811,16 @@ var NutriScoreDB = (() => {
   }
 
   // src/ui/src/app/lib/db/cart.ts
+  var RETENTION_90_DAYS_MS = 90 * 24 * 60 * 60 * 1e3;
+  function isLedgerV2Enabled() {
+    if (typeof self !== "undefined" && self.NutriFlags?.isEnabled) {
+      return Boolean(self.NutriFlags.isEnabled("ns.ledger.v2"));
+    }
+    if (typeof globalThis !== "undefined" && globalThis.__NUTRI_FLAGS__?.["ns.ledger.v2"] !== void 0) {
+      return Boolean(globalThis.__NUTRI_FLAGS__["ns.ledger.v2"]);
+    }
+    return false;
+  }
   function validateCartItem(v) {
     if (!v || typeof v !== "object") throw new Error("INVALID_CART_ITEM");
     const i = v;
@@ -1799,7 +1829,213 @@ var NutriScoreDB = (() => {
     if (!Number.isFinite(q) || q <= 0) throw new Error("INVALID_QUANTITY");
     const p = i.priceSnapshot == null ? null : Number(i.priceSnapshot);
     if (p !== null && (!Number.isFinite(p) || p < 0)) throw new Error("INVALID_PRICE");
-    return { productId: i.productId.trim(), product_name: typeof i.product_name === "string" ? i.product_name : null, quantity: q, priceSnapshot: p, retailer: typeof i.retailer === "string" ? i.retailer : null };
+    return {
+      productId: i.productId.trim(),
+      product_name: typeof i.product_name === "string" ? i.product_name : null,
+      quantity: q,
+      priceSnapshot: p,
+      retailer: typeof i.retailer === "string" ? i.retailer : null
+    };
+  }
+  function normalizeLedgerRow(row) {
+    if (!row) return row;
+    const gradeSnapshot = row.gradeSnapshot === "UNKNOWN" ? null : row.gradeSnapshot ?? null;
+    const scoringStatus = row.scoringStatus || (gradeSnapshot ? "scored" : "unscored");
+    const unitPriceMinor = row.unitPriceMinor ?? (row.priceSnapshot != null ? Math.round(row.priceSnapshot * 100) : null);
+    const priceSnapshot = row.priceSnapshot ?? (unitPriceMinor != null ? unitPriceMinor / 100 : null);
+    const firstSeenAt = row.firstSeenAt || row.addedAt || Date.now();
+    const updatedAt = row.updatedAt || row.addedAt || firstSeenAt;
+    return {
+      ...row,
+      retailerProductId: row.retailerProductId || row.productId,
+      productId: row.productId ?? null,
+      quantity: row.quantity ?? 1,
+      status: row.status || "in_cart",
+      scoringStatus,
+      gradeSnapshot,
+      unitPriceMinor,
+      priceSnapshot,
+      category: row.category || "General",
+      cartEpisodeId: row.cartEpisodeId || "legacy-episode",
+      clientSeq: row.clientSeq ?? 0,
+      versions: row.versions || { scoring: "v4", catalogue: "legacy", profile: null },
+      firstSeenAt,
+      updatedAt,
+      addedAt: row.addedAt || firstSeenAt
+    };
+  }
+  async function getNextClientSeq() {
+    const getAndIncrement = async () => {
+      let current;
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        const res = await chrome.storage.local.get("ns_client_seq");
+        current = Number(res?.ns_client_seq) || 0;
+        current += 1;
+        await chrome.storage.local.set({ ns_client_seq: current });
+      } else if (typeof localStorage !== "undefined") {
+        const res = localStorage.getItem("ns_client_seq");
+        current = Number(res) || 0;
+        current += 1;
+        localStorage.setItem("ns_client_seq", String(current));
+      } else {
+        if (!globalThis.__NS_CLIENT_SEQ__) globalThis.__NS_CLIENT_SEQ__ = 0;
+        globalThis.__NS_CLIENT_SEQ__ += 1;
+        current = globalThis.__NS_CLIENT_SEQ__;
+      }
+      return current;
+    };
+    if (typeof navigator !== "undefined" && navigator.locks?.request) {
+      return navigator.locks.request("ns-seq", async () => {
+        return getAndIncrement();
+      });
+    }
+    return getAndIncrement();
+  }
+  function getOrCreateCartEpisodeId(retailer) {
+    const key = `ns_cart_episode_${retailer.toLowerCase()}`;
+    if (typeof sessionStorage !== "undefined") {
+      let ep = sessionStorage.getItem(key);
+      if (!ep) {
+        ep = `ep-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        sessionStorage.setItem(key, ep);
+      }
+      return ep;
+    }
+    if (typeof globalThis !== "undefined") {
+      const g = globalThis;
+      if (!g.__NS_EPISODES__) g.__NS_EPISODES__ = {};
+      if (!g.__NS_EPISODES__[key]) {
+        g.__NS_EPISODES__[key] = `ep-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      }
+      return g.__NS_EPISODES__[key];
+    }
+    return `ep-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  }
+  var _consecutiveAbsentMap = /* @__PURE__ */ new Map();
+  function resetConsecutiveAbsentTracker() {
+    _consecutiveAbsentMap.clear();
+  }
+  async function applyCartSnapshot(retailer, snapshot) {
+    const db = await getDB();
+    const ret = (retailer || "NAIVAS").toUpperCase();
+    const now = Date.now();
+    const clientSeq = await getNextClientSeq();
+    const episodeId = getOrCreateCartEpisodeId(ret);
+    const validatedItems = (snapshot || []).map(validateCartItem);
+    const snapshotProductIds = new Set(validatedItems.map((i) => i.productId));
+    let added = 0;
+    let updated = 0;
+    let removed = 0;
+    const tx = db.transaction("shopping_ledger", "readwrite");
+    const store = tx.store;
+    const allActive = await store.index("by-status").getAll("in_cart");
+    const activeInCart = allActive.filter((r) => (r.retailer || "").toUpperCase() === ret);
+    const activeMap = /* @__PURE__ */ new Map();
+    for (const row of activeInCart) {
+      const key = row.retailerProductId || row.productId;
+      activeMap.set(key, row);
+    }
+    for (const item of validatedItems) {
+      const existing = activeMap.get(item.productId);
+      if (existing) {
+        existing.quantity = item.quantity;
+        if (item.priceSnapshot != null) {
+          existing.priceSnapshot = item.priceSnapshot;
+          existing.unitPriceMinor = Math.round(item.priceSnapshot * 100);
+        }
+        existing.updatedAt = now;
+        existing.clientSeq = clientSeq;
+        existing.cartEpisodeId = episodeId;
+        await store.put(existing);
+        updated++;
+        _consecutiveAbsentMap.delete(`${ret}:${item.productId}`);
+      } else {
+        let scoringStatus;
+        let productId = null;
+        let gradeSnapshot = null;
+        let name = item.product_name || "Unknown Product";
+        let category = "General";
+        let nutrition = null;
+        try {
+          const matchResult = await resolveProductMatch(ret, item.productId, null, item.product_name || null);
+          if (matchResult.matched && matchResult.product) {
+            const p = matchResult.product;
+            productId = String(p.Identity?.ProductID || p.productId || item.productId);
+            name = p.Identity?.ProductName || p.GroceryProductName || p.name || item.product_name || name;
+            category = resolveDisplayCategory(p);
+            nutrition = {
+              sodiumMg: p.Nutrition?.SodiumMG ?? null,
+              sugarsG: p.Nutrition?.SugarsG ?? null,
+              satFatG: p.Nutrition?.SaturatedFatG ?? null,
+              potassiumMg: p.Nutrition?.PotassiumMG ?? p.Nutrition?.Potassium?.ValueMG ?? null,
+              energyKcal: p.Nutrition?.EnergyKcal ?? (p.Nutrition?.EnergyKJ ? p.Nutrition?.EnergyKJ / 4.184 : null)
+            };
+            const interpretation = interpretProduct(p);
+            if (interpretation.canDisplayGrade) {
+              const gradeResult = computeGradeFromProduct(p);
+              if (gradeResult.grade && gradeResult.grade !== "UNKNOWN") {
+                scoringStatus = "scored";
+                gradeSnapshot = gradeResult.grade;
+              } else {
+                scoringStatus = "unscored";
+              }
+            } else {
+              scoringStatus = "unscored";
+            }
+          } else {
+            scoringStatus = "unmatched";
+          }
+        } catch {
+          scoringStatus = "unmatched";
+        }
+        const newRow = {
+          id: crypto.randomUUID(),
+          retailer: ret,
+          retailerProductId: item.productId,
+          productId,
+          name,
+          quantity: item.quantity,
+          status: "in_cart",
+          scoringStatus,
+          gradeSnapshot,
+          unitPriceMinor: item.priceSnapshot != null ? Math.round(item.priceSnapshot * 100) : null,
+          priceSnapshot: item.priceSnapshot,
+          category,
+          cartEpisodeId: episodeId,
+          clientSeq,
+          versions: {
+            scoring: "v5",
+            catalogue: "current",
+            profile: null
+          },
+          firstSeenAt: now,
+          updatedAt: now,
+          addedAt: now,
+          nutritionSnapshot: nutrition
+        };
+        await store.put(newRow);
+        added++;
+        _consecutiveAbsentMap.delete(`${ret}:${item.productId}`);
+      }
+    }
+    for (const [prodId, existing] of activeMap.entries()) {
+      if (!snapshotProductIds.has(prodId)) {
+        const absentKey = `${ret}:${prodId}`;
+        const count = (_consecutiveAbsentMap.get(absentKey) || 0) + 1;
+        if (count >= 2) {
+          existing.status = "removed";
+          existing.updatedAt = now;
+          existing.clientSeq = clientSeq;
+          await store.put(existing);
+          _consecutiveAbsentMap.delete(absentKey);
+          removed++;
+        } else {
+          _consecutiveAbsentMap.set(absentKey, count);
+        }
+      }
+    }
+    await tx.done;
+    return { added, updated, removed };
   }
   async function logCartEvent(row) {
     const db = await getDB();
@@ -1810,8 +2046,10 @@ var NutriScoreDB = (() => {
         [row.retailer, row.productId, "in_cart"]
       );
       if (existing && existing.id !== row.id) {
-        existing.quantity += row.quantity || 1;
+        existing.quantity = row.quantity || 1;
         if (row.priceSnapshot != null) existing.priceSnapshot = row.priceSnapshot;
+        if (row.unitPriceMinor != null) existing.unitPriceMinor = row.unitPriceMinor;
+        existing.updatedAt = row.updatedAt || Date.now();
         await db.put("shopping_ledger", existing);
         return;
       }
@@ -1821,7 +2059,12 @@ var NutriScoreDB = (() => {
   async function getAllEntries() {
     const db = await getDB();
     const all = await db.getAllFromIndex("shopping_ledger", "by-addedAt");
-    return all.reverse();
+    return all.map(normalizeLedgerRow).reverse();
+  }
+  async function getAllLedgerRows() {
+    const db = await getDB();
+    const all = await db.getAllFromIndex("shopping_ledger", "by-addedAt");
+    return all.map(normalizeLedgerRow).reverse();
   }
   function diffCartState(activeInCart, cartItems) {
     const processedIds = /* @__PURE__ */ new Set();
@@ -1853,6 +2096,10 @@ var NutriScoreDB = (() => {
     await tx.done;
   }
   async function syncCart(retailer, cartItems) {
+    if (isLedgerV2Enabled()) {
+      await applyCartSnapshot(retailer, cartItems);
+      return;
+    }
     const db = await getDB();
     await dedupeActiveCartItems(db);
     const allActiveInCart = await db.getAllFromIndex(
@@ -1918,8 +2165,14 @@ var NutriScoreDB = (() => {
       const key = `${item.retailer}-${item.productId}`;
       if (map.has(key)) {
         const existing = map.get(key);
-        existing.quantity += item.quantity;
-        toDelete.push(item.id);
+        const itemTime = item.updatedAt || item.addedAt || 0;
+        const existingTime = existing.updatedAt || existing.addedAt || 0;
+        if (itemTime > existingTime) {
+          toDelete.push(existing.id);
+          map.set(key, item);
+        } else {
+          toDelete.push(item.id);
+        }
       } else {
         map.set(key, item);
       }
@@ -1942,7 +2195,8 @@ var NutriScoreDB = (() => {
   }
   async function purgeLedgerOlderThan(cutoff) {
     const db = await getDB();
-    const range = IDBKeyRange.upperBound(cutoff, true);
+    const actualCutoff = cutoff ?? Date.now() - RETENTION_90_DAYS_MS;
+    const range = typeof IDBKeyRange !== "undefined" ? IDBKeyRange.upperBound(actualCutoff, true) : { upper: actualCutoff, upperOpen: true };
     const tx = db.transaction("shopping_ledger", "readwrite");
     const index = tx.store.index("by-addedAt");
     let cursor = await index.openCursor(range);
@@ -1957,9 +2211,41 @@ var NutriScoreDB = (() => {
   }
   async function getEntriesSince(start) {
     const db = await getDB();
-    const range = IDBKeyRange.lowerBound(start);
+    const range = typeof IDBKeyRange !== "undefined" ? IDBKeyRange.lowerBound(start) : { lower: start, lowerOpen: false };
     const all = await db.getAllFromIndex("shopping_ledger", "by-addedAt", range);
-    return all.reverse();
+    return all.map(normalizeLedgerRow).reverse();
+  }
+  function computeCartCoverage(rows) {
+    let totalSpendMinor = 0;
+    let scoredSpendMinor = 0;
+    let unscoredSpendMinor = 0;
+    let unmatchedSpendMinor = 0;
+    for (const row of rows) {
+      const qty = row.quantity || 1;
+      const priceMinor = row.unitPriceMinor ?? (row.priceSnapshot != null ? Math.round(row.priceSnapshot * 100) : 0);
+      const itemSpend = qty * priceMinor;
+      totalSpendMinor += itemSpend;
+      const status = row.scoringStatus;
+      if (status === "scored" || status === void 0 && row.gradeSnapshot && row.gradeSnapshot !== "UNKNOWN") {
+        scoredSpendMinor += itemSpend;
+      } else if (status === "unscored") {
+        unscoredSpendMinor += itemSpend;
+      } else if (status === "unmatched") {
+        unmatchedSpendMinor += itemSpend;
+      } else {
+        unscoredSpendMinor += itemSpend;
+      }
+    }
+    const coverageC = totalSpendMinor > 0 ? Number((scoredSpendMinor / totalSpendMinor).toFixed(4)) : 0;
+    const unscoredShare = totalSpendMinor > 0 ? Number(((unscoredSpendMinor + unmatchedSpendMinor) / totalSpendMinor).toFixed(4)) : 0;
+    return {
+      coverageC,
+      unscoredShare,
+      totalSpendMinor,
+      scoredSpendMinor,
+      unscoredSpendMinor,
+      unmatchedSpendMinor
+    };
   }
   async function savePendingCartSync(payload) {
     const db = await getDB();
