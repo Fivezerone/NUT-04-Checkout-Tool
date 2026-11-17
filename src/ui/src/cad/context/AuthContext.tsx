@@ -11,6 +11,7 @@ import React, { createContext, useContext, useEffect, useState, useMemo } from '
 import type { CadRole, Tenant } from '../types'
 import { claimsFromAccessToken, type CanonicalClaims } from '../../../../shared/claims'
 import { isCadFlagEnabled } from '../flags'
+import { defaultBffClient, BffError } from '../api/bff-client'
 // TODO (Stage C): import { OidcAuthProvider } from '../../../../shared/auth-provider'
 
 interface CadUserClaims {
@@ -152,6 +153,46 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const initAuth = async () => {
       try {
+        if (isCadFlagEnabled('ns.cad.bff_client')) {
+          try {
+            const capsRes = await defaultBffClient.getCapabilities()
+            if (mounted && capsRes && capsRes.tenant) {
+              const bffRole = (capsRes.caps.includes('platform.tenants.read')
+                ? 'super_admin'
+                : capsRes.caps.includes('patients.targets.write')
+                ? 'writing_clinician'
+                : capsRes.caps.includes('patients.targets.read')
+                ? 'viewing_dietician'
+                : capsRes.caps.includes('audit.verify')
+                ? 'compliance_auditor'
+                : 'tenant_admin') as CadRole
+
+              setUser({ id: 'bff-user', email: 'session@bff.local' })
+              setClaims({
+                userId: 'bff-user',
+                tenantId: capsRes.tenant.id,
+                role: bffRole,
+                licenceVerified: true,
+              })
+              setActiveTenant({
+                id: capsRes.tenant.id,
+                name: capsRes.tenant.label,
+                slug: capsRes.tenant.label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                status: 'active',
+                config: {},
+                config_version: 1,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              setMfaVerified(capsRes.step_up_required.length === 0)
+              setIsLoading(false)
+              return
+            }
+          } catch {
+            // Not signed in to BFF session
+          }
+        }
+
         const storedToken = sessionStorage.getItem('cad_access_token')
         const storedMfaVerified = sessionStorage.getItem('cad_mfa_verified') === 'true'
         if (storedToken) {
@@ -231,16 +272,34 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return { success: false, error: 'No access token returned by authentication provider.' }
       }
 
-      sessionStorage.setItem('cad_access_token', accessToken)
-      if (data.refresh_token) {
-        sessionStorage.setItem('cad_refresh_token', data.refresh_token)
-      }
-
       const userClaims = resolveUserClaims(accessToken, email)
       setUser({ id: userClaims.userId, email })
       setClaims(userClaims)
       const isMfa = userClaims.acr === 'aal2' || userClaims.acr === '2' || userClaims.role === 'patient'
       setMfaVerified(isMfa)
+
+      if (isCadFlagEnabled('ns.cad.bff_client')) {
+        try {
+          const bffRes = await defaultBffClient.login({
+            userId: userClaims.userId,
+            tenantId: userClaims.tenantId,
+            appRole: userClaims.role,
+            acr: isMfa ? 2 : 1,
+            amr: isMfa ? ['otp'] : ['pwd'],
+          })
+          if (bffRes.csrf_token) {
+            defaultBffClient.setCsrfToken(bffRes.csrf_token)
+          }
+        } catch (bffErr) {
+          console.warn('[CAD Auth] BFF session handshake error:', bffErr)
+        }
+      } else {
+        sessionStorage.setItem('cad_access_token', accessToken)
+        if (data.refresh_token) {
+          sessionStorage.setItem('cad_refresh_token', data.refresh_token)
+        }
+      }
+
       if (isMfa) {
         sessionStorage.setItem('cad_mfa_verified', 'true')
       } else {
@@ -305,6 +364,9 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }
 
   const signOut = async () => {
+    if (isCadFlagEnabled('ns.cad.bff_client')) {
+      await defaultBffClient.logout().catch(() => {})
+    }
     sessionStorage.removeItem('cad_access_token')
     sessionStorage.removeItem('cad_refresh_token')
     sessionStorage.removeItem('cad_mfa_verified')

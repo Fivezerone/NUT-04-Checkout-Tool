@@ -24,3 +24,34 @@ const ROLE_NAVIGATION: Record<CadRole, CadNavigationId[]> = {
 export function getCadNavigationIds(role: CadRole): CadNavigationId[] {
   return ROLE_NAVIGATION[role]
 }
+
+/**
+ * Derives dynamic navigation items from server-computed capabilities (Blueprint §4.1).
+ * Eliminates static role-to-screen assumptions and closes authorization discrepancy gaps.
+ */
+export function deriveNavigationFromCapabilities(can: (capability: string) => boolean): CadNavigationId[] {
+  const nav: CadNavigationId[] = ['overview']
+
+  if (can('patients.targets.read') || can('patients.targets.write')) {
+    nav.push('targets')
+  }
+
+  if (can('modes.read') || can('modes.propose') || can('modes.approve')) {
+    nav.push('modes')
+  }
+
+  if (can('consent.status.read') || can('consent.record')) {
+    nav.push('consent')
+  }
+
+  if (can('patients.directory.read')) {
+    nav.push('users')
+  }
+
+  if (can('audit.verify')) {
+    nav.push('audit')
+  }
+
+  nav.push('settings')
+  return nav
+}
