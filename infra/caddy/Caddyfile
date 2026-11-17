@@ -13,6 +13,15 @@
     redir /admin /auth/admin/ permanent
     redir /admin/* /auth/admin/ permanent
 
+    # Dedicated Node.js API service (Telemetry Gateway, Consent Register, BFF)
+    handle /v1/* {
+        reverse_proxy api:4000
+    }
+    handle /api/v1/* {
+        uri strip_prefix /api
+        reverse_proxy api:4000
+    }
+
     # API → PostgREST
     handle /api/* {
         uri strip_prefix /api
