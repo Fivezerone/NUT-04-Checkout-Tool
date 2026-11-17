@@ -4,6 +4,7 @@
 // TODO (Stage C): add oidc-client.js when OidcAuthProvider is implemented.
 importScripts(
   "obs/obs.js",
+  "flags.js",
   "config.js",
   "db.js",
   "entitlement.js",
@@ -196,16 +197,34 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
     return;
   }
+
+  if (alarm.name === "flags-refresh") {
+    // Blueprint §3.8: signed feature flag polling every 5 minutes
+    try {
+      if (typeof NutriFlags !== "undefined") {
+        await NutriFlags.refreshFlags();
+      }
+    } catch (e) {
+      console.warn("[NutriScore SW] Flags refresh alarm failed:", e.message);
+    }
+    return;
+  }
 });
 
 // F-01/F-16: boot sequence — 0 network calls on a plain wake.
 // - entitlement-refresh alarm runs every 12 h (was: on every wake = ~100 POSTs/day)
 // - catalog-sync only runs when the manifest version changes
 // - ledger-retention purges entries older than 90 days once daily
+// - flags-refresh polls every 5 minutes (fail-static)
 // chrome.alarms.create is idempotent when the alarm already exists.
 chrome.alarms.create("entitlement-refresh", { periodInMinutes: 12 * 60 }); // 12 h
 chrome.alarms.create("cache-eviction",      { periodInMinutes: 24 * 60 }); // daily
 chrome.alarms.create("ledger-retention",    { periodInMinutes: 24 * 60 }); // daily
+chrome.alarms.create("flags-refresh",       { periodInMinutes: 5 });       // 5 min
+
+if (typeof NutriFlags !== "undefined") {
+  NutriFlags.loadFlags().catch(() => {});
+}
 
 // F-11: wire the SW singleton into NutriEntitlement and NutriCatalogSync so
 // refresh() and sync() never create their own Supabase clients.
