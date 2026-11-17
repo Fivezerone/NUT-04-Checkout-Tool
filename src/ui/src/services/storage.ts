@@ -74,11 +74,28 @@ class PostgrestQueryBuilder {
     return params ? `${this.endpoint}?${params}` : this.endpoint
   }
 
+  // F-03: Attach Authorization header and support credentials
+  private getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { ...this.headers }
+    if (typeof sessionStorage !== 'undefined') {
+      const token = sessionStorage.getItem('cad_access_token')
+      if (token && !headers['Authorization']) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+    } else if (typeof localStorage !== 'undefined') {
+      const token = localStorage.getItem('nutriscore_token')
+      if (token && !headers['Authorization']) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+    }
+    return headers
+  }
+
   async single(): Promise<{ data: any; error: any }> {
     try {
       this.headers['Accept'] = 'application/vnd.pgrst.object+json'
       if (typeof fetch === 'function') {
-        const res = await fetch(this.buildUrl(), { headers: this.headers })
+        const res = await fetch(this.buildUrl(), { headers: this.getHeaders(), credentials: 'same-origin' })
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
         const data = await res.json()
         return { data, error: null }
@@ -93,7 +110,7 @@ class PostgrestQueryBuilder {
     try {
       this.limit(1)
       if (typeof fetch === 'function') {
-        const res = await fetch(this.buildUrl(), { headers: this.headers })
+        const res = await fetch(this.buildUrl(), { headers: this.getHeaders(), credentials: 'same-origin' })
         if (res.status === 406 || res.status === 404) return { data: null, error: null }
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
         const data = await res.json()
@@ -101,8 +118,9 @@ class PostgrestQueryBuilder {
         return { data: item, error: null }
       }
       return { data: null, error: null }
-    } catch {
-      return { data: null, error: null }
+    } catch (err: any) {
+      // F-03: Preserve error so failures are never rendered as empty data
+      return { data: null, error: err }
     }
   }
 
@@ -110,8 +128,8 @@ class PostgrestQueryBuilder {
     return (async () => {
       try {
         if (typeof fetch === 'function') {
-          const res = await fetch(this.buildUrl(), { headers: this.headers })
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const res = await fetch(this.buildUrl(), { headers: this.getHeaders(), credentials: 'same-origin' })
+          if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
           const data = await res.json()
           return { data: Array.isArray(data) ? data : [data], error: null }
         }
