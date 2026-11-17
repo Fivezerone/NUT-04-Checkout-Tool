@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import type { CadRole } from '../types'
 import { getCadNavigationIds, type CadNavigationId } from '../navigation'
+import { useCapabilities } from '../hooks/useCapabilities'
+import { isCadFlagEnabled } from '../flags'
 
 type NavIcon = ComponentType<{ className?: string; size?: number }>
 export interface CadNavigationItem {
@@ -66,14 +68,18 @@ export function SidebarNavigation({
   setCurrentTab,
   open,
   onClose,
+  navigationIds,
 }: {
   role: CadRole
   currentTab: string
   setCurrentTab: (tab: string) => void
   open: boolean
   onClose: () => void
+  navigationIds?: CadNavigationId[]
 }) {
-  const allowedIds = new Set(getCadNavigationIds(role))
+  const { nav: dynamicNav } = useCapabilities({ role })
+  const allowed = navigationIds || (isCadFlagEnabled('ns.cad.bff_client') ? dynamicNav : getCadNavigationIds(role))
+  const allowedIds = new Set(allowed)
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
 
   const toggleGroup = (groupId: string) => {

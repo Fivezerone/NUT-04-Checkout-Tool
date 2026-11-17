@@ -22,10 +22,13 @@ import { CommercialInsightsView } from './views/CommercialInsightsView'
 import { PatientCareSummaryView } from './views/PatientCareSummaryView'
 import { Lock, LogIn, AlertCircle } from 'lucide-react'
 import { getCadNavigationIds, type CadNavigationId } from './navigation'
+import { useCapabilities } from './hooks/useCapabilities'
+import { isCadFlagEnabled } from './flags'
 
 const CadMainContent: React.FC = () => {
   const { user, claims, isLoading, mfaRequired, signIn } = useCadAuth()
   const [location, navigate] = useLocation()
+  const { nav: dynamicNav } = useCapabilities({ role: claims.role })
 
   // Compute currentTab from URL path
   const normalizedPath = location.replace(/^\/cad\/?/, '/').replace(/^\//, '')
@@ -146,7 +149,7 @@ const CadMainContent: React.FC = () => {
     return <MfaChallenge />
   }
 
-  const allowedTabs = getCadNavigationIds(claims.role)
+  const allowedTabs = isCadFlagEnabled('ns.cad.bff_client') ? dynamicNav : getCadNavigationIds(claims.role)
 
   const overview = (() => {
     if (claims.role === 'super_admin') return <PlatformOverviewView onNavigate={handleNavigate} />
