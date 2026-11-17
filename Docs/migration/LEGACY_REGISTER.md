@@ -15,3 +15,5 @@ Tracks legacy functions, interfaces, constants, and endpoints preserved during W
 | `observed-orders` (cleartext default) | `src/extension/observed-orders-sync.js` | Legacy cart logging | Phase 4 (Step 5.4.6) | `ns.telemetry.v2` |
 | `gate2Passed = EnergyKJ != null || EnergyKcal != null` | `src/ui/src/app/lib/db/grading.ts` | Legacy Gate 2 energy-only fallback | Phase 4 (Step 5.4.1) | `ns.scoring.v5` |
 | `safePos` nutrient imputation | `src/ui/src/app/lib/db/grading.ts` | Legacy zero imputation for unverified items | Phase 4 (Step 5.4.1) | `ns.scoring.v5` |
+| Client-side 6-digit MFA stub | `src/ui/src/cad/context/AuthContext.tsx` | Legacy development login | Phase 4 (Step 5.4.5) | `ns.cad.strict_states` |
+| Binary `chainValid` boolean | `src/ui/src/cad/views/AuditLogView.tsx` | Legacy audit UI fallback | Phase 4 (Step 5.4.5) | `ns.cad.strict_states` |

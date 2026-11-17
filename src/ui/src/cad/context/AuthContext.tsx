@@ -10,6 +10,7 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react'
 import type { CadRole, Tenant } from '../types'
 import { claimsFromAccessToken, type CanonicalClaims } from '../../../../shared/claims'
+import { isCadFlagEnabled } from '../flags'
 // TODO (Stage C): import { OidcAuthProvider } from '../../../../shared/auth-provider'
 
 interface CadUserClaims {
@@ -19,6 +20,7 @@ interface CadUserClaims {
   licenceVerified: boolean
   email?: string
   acr?: string
+  amr?: string[]
 }
 
 interface AuthContextType {
@@ -50,6 +52,7 @@ function toCadUserClaims(claims: CanonicalClaims | null): CadUserClaims {
     role: claims.appRole,
     licenceVerified: claims.licOk,
     acr: claims.acr,
+    amr: claims.amr,
   }
 }
 
@@ -118,6 +121,8 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
               role: (payload.app_role as CadRole) || matchedRole || 'patient',
               licenceVerified: payload.lic_ok === true || payload.lic_ok === 'true',
               email: email || payload.email,
+              acr: payload.acr ? String(payload.acr) : (payload.aal ? String(payload.aal) : undefined),
+              amr: Array.isArray(payload.amr) ? payload.amr : undefined,
             }
           }
         }
@@ -155,7 +160,16 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setUser({ id: userClaims.userId, email: userClaims.email })
             setClaims(userClaims)
             // Derive assurance from JWT aal/acr claim or stored session verification (D-30)
-            const isAssuranceAal2 = userClaims.acr === 'aal2' || userClaims.acr === '2' || storedMfaVerified || userClaims.role === 'patient'
+            const hasServerMfa =
+              userClaims.acr === 'aal2' ||
+              userClaims.acr === '2' ||
+              (Array.isArray(userClaims.amr) &&
+                (userClaims.amr.includes('otp') || userClaims.amr.includes('webauthn'))) ||
+              userClaims.role === 'patient'
+
+            const isAssuranceAal2 = isCadFlagEnabled('ns.cad.strict_states')
+              ? hasServerMfa
+              : (hasServerMfa || storedMfaVerified) // LEGACY(ns-p4): stored session verification fallback
             setMfaVerified(isAssuranceAal2)
           }
         }
@@ -245,10 +259,46 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }
 
   const verifyMfa = async (code: string) => {
-    // Keycloak handles TOTP server-side; direct OTP verification
     if (!code || code.trim().length !== 6 || !/^\d{6}$/.test(code.trim())) {
       return false
     }
+
+    if (isCadFlagEnabled('ns.cad.strict_states')) {
+      // Under strict states (F-01, ADR-4), client-side arbitrary 6 digits is rejected.
+      // Must verify server-side assurance via token exchange or OTP step-up.
+      try {
+        const storedToken = sessionStorage.getItem('cad_access_token')
+        if (!storedToken) return false
+
+        const response = await fetch('/api/v1/auth/mfa/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${storedToken}`,
+          },
+          body: JSON.stringify({ code: code.trim() }),
+        }).catch(() => null)
+
+        if (response && response.ok) {
+          const resData = await response.json().catch(() => ({}))
+          if (resData.verified || resData.access_token) {
+            if (resData.access_token) {
+              sessionStorage.setItem('cad_access_token', resData.access_token)
+              const updatedClaims = resolveUserClaims(resData.access_token)
+              setClaims(updatedClaims)
+            }
+            sessionStorage.setItem('cad_mfa_verified', 'true')
+            setMfaVerified(true)
+            return true
+          }
+        }
+        return false // Fail closed: unverified code denied
+      } catch {
+        return false
+      }
+    }
+
+    // LEGACY(ns-p4): Client-side 6-digit stub for development
     sessionStorage.setItem('cad_mfa_verified', 'true')
     setMfaVerified(true)
     return true

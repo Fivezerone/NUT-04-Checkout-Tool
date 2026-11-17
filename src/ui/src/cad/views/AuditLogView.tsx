@@ -9,12 +9,41 @@ import { CheckCircle2, ShieldAlert, Link as ChainIcon, Lock, RefreshCw } from 'l
 import { PageHeader, StatusBadge } from '../components/Primitives'
 import { DataTable } from '../../app/components/ui/DataTable'
 import { Badge } from '../../app/components/ui/Badge'
+import { isCadFlagEnabled } from '../flags'
+
+export type AuditVerificationStatus = 'verified' | 'failed' | 'unavailable'
+
+/**
+ * Pure audit hash-chain verifier.
+ * Checks:
+ *   1. Non-empty log array (empty logs yield 'unavailable' — F-05: never assert verified over 0 rows).
+ *   2. Strict gapless sequence monotonicity: seq[i] === seq[i-1] + 1
+ *   3. Cryptographic prev_hash linking: prev_hash[i] === row_hash[i-1]
+ */
+export function verifyAuditHashChain(items: AuditLogEntry[]): AuditVerificationStatus {
+  if (!items || items.length === 0) {
+    return 'unavailable'
+  }
+  const sorted = [...items].sort((a, b) => a.seq - b.seq)
+  for (let i = 1; i < sorted.length; i++) {
+    // Gapless sequence check
+    if (sorted[i].seq !== sorted[i - 1].seq + 1) {
+      return 'failed'
+    }
+    // Hash chain continuity check
+    if (sorted[i].prev_hash !== sorted[i - 1].row_hash) {
+      return 'failed'
+    }
+  }
+  return 'verified'
+}
 
 export const AuditLogView: React.FC = () => {
   const { claims, activeTenant } = useCadAuth()
   const [logs, setLogs] = useState<AuditLogEntry[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [chainValid, setChainValid] = useState<boolean>(true)
+  const [verificationStatus, setVerificationStatus] = useState<AuditVerificationStatus>('unavailable')
 
   useEffect(() => {
     loadAuditLogs()
@@ -22,27 +51,30 @@ export const AuditLogView: React.FC = () => {
 
   const loadAuditLogs = async () => {
     setLoading(true)
+    const strict = isCadFlagEnabled('ns.cad.strict_states')
     try {
       // PostgREST /audit_log?tenant_id=eq.{tenantId}&order=seq.desc&limit=100
       setLogs([])
-      setChainValid(true)
+      if (strict) {
+        setVerificationStatus('unavailable')
+      } else {
+        setChainValid(true)
+      }
     } catch {
-      setChainValid(true)
+      if (strict) {
+        setVerificationStatus('unavailable')
+      } else {
+        setChainValid(true)
+      }
     } finally {
       setLoading(false)
     }
   }
 
   const verifyHashChain = (items: AuditLogEntry[]) => {
-    let valid = true
-    const sorted = [...items].sort((a, b) => a.seq - b.seq)
-    for (let i = 1; i < sorted.length; i++) {
-      if (sorted[i].prev_hash !== sorted[i - 1].row_hash) {
-        valid = false
-        break
-      }
-    }
-    setChainValid(valid)
+    const status = verifyAuditHashChain(items)
+    setVerificationStatus(status)
+    setChainValid(status === 'verified')
   }
 
   return (
@@ -58,10 +90,34 @@ export const AuditLogView: React.FC = () => {
         }
         actions={
           <>
-            <StatusBadge tone={chainValid ? 'success' : 'critical'}>
-              {chainValid ? <CheckCircle2 size={14} /> : <ShieldAlert size={14} />}
-              {chainValid ? 'SHA-256 chain verified' : 'Chain break detected'}
-            </StatusBadge>
+            {isCadFlagEnabled('ns.cad.strict_states') ? (
+              <StatusBadge
+                tone={
+                  verificationStatus === 'verified'
+                    ? 'success'
+                    : verificationStatus === 'failed'
+                      ? 'critical'
+                      : 'neutral'
+                }
+              >
+                {verificationStatus === 'verified' ? (
+                  <CheckCircle2 size={14} />
+                ) : (
+                  <ShieldAlert size={14} />
+                )}
+                {verificationStatus === 'verified'
+                  ? 'SHA-256 chain verified'
+                  : verificationStatus === 'failed'
+                    ? 'Chain break detected'
+                    : 'Audit verification unavailable'}
+              </StatusBadge>
+            ) : (
+              // LEGACY(ns-p4): Legacy binary chainValid display
+              <StatusBadge tone={chainValid ? 'success' : 'critical'}>
+                {chainValid ? <CheckCircle2 size={14} /> : <ShieldAlert size={14} />}
+                {chainValid ? 'SHA-256 chain verified' : 'Chain break detected'}
+              </StatusBadge>
+            )}
             <StatusBadge tone="neutral">
               <Lock size={14} /> Append-only
             </StatusBadge>
