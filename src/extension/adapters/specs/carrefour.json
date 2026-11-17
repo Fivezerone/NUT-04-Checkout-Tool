@@ -1,0 +1,33 @@
+{
+  "retailer": "CARREFOUR",
+  "specVersion": "1.0.0",
+  "minExtVersion": "0.0.1",
+  "killSwitch": false,
+  "hostSuffixes": ["carrefour.ke", "carrefourkenya.com"],
+  "allowPaths": ["/", "/mafken/en", "/products", "/c/", "/cart", "/checkout"],
+  "excludePaths": ["/account", "/login", "/checkout/payment"],
+  "card": [
+    "[data-testid='product-card']",
+    ".product-card",
+    "[class*='productCard']",
+    "[class*='product-tile']",
+    "div:has(> a[href*='/p/'])"
+  ],
+  "id": [
+    { "attr": "data-testid", "hrefRegex": "product-card-([a-zA-Z0-9_-]+)" },
+    { "attr": "data-id" },
+    { "attr": "data-sku" },
+    { "hrefRegex": "/p/([0-9]+)" }
+  ],
+  "name": [
+    "[data-testid='product-title']",
+    ".product-title",
+    ".line-clamp-2",
+    ".line-clamp-1",
+    "h2",
+    "h3"
+  ],
+  "price": {
+    "selector": "[data-testid='product-price'], [class*='price'], .text-lg.font-bold, .text-xl.font-bold"
+  }
+}

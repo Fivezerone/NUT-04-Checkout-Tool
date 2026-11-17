@@ -5,6 +5,8 @@
  * current page URL, hostname, data stream metadata, or retailer codes.
  */
 
+import { defaultRegistry } from "./registry.js";
+
 // Lazy / conditional loader for browser content-script contexts or Node/test environments
 let QuickmartAdapter = null;
 let NaivasAdapter = null;
@@ -78,7 +80,7 @@ export class AdapterFactory {
         return rule.adapter;
       }
     }
-    return null;
+    return defaultRegistry.resolveAdapter(url);
   }
 
   /**

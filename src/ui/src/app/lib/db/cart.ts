@@ -94,13 +94,11 @@ export async function getNextClientSeq(): Promise<number> {
     let current: number;
     if (typeof chrome !== "undefined" && chrome.storage?.local) {
       const res = await chrome.storage.local.get("ns_client_seq");
-      current = Number(res?.ns_client_seq) || 0;
-      current += 1;
+      current = (Number(res?.ns_client_seq) || 0) + 1;
       await chrome.storage.local.set({ ns_client_seq: current });
     } else if (typeof localStorage !== "undefined") {
       const res = localStorage.getItem("ns_client_seq");
-      current = Number(res) || 0;
-      current += 1;
+      current = (Number(res) || 0) + 1;
       localStorage.setItem("ns_client_seq", String(current));
     } else {
       if (!(globalThis as any).__NS_CLIENT_SEQ__) (globalThis as any).__NS_CLIENT_SEQ__ = 0;

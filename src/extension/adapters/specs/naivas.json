@@ -1,0 +1,33 @@
+{
+  "retailer": "NAIVAS",
+  "specVersion": "1.0.0",
+  "minExtVersion": "0.0.1",
+  "killSwitch": false,
+  "hostSuffixes": ["naivas.online", "naivas.co.ke"],
+  "allowPaths": ["/", "/products", "/categories", "/category", "/checkout", "/cart"],
+  "excludePaths": ["/customer/account", "/customer/login", "/checkout/payment"],
+  "card": [
+    ".product-item",
+    ".item.product.product-item",
+    "[wire\\:key*='product']",
+    "[data-product-id]",
+    ".product-card"
+  ],
+  "id": [
+    { "attr": "data-product-id" },
+    { "attr": "data-id" },
+    { "selector": "input[name='product']", "attr": "value" },
+    { "hrefRegex": "/products/([a-zA-Z0-9_-]+)" }
+  ],
+  "name": [
+    ".product-item-link",
+    ".product-name",
+    ".product-item-name a",
+    "h3",
+    "h4",
+    ".name"
+  ],
+  "price": {
+    "selector": ".price-box .price, .price-wrapper .price, .price, .font-extrabold"
+  }
+}
