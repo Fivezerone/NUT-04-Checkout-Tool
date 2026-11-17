@@ -34,13 +34,29 @@ export {
   putCatalogMeta,
 } from "./db/settings";
 
-// Grading
-export type { GradeResult } from "./db/grading";
+// Grading & Unified Item Evaluation
+export type {
+  GradeResult,
+  EvalStatus,
+  ItemEvaluation,
+  NutrientVector,
+  PolicyDecision,
+  PolicyTrigger,
+} from "./db/grading";
 export {
+  SALT_TO_SODIUM_FACTOR_MG_PER_G,
+  PLAUSIBILITY_BOUNDS,
   NUTRITION_CATEGORY_TO_FSA,
   resolveDisplayCategory,
   computeGradeFromProduct,
   interpretProduct,
+  canonicalise,
+  gateNutrients,
+  evaluatePolicy,
+  evaluateItem,
+  clearEvaluationCache,
+  isScoringV5Enabled,
+  isPolicyV2Enabled,
 } from "./db/grading";
 
 // Product resolution

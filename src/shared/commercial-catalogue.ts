@@ -45,6 +45,11 @@ export interface SkuEvaluationResult {
 
 /**
  * Evaluates whether a candidate SKU satisfies the constraints in a DPT.
+ * Reference: Blueprint §2.1 (Finding X-07), ADR-010, Prime Rule 4
+ *
+ * Rules:
+ *   - Fail-closed: Candidate SKU MUST have review_state >= VERIFIED ('VERIFIED' or 'HIGH_CONFIDENCE').
+ *   - Completeness: Constrained nutrients must be present. Null/unknown is NEVER conforming.
  */
 export function evaluateSkuAgainstConstraints(
   sku: CandidateSku,
@@ -53,35 +58,53 @@ export function evaluateSkuAgainstConstraints(
   const violations: string[] = []
   const nut = sku.per_100g || {}
 
+  // ReviewState safety check (Finding X-07 & Prime Rule 4)
+  const reviewState = (sku.review_state || '').toUpperCase()
+  if (reviewState !== 'VERIFIED' && reviewState !== 'HIGH_CONFIDENCE') {
+    violations.push('unverified_review_state')
+  }
+
   for (const [key, threshold] of Object.entries(constraints)) {
-    if (key === 'sugars_g_100g_max') {
+    if (key === 'sugars_g_100g_max' || key === 'sugars_g_per_100g_max') {
       const val = nut.sugars_g
-      if (val !== null && val !== undefined && val > threshold) {
+      if (val === null || val === undefined) {
+        violations.push(`${key}_unknown`)
+      } else if (val > threshold) {
         violations.push(key)
       }
-    } else if (key === 'carbs_g_100g_max') {
+    } else if (key === 'carbs_g_100g_max' || key === 'carbs_g_per_100g_max') {
       const val = nut.carbs_g
-      if (val !== null && val !== undefined && val > threshold) {
+      if (val === null || val === undefined) {
+        violations.push(`${key}_unknown`)
+      } else if (val > threshold) {
         violations.push(key)
       }
-    } else if (key === 'sodium_mg_100g_max') {
+    } else if (key === 'sodium_mg_100g_max' || key === 'sodium_mg_per_100g_max') {
       const val = nut.sodium_mg
-      if (val !== null && val !== undefined && val > threshold) {
+      if (val === null || val === undefined) {
+        violations.push(`${key}_unknown`)
+      } else if (val > threshold) {
         violations.push(key)
       }
-    } else if (key === 'satfat_g_100g_max') {
+    } else if (key === 'satfat_g_100g_max' || key === 'satfat_g_per_100g_max') {
       const val = nut.satfat_g
-      if (val !== null && val !== undefined && val > threshold) {
+      if (val === null || val === undefined) {
+        violations.push(`${key}_unknown`)
+      } else if (val > threshold) {
         violations.push(key)
       }
-    } else if (key === 'energy_kcal_100g_max') {
+    } else if (key === 'energy_kcal_100g_max' || key === 'energy_kcal_per_100g_max') {
       const val = nut.energy_kcal
-      if (val !== null && val !== undefined && val > threshold) {
+      if (val === null || val === undefined) {
+        violations.push(`${key}_unknown`)
+      } else if (val > threshold) {
         violations.push(key)
       }
-    } else if (key === 'fibre_g_100g_min') {
+    } else if (key === 'fibre_g_100g_min' || key === 'fibre_g_per_100g_min') {
       const val = nut.fibre_g
-      if (val !== null && val !== undefined && val < threshold) {
+      if (val === null || val === undefined) {
+        violations.push(`${key}_unknown`)
+      } else if (val < threshold) {
         violations.push(key)
       }
     }
