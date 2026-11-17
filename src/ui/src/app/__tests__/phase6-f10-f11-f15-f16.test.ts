@@ -60,7 +60,7 @@ describe("F-10: applyStaging uses chunked cursor instead of getAll()", () => {
 
   it("applyStaging still clears staging store after all chunks processed", () => {
     const fnStart = csSrc.indexOf("async function applyStaging");
-    const fnBody  = csSrc.slice(fnStart, fnStart + 3800); // store.clear() at ~3174 chars in
+    const fnBody  = csSrc.slice(fnStart, fnStart + 6000); // store.clear() after chunk iterations
     expect(fnBody).toContain("catalog_staging");
     expect(fnBody).toContain("store.clear()");
     // clear() must appear after the while loop (outside the chunk block)
@@ -71,7 +71,7 @@ describe("F-10: applyStaging uses chunked cursor instead of getAll()", () => {
 
   it("applyStaging still invalidates memCache after chunks", () => {
     const fnStart = csSrc.indexOf("async function applyStaging");
-    const fnBody  = csSrc.slice(fnStart, fnStart + 3800); // memCache at ~2608 chars in
+    const fnBody  = csSrc.slice(fnStart, fnStart + 6000);
     expect(fnBody).toContain("memCache");
     expect(fnBody).toContain("normalizedIndexCache");
   });

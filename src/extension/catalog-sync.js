@@ -354,6 +354,30 @@ self.NutriCatalogSync = (() => {
           await rTx.done;
         }
       }
+
+      // 2b. Write NME index entries for this chunk (additive, DB v19, Blueprint §2.2)
+      if (db.objectStoreNames.contains("nme_index") && typeof NutriScoreDB !== "undefined" && NutriScoreDB.buildNmeIndexForProduct) {
+        const nmeTx = db.transaction("nme_index", "readwrite");
+        for (const row of chunk) {
+          const ret = (row.retailer || "").toUpperCase();
+          if (row.deleted) {
+            nmeTx.store.delete(`sku:${ret}:${row.product_id}`);
+          } else if (row.record) {
+            const entries = NutriScoreDB.buildNmeIndexForProduct(ret, row.record);
+            for (const e of entries) {
+              if (e.value?.is_blk) {
+                const existing = await nmeTx.store.get(e.key);
+                const ids = new Set(existing?.product_ids || []);
+                ids.add(e.value.product_id);
+                nmeTx.store.put({ key: e.key, product_ids: Array.from(ids) });
+              } else {
+                nmeTx.store.put(e);
+              }
+            }
+          }
+        }
+        await nmeTx.done;
+      }
     }
 
     if (!hasAny) return;
@@ -361,6 +385,7 @@ self.NutriCatalogSync = (() => {
     // 3. Invalidate in-memory caches so the next lookup reads fresh data
     //    F-13: iterate RETAILER_REGISTRY cacheKeys — no per-retailer branches.
     if (typeof NutriScoreDB !== "undefined") {
+      NutriScoreDB.productRecordLru?.clear();
       for (const { cacheKey } of RETAILER_REGISTRY.values()) {
         if (NutriScoreDB.memCache)             NutriScoreDB.memCache[cacheKey]             = null;
         if (NutriScoreDB.normalizedIndexCache) NutriScoreDB.normalizedIndexCache[cacheKey] = null;

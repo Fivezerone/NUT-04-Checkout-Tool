@@ -79,10 +79,15 @@ interface NutriDB extends DBSchema {
     key: string; // "RETAILER|ProductID"
     value: { key: string; retailer: string; product_id: string; assessments: Record<string, any>; record_hash: string; deleted: boolean };
   };
+  /** v19 (E-11, Blueprint §2.2): Point-lookup NME index store for O(1) resolution without scans */
+  nme_index: {
+    key: string;
+    value: any;
+  };
 }
 
 const DB_NAME = "nut04-nutriscore";
-export const DB_VERSION = 18;
+export const DB_VERSION = 19;
 export const SCORING_VERSION = "v4";
 
 /**
@@ -262,6 +267,12 @@ export function getDB() {
             settingsStore.delete("isPremium");
             settingsStore.delete("user_payment");
             settingsStore.delete("user_health_profile");
+          }
+        }
+        // v19 (E-11, E-12, Blueprint §2.2): Point-lookup NME index store for O(1) resolution without scans
+        if (oldVersion < 19) {
+          if (!db.objectStoreNames.contains("nme_index")) {
+            db.createObjectStore("nme_index", { keyPath: "key" });
           }
         }
       },

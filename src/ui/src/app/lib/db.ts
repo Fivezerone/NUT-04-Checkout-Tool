@@ -60,10 +60,25 @@ export {
 } from "./db/grading";
 
 // Product resolution
+export type {
+  RetailerCode,
+  Observation,
+  Resolution,
+} from "./db/product-resolution";
 export {
   resolveProductMatch,
+  resolveBatch,
   getAllProducts,
   normalizeProductName,
+  buildNmeIndexForProduct,
+  rebuildNmeIndex,
+  productRecordLru,
+  isNmeV2Enabled,
+  extractSize,
+  extractBrand,
+  extractUrlSlug,
+  getSizeBucket,
+  computeTokenSetSimilarity,
   memCache,
   normalizedIndexCache,
   lowerIndexCache,
