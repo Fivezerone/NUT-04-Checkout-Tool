@@ -3,6 +3,7 @@
 declare namespace NodeJS {
   interface Process {
     env?: Record<string, string | undefined>
+    versions?: Record<string, string | undefined>
   }
 }
 
@@ -37,7 +38,7 @@ declare module 'node:crypto' {
 
   export interface Hmac {
     update(data: Uint8Array): Hmac
-    digest(): Buffer
+    digest(encoding?: string): any
   }
 
   export interface Hash {
@@ -61,6 +62,7 @@ declare module 'node:crypto' {
   export function randomBytes(size: number): Buffer
   export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean
   export function createPublicKey(key: any): KeyObject
+  export function createPrivateKey(key: any): KeyObject
   export function generateKeyPairSync(type: string, options?: any): KeyPairSyncResult
   export function sign(
     algorithm: string | null | undefined,

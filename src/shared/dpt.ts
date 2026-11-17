@@ -14,6 +14,7 @@
 
 import { createHash, createHmac, randomBytes, verify } from 'node:crypto'
 import type { Signer } from './signer'
+import { encodeBase64Url, decodeBase64Url, getCryptoProvider, toUint8Array } from './crypto'
 
 export const ALLOWLISTED_KEYS = [
   'sugars_g_100g_max',
@@ -207,6 +208,23 @@ export function deriveShopperAlias(
   return base64UrlEncode(hmac.subarray(0, 16))
 }
 
+export async function deriveShopperAliasAsync(
+  mode: 'browse' | 'order',
+  patientId: string,
+  epochKey?: Uint8Array,
+  epoch?: string,
+): Promise<string> {
+  if (mode === 'browse') {
+    return encodeBase64Url(getCryptoProvider().randomBytes(16))
+  }
+  if (!epochKey || !epoch) {
+    throw new Error('Order mode requires epochKey and epoch identifier')
+  }
+  const data = new TextEncoder().encode(`${patientId}:order:${epoch}`)
+  const hmac = await getCryptoProvider().hmacSha256(epochKey, data)
+  return encodeBase64Url(hmac.subarray(0, 16))
+}
+
 /**
  * Derive opaque tenant routing alias: t_ + 8 base64url chars.
  */
@@ -216,6 +234,16 @@ export function deriveTenantAlias(tenantId: string, secret?: Uint8Array): string
     .update(Buffer.from(`tenant_alias:${tenantId}`, 'utf8'))
     .digest()
   return `t_${base64UrlEncode(h.subarray(0, 6))}`
+}
+
+export async function deriveTenantAliasAsync(
+  tenantId: string,
+  secret?: Uint8Array,
+): Promise<string> {
+  const key = secret ? toUint8Array(secret) : new TextEncoder().encode('CAD_TENANT_ROUTING_SALT_V1')
+  const data = new TextEncoder().encode(`tenant_alias:${tenantId}`)
+  const h = await getCryptoProvider().hmacSha256(key, data)
+  return `t_${encodeBase64Url(h.subarray(0, 6))}`
 }
 
 /**
@@ -349,6 +377,83 @@ export function verifyDpt(
 
   try {
     const ok = verify(null, Buffer.from(signingInput, 'utf8'), publicKey, sig)
+    if (!ok) return { valid: false, error: 'Invalid token signature' }
+  } catch (err) {
+    return { valid: false, error: `Signature verification error: ${(err as Error).message}` }
+  }
+
+  return { valid: true, payload }
+}
+
+/**
+ * Commercial-side asynchronous verification of a DPT via CryptoProvider.
+ * Operates in both Node.js and Browser / MV3 Service Worker environments.
+ */
+export async function verifyDptAsync(
+  token: string,
+  publicKey: any,
+  dpopJkt?: string,
+  revokedJtis?: Set<string>,
+): Promise<{ valid: boolean; payload?: DptPayload; error?: string }> {
+  const parts = token.split('.')
+  if (parts.length !== 3) {
+    return { valid: false, error: 'Malformed token: expected 3 parts' }
+  }
+
+  let header: { typ?: string; alg?: string; kid?: string }
+  let payload: DptPayload
+
+  try {
+    const headerStr = new TextDecoder().decode(decodeBase64Url(parts[0]))
+    const payloadStr = new TextDecoder().decode(decodeBase64Url(parts[1]))
+    header = JSON.parse(headerStr)
+    payload = JSON.parse(payloadStr)
+  } catch (err) {
+    return { valid: false, error: `Invalid JSON in token: ${(err as Error).message}` }
+  }
+
+  if (header.alg === 'none' || !header.alg) {
+    return { valid: false, error: 'Algorithm "none" is rejected' }
+  }
+
+  if (payload.iss !== 'https://exchange.nutriscore.co.ke') {
+    return { valid: false, error: `Untrusted issuer: ${payload.iss}` }
+  }
+
+  if (payload.aud !== 'ns-commercial') {
+    return { valid: false, error: `Audience mismatch: ${payload.aud}` }
+  }
+
+  const now = Math.floor(Date.now() / 1000)
+  if (payload.exp <= now) {
+    return { valid: false, error: 'Token has expired' }
+  }
+
+  if (revokedJtis && revokedJtis.has(payload.jti)) {
+    return { valid: false, error: 'Token jti has been revoked' }
+  }
+
+  // DPoP key binding check
+  if (dpopJkt && payload.cnf?.jkt !== dpopJkt) {
+    return {
+      valid: false,
+      error: `DPoP jkt mismatch: token cnf is ${payload.cnf?.jkt}, proof is ${dpopJkt}`,
+    }
+  }
+
+  // Allowlist schema check on cs keys
+  for (const k of Object.keys(payload.cs ?? {})) {
+    if (!(ALLOWLISTED_KEYS as readonly string[]).includes(k as any)) {
+      return { valid: false, error: `DPT contains forbidden or unknown constraint key: ${k}` }
+    }
+  }
+
+  // Verify signature via CryptoProvider
+  const signingInput = `${parts[0]}.${parts[1]}`
+  const sig = decodeBase64Url(parts[2])
+
+  try {
+    const ok = await getCryptoProvider().verifyEd25519(publicKey, signingInput, sig)
     if (!ok) return { valid: false, error: 'Invalid token signature' }
   } catch (err) {
     return { valid: false, error: `Signature verification error: ${(err as Error).message}` }

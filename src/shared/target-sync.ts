@@ -91,40 +91,12 @@ export function reconcileTargetsOnSync(
   }
 }
 
-/**
- * Invariant T20: Mandatory Nutrient Completeness Check
- * In NutriScore two-gate scoring, energy, sugars, sat_fat, and sodium/salt must all be present.
- * Never substitute zero for a missing nutrient.
- */
-export function checkNutrientCompleteness(nutrition: {
-  energyKj?: number | null
-  energyKcal?: number | null
-  sugarsG?: number | null
-  satFatG?: number | null
-  sodiumMg?: number | null
-  saltG?: number | null
-}): { computability: 'COMPUTABLE' | 'LIMITED_NUTRITION_INFO'; missingFields: string[] } {
-  const missing: string[] = []
-
-  if (nutrition.energyKj == null && nutrition.energyKcal == null) {
-    missing.push('energy')
-  }
-  if (nutrition.sugarsG == null) {
-    missing.push('sugars')
-  }
-  if (nutrition.satFatG == null) {
-    missing.push('saturated_fat')
-  }
-  if (nutrition.sodiumMg == null && nutrition.saltG == null) {
-    missing.push('sodium_or_salt')
-  }
-
-  if (missing.length > 0) {
-    return { computability: 'LIMITED_NUTRITION_INFO', missingFields: missing }
-  }
-
-  return { computability: 'COMPUTABLE', missingFields: [] }
-}
+export {
+  checkNutrientCompleteness,
+  type NutrientValues,
+  type ComputabilityStatus,
+  type NutrientCompletenessResult,
+} from './nutrient-completeness'
 
 /**
  * Invariant T21: Resolve Sodium from Salt
