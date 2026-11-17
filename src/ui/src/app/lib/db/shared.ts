@@ -86,6 +86,14 @@ interface NutriDB extends DBSchema {
     key: string;
     value: any;
   };
+  telemetry_queue: {
+    key: string;
+    value: any;
+    indexes: {
+      by_status: string;
+      by_seq: number;
+    };
+  };
 }
 
 const DB_NAME = "nut04-nutriscore";
@@ -271,9 +279,10 @@ export function getDB() {
             settingsStore.delete("user_health_profile");
           }
         }
-        // v19 (E-11, E-12, E-08..E-10, Blueprint §2.2, §2.3):
+        // v19 (E-11, E-12, E-08..E-10, O-02, A-06, Blueprint §2.2, §2.3, §2.8, ADR-6):
         // 1. Point-lookup NME index store for O(1) resolution without scans
         // 2. Indexes by_episode and by_seq on shopping_ledger for Ledger v2
+        // 3. Durable telemetry_queue store for consent-gated, idempotent telemetry
         if (oldVersion < 19) {
           if (!db.objectStoreNames.contains("nme_index")) {
             db.createObjectStore("nme_index", { keyPath: "key" });
@@ -286,6 +295,11 @@ export function getDB() {
             if (!ledger.indexNames.contains("by_seq")) {
               ledger.createIndex("by_seq", "clientSeq");
             }
+          }
+          if (!db.objectStoreNames.contains("telemetry_queue")) {
+            const tQueue = db.createObjectStore("telemetry_queue", { keyPath: "event_id" });
+            tQueue.createIndex("by_status", "status");
+            tQueue.createIndex("by_seq", "client_seq");
           }
         }
       },
