@@ -12,6 +12,7 @@ import { computeCapabilitiesForSubject } from './bff/capabilities.mjs'
 import { maskObject } from './bff/masks.mjs'
 import { verifyAuditLedger, computeRowHash } from './audit/verifier.mjs'
 import { sendProblem } from './bff/errors.mjs'
+import { RealtimeHub } from './sse/hub.mjs'
 
 export function createApiApp(options = {}) {
   const store = options.store || defaultStore || new TelemetryStore()
@@ -19,6 +20,7 @@ export function createApiApp(options = {}) {
   const gatewayService =
     options.gatewayService || new TelemetryGatewayService(store, consentService)
   const sessionManager = options.sessionManager || new SessionManager(store)
+  const realtimeHub = options.realtimeHub || new RealtimeHub()
 
   // In-memory audit entries for testing and verification
   const auditEntries = options.auditEntries || []
@@ -351,6 +353,33 @@ export function createApiApp(options = {}) {
       return
     }
 
+    // -------------------------------------------------------------------------
+    // Real-Time Hub & SSE Streaming Routes (N6, F-07, G-06; ADR-2)
+    // -------------------------------------------------------------------------
+    if ((pathname === '/v1/events' || pathname === '/api/v1/events') && req.method === 'GET') {
+      const session = requireBffSession()
+      if (!session) return
+      realtimeHub.handleSseConnection(req, res, session)
+      return
+    }
+
+    if ((pathname === '/v1/sync' || pathname === '/api/v1/sync') && req.method === 'GET') {
+      const session = requireBffSession()
+      if (!session) return
+      realtimeHub.handlePollingSync(req, res, session)
+      return
+    }
+
+    if (
+      (pathname === '/v1/sync/snapshot' || pathname === '/api/v1/sync/snapshot') &&
+      req.method === 'GET'
+    ) {
+      const session = requireBffSession()
+      if (!session) return
+      realtimeHub.handleSnapshot(req, res, session)
+      return
+    }
+
     // Default 404
     sendProblem(res, {
       status: 404,
@@ -367,6 +396,7 @@ export function createApiApp(options = {}) {
     consentService,
     gatewayService,
     sessionManager,
+    realtimeHub,
     auditEntries,
     auditRoots,
     requestListener,
