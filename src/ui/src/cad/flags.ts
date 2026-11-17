@@ -9,6 +9,7 @@
 export const CAD_FLAG_DEFAULTS: Record<string, boolean> = {
   'ns.cad.strict_states': false,
   'ns.cad.bff_client': false,
+  'ns.sse': false,
 }
 
 let inMemoryOverrides: Record<string, boolean> = {}
