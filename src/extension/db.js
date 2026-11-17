@@ -25,9 +25,16 @@ var NutriScoreDB = (() => {
   // src/ui/src/app/lib/db.ts
   var db_exports = {};
   __export(db_exports, {
+    BATCH_MAX_BYTES: () => BATCH_MAX_BYTES,
+    BATCH_MAX_EVENTS: () => BATCH_MAX_EVENTS,
+    DEAD_LETTER_RETENTION_MS: () => DEAD_LETTER_RETENTION_MS,
     DEFAULT_SETTINGS: () => DEFAULT_SETTINGS,
+    FLUSH_TIMEOUT_MS: () => FLUSH_TIMEOUT_MS,
     NUTRITION_CATEGORY_TO_FSA: () => NUTRITION_CATEGORY_TO_FSA,
     PLAUSIBILITY_BOUNDS: () => PLAUSIBILITY_BOUNDS,
+    QUEUE_MAX_BYTES: () => QUEUE_MAX_BYTES,
+    QUEUE_MAX_EVENTS: () => QUEUE_MAX_EVENTS,
+    RATE_LIMIT_PER_SEC: () => RATE_LIMIT_PER_SEC,
     RETENTION_90_DAYS_MS: () => RETENTION_90_DAYS_MS,
     SALT_TO_SODIUM_FACTOR_MG_PER_G: () => SALT_TO_SODIUM_FACTOR_MG_PER_G,
     _consecutiveAbsentMap: () => _consecutiveAbsentMap,
@@ -37,18 +44,22 @@ var NutriScoreDB = (() => {
     canonicalise: () => canonicalise,
     clearEvaluationCache: () => clearEvaluationCache,
     clearPendingCartSync: () => clearPendingCartSync,
+    computeBatchIdempotencyKey: () => computeBatchIdempotencyKey,
     computeCartCoverage: () => computeCartCoverage,
     computeGradeFromProduct: () => computeGradeFromProduct,
     computeTokenSetSimilarity: () => computeTokenSetSimilarity,
     dedupeActiveCartItems: () => dedupeActiveCartItems,
     deleteLedgerEntry: () => deleteLedgerEntry,
+    enqueueTelemetryEvent: () => enqueueTelemetryEvent,
     evaluateItem: () => evaluateItem,
     evaluatePolicy: () => evaluatePolicy,
     evictStaleCacheEntries: () => evictStaleCacheEntries,
     extractBrand: () => extractBrand,
     extractSize: () => extractSize,
     extractUrlSlug: () => extractUrlSlug,
+    flushTelemetryQueue: () => flushTelemetryQueue,
     gateNutrients: () => gateNutrients,
+    generateUlid: () => generateUlid,
     getAllEntries: () => getAllEntries,
     getAllLedgerRows: () => getAllLedgerRows,
     getAllProducts: () => getAllProducts,
@@ -56,6 +67,7 @@ var NutriScoreDB = (() => {
     getCatalogMeta: () => getCatalogMeta,
     getDB: () => getDB,
     getEntriesSince: () => getEntriesSince,
+    getGatewayUrl: () => getGatewayUrl,
     getNextClientSeq: () => getNextClientSeq,
     getOrCreateCartEpisodeId: () => getOrCreateCartEpisodeId,
     getPendingCartSyncs: () => getPendingCartSyncs,
@@ -67,6 +79,7 @@ var NutriScoreDB = (() => {
     isNmeV2Enabled: () => isNmeV2Enabled,
     isPolicyV2Enabled: () => isPolicyV2Enabled,
     isScoringV5Enabled: () => isScoringV5Enabled,
+    isTelemetryV2Enabled: () => isTelemetryV2Enabled,
     logCartEvent: () => logCartEvent,
     lowerIndexCache: () => lowerIndexCache,
     memCache: () => memCache,
@@ -74,11 +87,14 @@ var NutriScoreDB = (() => {
     normalizeProductName: () => normalizeProductName,
     normalizedIndexCache: () => normalizedIndexCache,
     productRecordLru: () => productRecordLru,
+    pruneDeadLetters: () => pruneDeadLetters,
     purgeAll: () => purgeAll,
     purgeLedgerOlderThan: () => purgeLedgerOlderThan,
+    purgeTelemetryQueue: () => purgeTelemetryQueue,
     putCatalogMeta: () => putCatalogMeta,
     rebuildNmeIndex: () => rebuildNmeIndex,
     resetConsecutiveAbsentTracker: () => resetConsecutiveAbsentTracker,
+    resetTelemetryCounters: () => resetTelemetryCounters,
     resolveBatch: () => resolveBatch,
     resolveDisplayCategory: () => resolveDisplayCategory,
     resolveProductMatch: () => resolveProductMatch,
@@ -88,6 +104,9 @@ var NutriScoreDB = (() => {
     saveProduct: () => saveProduct,
     saveSettings: () => saveSettings,
     syncCart: () => syncCart,
+    telemetryAckedCount: () => telemetryAckedCount,
+    telemetryDroppedCount: () => telemetryDroppedCount,
+    telemetryEnqueuedCount: () => telemetryEnqueuedCount,
     updateSettings: () => updateSettings
   });
 
@@ -480,6 +499,11 @@ var NutriScoreDB = (() => {
               if (!ledger.indexNames.contains("by_seq")) {
                 ledger.createIndex("by_seq", "clientSeq");
               }
+            }
+            if (!db.objectStoreNames.contains("telemetry_queue")) {
+              const tQueue = db.createObjectStore("telemetry_queue", { keyPath: "event_id" });
+              tQueue.createIndex("by_status", "status");
+              tQueue.createIndex("by_seq", "client_seq");
             }
           }
         }
@@ -2485,6 +2509,348 @@ var NutriScoreDB = (() => {
         cvd: risk.cvd
       }
     };
+  }
+
+  // src/ui/src/app/lib/db/telemetry.ts
+  var CROCKFORD_BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  var lastUlidTimestamp = 0;
+  var lastUlidRandom = new Uint8Array(10);
+  function generateUlid(ts = Date.now()) {
+    const time = Math.max(0, Math.floor(ts));
+    let timeStr = "";
+    for (let i = 9; i >= 0; i--) {
+      const mod = Math.floor(time / Math.pow(32, i)) % 32;
+      timeStr += CROCKFORD_BASE32[mod];
+    }
+    const randomBytes = new Uint8Array(10);
+    if (time === lastUlidTimestamp) {
+      let carry = 1;
+      for (let i = 9; i >= 0; i--) {
+        const sum = (lastUlidRandom[i] || 0) + carry;
+        randomBytes[i] = sum % 256;
+        carry = Math.floor(sum / 256);
+      }
+    } else {
+      if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+        crypto.getRandomValues(randomBytes);
+      } else {
+        for (let i = 0; i < 10; i++) randomBytes[i] = Math.floor(Math.random() * 256);
+      }
+      lastUlidTimestamp = time;
+    }
+    lastUlidRandom = randomBytes;
+    let randomStr = "";
+    for (let i = 0; i < 16; i++) {
+      const bitPos = i * 5;
+      const bytePos = Math.floor(bitPos / 8);
+      const bitOffset = bitPos % 8;
+      let val = (randomBytes[bytePos] || 0) << 8 | (randomBytes[bytePos + 1] || 0);
+      val = val >> 11 - bitOffset & 31;
+      randomStr += CROCKFORD_BASE32[val % 32];
+    }
+    return timeStr + randomStr;
+  }
+  var QUEUE_MAX_EVENTS = 1e3;
+  var QUEUE_MAX_BYTES = 2 * 1024 * 1024;
+  var BATCH_MAX_EVENTS = 100;
+  var BATCH_MAX_BYTES = 256 * 1024;
+  var FLUSH_TIMEOUT_MS = 5e3;
+  var RATE_LIMIT_PER_SEC = 20;
+  var DEAD_LETTER_RETENTION_MS = 7 * 24 * 60 * 60 * 1e3;
+  var telemetryDroppedCount = 0;
+  var telemetryEnqueuedCount = 0;
+  var telemetryAckedCount = 0;
+  var rateWindowStart = 0;
+  var rateWindowCount = 0;
+  function resetTelemetryCounters() {
+    telemetryDroppedCount = 0;
+    telemetryEnqueuedCount = 0;
+    telemetryAckedCount = 0;
+    rateWindowStart = 0;
+    rateWindowCount = 0;
+  }
+  function isTelemetryV2Enabled() {
+    if (typeof self !== "undefined" && self.NutriFlags?.isEnabled) {
+      return Boolean(self.NutriFlags.isEnabled("ns.telemetry.v2"));
+    }
+    if (typeof globalThis !== "undefined" && globalThis.__NUTRI_FLAGS__?.["ns.telemetry.v2"] !== void 0) {
+      return Boolean(globalThis.__NUTRI_FLAGS__["ns.telemetry.v2"]);
+    }
+    return false;
+  }
+  async function sha256Hex(str) {
+    if (typeof crypto !== "undefined" && crypto.subtle && crypto.subtle.digest) {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+    let h1 = 3735928559;
+    let h2 = 1103515245;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ h1 >>> 16, 2246822507) ^ Math.imul(h2 ^ h2 >>> 13, 3266489909);
+    h2 = Math.imul(h2 ^ h2 >>> 16, 2246822507) ^ Math.imul(h1 ^ h1 >>> 13, 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(64, "0");
+  }
+  async function computeBatchIdempotencyKey(eventIds) {
+    const sorted = [...eventIds].sort();
+    return sha256Hex(sorted.join(","));
+  }
+  function getGatewayUrl() {
+    if (typeof globalThis !== "undefined" && typeof globalThis.NUTRI_CONFIG !== "undefined") {
+      const conf = globalThis.NUTRI_CONFIG;
+      if (conf.GATEWAY_URL) return conf.GATEWAY_URL.replace(/\/+$/, "");
+      if (conf.API_URL) return conf.API_URL.replace(/\/+$/, "");
+    }
+    if (typeof self !== "undefined" && typeof self.NUTRI_CONFIG !== "undefined") {
+      const conf = self.NUTRI_CONFIG;
+      if (conf.GATEWAY_URL) return conf.GATEWAY_URL.replace(/\/+$/, "");
+      if (conf.API_URL) return conf.API_URL.replace(/\/+$/, "");
+    }
+    return "/api";
+  }
+  async function purgeTelemetryQueue() {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains("telemetry_queue")) return 0;
+    const tx = db.transaction("telemetry_queue", "readwrite");
+    const store = tx.objectStore("telemetry_queue");
+    await store.clear();
+    await tx.done;
+    return 1;
+  }
+  async function enqueueTelemetryEvent(options) {
+    if (!options.consentRef || !options.consentRef.trim()) {
+      telemetryDroppedCount++;
+      console.warn("[Telemetry] Event dropped: missing mandatory consent_ref receipt");
+      return null;
+    }
+    if (!options.shopperRef || !options.shopperRef.trim()) {
+      telemetryDroppedCount++;
+      console.warn("[Telemetry] Event dropped: missing shopper_ref alias");
+      return null;
+    }
+    const now = Date.now();
+    if (now - rateWindowStart < 1e3) {
+      rateWindowCount++;
+      if (rateWindowCount > RATE_LIMIT_PER_SEC) {
+        telemetryDroppedCount++;
+        console.warn("[Telemetry] Rate limit exceeded (> 20 events/sec). Dropping event.");
+        return null;
+      }
+    } else {
+      rateWindowStart = now;
+      rateWindowCount = 1;
+    }
+    const db = await getDB();
+    if (!db.objectStoreNames.contains("telemetry_queue")) return null;
+    const tx = db.transaction("telemetry_queue", "readwrite");
+    const store = tx.objectStore("telemetry_queue");
+    const allEvents = await store.getAll();
+    if (allEvents.length >= QUEUE_MAX_EVENTS) {
+      const pendingEvents = allEvents.filter((e) => e.status === "pending").sort((a, b) => a.createdAt - b.createdAt);
+      if (pendingEvents.length > 0) {
+        await store.delete(pendingEvents[0].event_id);
+        telemetryDroppedCount++;
+      }
+    }
+    const eventId = generateUlid(now);
+    const clientSeq = await getNextClientSeq();
+    const record = {
+      schema: "nutriscore.telemetry/1.1",
+      event_id: eventId,
+      client_seq: clientSeq,
+      type: options.type,
+      occurred_at: options.occurredAt || new Date(now).toISOString(),
+      shopper_ref: options.shopperRef,
+      retailer: options.retailer.toUpperCase(),
+      cart_episode_id: options.cartEpisodeId,
+      consent_ref: options.consentRef,
+      profile_ver: options.profileVer ?? null,
+      versions: {
+        scoring: options.scoringVersion || "v5",
+        catalogue: options.catalogueVersion || "current",
+        ext: options.extVersion || "1.1.0"
+      },
+      payload: options.payload,
+      status: "pending",
+      attempts: 0,
+      createdAt: now
+    };
+    await store.put(record);
+    await tx.done;
+    telemetryEnqueuedCount++;
+    return eventId;
+  }
+  async function flushTelemetryQueue(customFetch) {
+    const result = {
+      flushed: 0,
+      accepted: 0,
+      duplicates: 0,
+      rejected: 0,
+      deadLettered: 0
+    };
+    const db = await getDB();
+    if (!db.objectStoreNames.contains("telemetry_queue")) return result;
+    const tx = db.transaction("telemetry_queue", "readwrite");
+    const store = tx.objectStore("telemetry_queue");
+    const allEvents = await store.getAll();
+    const pendingBatch = [];
+    let batchBytes = 0;
+    for (const ev of allEvents) {
+      if (ev.status !== "pending") continue;
+      const str = JSON.stringify(ev);
+      const evBytes = str.length;
+      if (pendingBatch.length >= BATCH_MAX_EVENTS || batchBytes + evBytes > BATCH_MAX_BYTES) {
+        break;
+      }
+      pendingBatch.push(ev);
+      batchBytes += evBytes;
+    }
+    if (pendingBatch.length === 0) {
+      await tx.done;
+      return result;
+    }
+    for (const ev of pendingBatch) {
+      ev.status = "inflight";
+      ev.lastAttemptAt = Date.now();
+      await store.put(ev);
+    }
+    await tx.done;
+    const eventIds = pendingBatch.map((e) => e.event_id);
+    const idempotencyKey = await computeBatchIdempotencyKey(eventIds);
+    const gatewayUrl = getGatewayUrl();
+    const endpoint = `${gatewayUrl}/v1/telemetry/batch`;
+    const fetchFn = customFetch || (typeof fetch !== "undefined" ? fetch : null);
+    if (!fetchFn) {
+      const resetTx = db.transaction("telemetry_queue", "readwrite");
+      const rStore = resetTx.objectStore("telemetry_queue");
+      for (const ev of pendingBatch) {
+        ev.status = "pending";
+        await rStore.put(ev);
+      }
+      await resetTx.done;
+      return result;
+    }
+    let response;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FLUSH_TIMEOUT_MS);
+    try {
+      response = await fetchFn(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+          "X-NS-Shadow": "1"
+          // Contract bridge: shadow ingest
+        },
+        body: JSON.stringify({
+          batch_id: idempotencyKey,
+          events: pendingBatch
+        }),
+        signal: controller.signal
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const errTx = db.transaction("telemetry_queue", "readwrite");
+      const eStore = errTx.objectStore("telemetry_queue");
+      for (const ev of pendingBatch) {
+        ev.attempts += 1;
+        if (ev.attempts >= 8) {
+          ev.status = "dead";
+          ev.deadLetterReason = err.name === "AbortError" ? "timeout_exceeded" : "network_failure_max_retries";
+          result.deadLettered++;
+        } else {
+          ev.status = "pending";
+        }
+        await eStore.put(ev);
+      }
+      await errTx.done;
+      result.error = err.message;
+      return result;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    result.flushed = pendingBatch.length;
+    const writeTx = db.transaction("telemetry_queue", "readwrite");
+    const wStore = writeTx.objectStore("telemetry_queue");
+    if (response.ok) {
+      let body;
+      try {
+        body = await response.json();
+      } catch {
+        body = { results: [] };
+      }
+      const resultMap = /* @__PURE__ */ new Map();
+      if (Array.isArray(body?.results)) {
+        for (const item of body.results) {
+          resultMap.set(item.event_id, item);
+        }
+      }
+      for (const ev of pendingBatch) {
+        const itemResult = resultMap.get(ev.event_id);
+        const evStatus = itemResult?.status || "accepted";
+        if (evStatus === "accepted") {
+          await wStore.delete(ev.event_id);
+          result.accepted++;
+          telemetryAckedCount++;
+        } else if (evStatus === "duplicate") {
+          await wStore.delete(ev.event_id);
+          result.duplicates++;
+        } else if (evStatus === "rejected") {
+          ev.status = "dead";
+          ev.deadLetterReason = itemResult?.code || "schema_rejected";
+          await wStore.put(ev);
+          result.rejected++;
+          result.deadLettered++;
+        } else {
+          await wStore.delete(ev.event_id);
+          result.accepted++;
+        }
+      }
+    } else if (response.status === 429 || response.status >= 500) {
+      const retryAfterHeader = response.headers.get("Retry-After");
+      const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : void 0;
+      for (const ev of pendingBatch) {
+        ev.attempts += 1;
+        if (ev.attempts >= 8) {
+          ev.status = "dead";
+          ev.deadLetterReason = `http_${response.status}_max_attempts`;
+          result.deadLettered++;
+        } else {
+          ev.status = "pending";
+        }
+        await wStore.put(ev);
+      }
+      result.error = `HTTP ${response.status} (backoff applied, retryAfter=${retryAfterSec ?? "none"})`;
+    } else {
+      for (const ev of pendingBatch) {
+        ev.status = "dead";
+        ev.deadLetterReason = `client_error_${response.status}`;
+        await wStore.put(ev);
+        result.deadLettered++;
+      }
+      result.error = `HTTP ${response.status}`;
+    }
+    await writeTx.done;
+    return result;
+  }
+  async function pruneDeadLetters(cutoffMs = Date.now() - DEAD_LETTER_RETENTION_MS) {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains("telemetry_queue")) return 0;
+    const tx = db.transaction("telemetry_queue", "readwrite");
+    const store = tx.objectStore("telemetry_queue");
+    const allEvents = await store.getAll();
+    let deletedCount = 0;
+    for (const ev of allEvents) {
+      if (ev.status === "dead" && ev.createdAt < cutoffMs) {
+        await store.delete(ev.event_id);
+        deletedCount++;
+      }
+    }
+    await tx.done;
+    return deletedCount;
   }
   return __toCommonJS(db_exports);
 })();

@@ -114,3 +114,34 @@ export {
   resolveTimeframe,
   calculateAnalytics,
 } from "./db/analytics";
+
+// Telemetry Client (WP-12, Blueprint §2.8)
+export type {
+  TelemetryEventType,
+  TelemetryStatus,
+  TelemetryEvent,
+  QueuedTelemetryRecord,
+  EnqueueOptions,
+  FlushResult,
+} from "./db/telemetry";
+export {
+  generateUlid,
+  enqueueTelemetryEvent,
+  flushTelemetryQueue,
+  purgeTelemetryQueue,
+  pruneDeadLetters,
+  computeBatchIdempotencyKey,
+  isTelemetryV2Enabled,
+  getGatewayUrl,
+  resetTelemetryCounters,
+  telemetryDroppedCount,
+  telemetryEnqueuedCount,
+  telemetryAckedCount,
+  QUEUE_MAX_EVENTS,
+  QUEUE_MAX_BYTES,
+  BATCH_MAX_EVENTS,
+  BATCH_MAX_BYTES,
+  FLUSH_TIMEOUT_MS,
+  RATE_LIMIT_PER_SEC,
+  DEAD_LETTER_RETENTION_MS,
+} from "./db/telemetry";

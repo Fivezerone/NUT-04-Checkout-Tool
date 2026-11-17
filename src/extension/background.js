@@ -209,6 +209,19 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
     return;
   }
+
+  if (alarm.name === "telemetry-flush") {
+    // Blueprint §2.8: Telemetry queue flush every 15 minutes
+    try {
+      await ensureStorageReady();
+      if (typeof NutriScoreDB !== "undefined" && NutriScoreDB.flushTelemetryQueue) {
+        await NutriScoreDB.flushTelemetryQueue();
+      }
+    } catch (e) {
+      console.warn("[NutriScore SW] Telemetry flush alarm failed:", e.message);
+    }
+    return;
+  }
 });
 
 // F-01/F-16: boot sequence — 0 network calls on a plain wake.
@@ -216,11 +229,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // - catalog-sync only runs when the manifest version changes
 // - ledger-retention purges entries older than 90 days once daily
 // - flags-refresh polls every 5 minutes (fail-static)
+// - telemetry-flush flushes durable telemetry queue every 15 minutes (Blueprint §2.8)
 // chrome.alarms.create is idempotent when the alarm already exists.
 chrome.alarms.create("entitlement-refresh", { periodInMinutes: 12 * 60 }); // 12 h
 chrome.alarms.create("cache-eviction",      { periodInMinutes: 24 * 60 }); // daily
 chrome.alarms.create("ledger-retention",    { periodInMinutes: 24 * 60 }); // daily
 chrome.alarms.create("flags-refresh",       { periodInMinutes: 5 });       // 5 min
+chrome.alarms.create("telemetry-flush",     { periodInMinutes: 15 });      // 15 min
 
 if (typeof NutriFlags !== "undefined") {
   NutriFlags.loadFlags().catch(() => {});
