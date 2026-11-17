@@ -26,6 +26,7 @@
       ],
       "js": [
         "health-modes.js",
+        "obs/obs.js",
         "adapters/grade-colors.js",
         "adapters/shared-ui.js",
         "adapters/naivas.js",
@@ -41,6 +42,7 @@
       ],
       "js": [
         "health-modes.js",
+        "obs/obs.js",
         "adapters/grade-colors.js",
         "adapters/shared-ui.js",
         "adapters/carrefour.js",
@@ -55,6 +57,7 @@
       ],
       "js": [
         "health-modes.js",
+        "obs/obs.js",
         "adapters/grade-colors.js",
         "adapters/shared-ui.js",
         "adapters/quickmart.js",

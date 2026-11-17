@@ -1,7 +1,7 @@
 /**
  * NutriScore CAD Phase 8 — Extension Observed Cart Ledger Sync
  *
- * Reference: Blueprint §4.3, Decision D6, Amendment A6
+ * Reference: Blueprint §4.3, Decision D6, Amendment A6, Finding A-06
  *
  * Points extension cart ledger sync at observed-orders endpoint.
  * Authenticated via memory-only Dietary Profile Token (DPT) with DPoP proof.
@@ -9,9 +9,47 @@
  * Strictly event logging: no transaction, routing, stock, or settlement logic.
  */
 
-/* global self */
+;(function (root) {
+  'use strict'
 
-(function (root) {
+  function canonicalStringify(val) {
+    if (val === null || typeof val !== 'object') return JSON.stringify(val)
+    if (Array.isArray(val)) return `[${val.map(canonicalStringify).join(',')}]`
+    const keys = Object.keys(val).sort()
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalStringify(val[k])}`).join(',')}}`
+  }
+
+  async function sha256Hex(str) {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.subtle && crypto.subtle.digest) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))
+        return Array.from(new Uint8Array(buf))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('')
+      }
+    } catch {}
+
+    try {
+      // Node.js fallback in test / toolchain environment
+      if (typeof require === 'function') {
+        const cryptoMod = require('node:crypto')
+        return cryptoMod.createHash('sha256').update(str).digest('hex')
+      }
+    } catch {}
+
+    // Deterministic string hash fallback (browser fallback without subtle)
+    let h1 = 0xdeadbeef
+    let h2 = 0x41c64e6d
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i)
+      h1 = Math.imul(h1 ^ ch, 2654435761)
+      h2 = Math.imul(h2 ^ ch, 1597334677)
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(16, '0')
+  }
+
   async function syncObservedCartToBackend(options) {
     const {
       retailer,
@@ -20,7 +58,9 @@
       dptToken,
       dpopProof,
       idempotencyKey,
-      backendUrl = 'http://127.0.0.1:54321',
+      backendUrl = (typeof NUTRI_CONFIG !== 'undefined' &&
+        (NUTRI_CONFIG.GATEWAY_URL || NUTRI_CONFIG.API_URL)) ||
+        '/api',
     } = options
 
     if (!retailer) {
@@ -33,13 +73,10 @@
       throw new Error('dpopProof is required')
     }
 
-    const endpoint = `${backendUrl.replace(/\/+$/, '')}/functions/v1/observed-orders`
-    const key =
-      idempotencyKey || `obs-${retailer}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    const endpoint = `${backendUrl.replace(/\/+$/, '')}/v1/commerce/observed-orders`
 
-    const payload = {
+    const payloadCore = {
       retailer,
-      idempotency_key: key,
       total_kes: totalKes !== undefined ? Number(totalKes) : null,
       items: (items || []).map((it) => ({
         sku_id: it.sku_id || it.productId || it.id,
@@ -48,8 +85,18 @@
       })),
     }
 
+    // A-06 Hotfix: Derive deterministic key from payload hash so retries share the same key
+    const payloadHash = await sha256Hex(canonicalStringify(payloadCore))
+    const key = idempotencyKey || `obs-${retailer}-${payloadHash}`
+
+    const payload = {
+      ...payloadCore,
+      idempotency_key: key,
+    }
+
     const headers = {
       'Content-Type': 'application/json',
+      'Idempotency-Key': key,
       Authorization: `DPoP ${dptToken}`,
       DPoP: dpopProof,
     }
@@ -70,6 +117,8 @@
 
   const exportObj = {
     syncObservedCartToBackend,
+    canonicalStringify,
+    sha256Hex,
   }
 
   if (typeof module !== 'undefined' && module.exports) {
