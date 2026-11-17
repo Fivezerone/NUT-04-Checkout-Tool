@@ -30,6 +30,56 @@ export interface ConsentRecord {
   revokedAt?: string
 }
 
+export type StatutoryConsentPurpose = 'C1' | 'C2' | 'C3' | 'C4'
+
+export interface ConsentRegisterEntry {
+  consent_ref: string
+  patient_ref: string
+  tenant_id?: string | null
+  purpose: StatutoryConsentPurpose | ConsentPurpose
+  scope?: string | null
+  notice_hash: string
+  granted_at: string
+  expires_at?: string | null
+  revoked_at?: string | null
+}
+
+/**
+ * Checks whether a consent register record is active for the specified purpose.
+ * Checks for:
+ * 1. Entry existence
+ * 2. Revocation status (revoked_at must be null)
+ * 3. Expiration status (expires_at must be null or in the future)
+ * 4. Granted timestamp (granted_at must be in the past or now)
+ * 5. Exact or mapped purpose match ('C1' | 'C2' | 'C3' | 'C4')
+ */
+export function hasActiveConsent(
+  entry: ConsentRegisterEntry | null | undefined,
+  requiredPurpose: StatutoryConsentPurpose | ConsentPurpose = 'C2',
+  now: number = Date.now(),
+): boolean {
+  if (!entry) return false
+  if (entry.revoked_at) return false
+
+  if (entry.expires_at) {
+    const expTime = new Date(entry.expires_at).getTime()
+    if (!Number.isNaN(expTime) && expTime <= now) return false
+  }
+
+  const grantedTime = new Date(entry.granted_at).getTime()
+  if (!Number.isNaN(grantedTime) && grantedTime > now) return false
+
+  const targetCategory: StatutoryConsentPurpose =
+    (PURPOSE_CATEGORY_MAP[requiredPurpose as ConsentPurpose] as StatutoryConsentPurpose) ||
+    (requiredPurpose as StatutoryConsentPurpose)
+
+  const entryCategory: StatutoryConsentPurpose =
+    (PURPOSE_CATEGORY_MAP[entry.purpose as ConsentPurpose] as StatutoryConsentPurpose) ||
+    (entry.purpose as StatutoryConsentPurpose)
+
+  return entryCategory === targetCategory
+}
+
 /**
  * Invariant T26: Clinician Patient-Level Visibility Gate (Finding X-08)
  * A clinician can only access patient-level timelines, diaries, or targets
