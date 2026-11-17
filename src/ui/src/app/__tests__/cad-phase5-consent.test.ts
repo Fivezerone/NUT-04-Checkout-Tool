@@ -57,7 +57,9 @@ describe('CAD Phase 5: Clinical Views, Consent & Pilot (T13, T26, T27)', () => {
       const patientRef = 'PAT-NAIROBI-2026-091'
       const shredResult = cryptoShredPatient(patientRef)
 
-      expect(shredResult.anonymizedRef).toMatch(/^SHREDDED-PAT-/)
+      expect(shredResult.anonymizedRef).toMatch(/^SHREDDED-[0-9a-f]{16}/)
+      expect(shredResult.anonymizedRef).not.toContain('PAT-')
+      expect(shredResult.anonymizedRef).not.toContain('NAIROBI')
       expect(shredResult.anonymizedRef).not.toBe(patientRef)
       expect(shredResult.erasureTimestamp).toBeDefined()
     })

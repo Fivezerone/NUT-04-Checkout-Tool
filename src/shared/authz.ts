@@ -1,11 +1,11 @@
 // src/shared/authz.ts
-// NutriScore CAD Blueprint Phase 4
+// NutriScore CAD Blueprint Phase 4 & Phase 5 (WP-05)
 // Shared ABAC & RBAC Policy Engine implementing ordered decide() algorithm
-// Reference: Blueprint §1.3, §4.2; Amendments A1-A3; Decisions D1-D5
+// Reference: Blueprint §1.3, §3.5, §4.2; Amendments A1-A3; Decisions D1-D5; Findings X-03, X-04
 
-import type { CadRole } from './claims'
+import { type CadRole, type AcrLevel, parseAcrLevel } from './claims'
 
-export type Action = 'create' | 'read' | 'update' | 'delete'
+export type Action = 'create' | 'read' | 'update' | 'delete' | 'propose' | 'approve'
 
 export type ResourceClass = 'PHI1' | 'PHI2' | 'ADMIN' | 'COMMERCIAL' | 'AUDIT' | 'AUDIT_META'
 
@@ -16,7 +16,7 @@ export interface Subject {
   tenantId?: string
   auditorScope?: 'tenant' | 'platform'
   licenceVerified?: boolean
-  acr?: number // Authentication Context Class Reference: 1 = password, >= 2 = step-up / MFA
+  acr?: AcrLevel | number | string // Authentication Context Class Reference: 1 = password, >= 2 = step-up / MFA
 }
 
 export interface Resource {
@@ -33,6 +33,7 @@ export interface Resource {
     | 'catalogue'
     | 'commercial_orders'
     | 'commercial_aggregates'
+    | 'health_modes'
     | string
   class: ResourceClass
   tenantId?: string
@@ -82,7 +83,32 @@ export interface DecisionAdapters {
   }
 }
 
-// 1. RBAC Matrix from Blueprint §1.3 (7 roles x 12 resources x create/read/update)
+export interface PdpInstance {
+  decide(s: Subject, action: Action, r: Resource, now?: Date): Promise<Decision>
+}
+
+/**
+ * Creates a Policy Decision Point (PDP) instance bound to verified adapters.
+ * Fails closed at start-up if members or denylist adapters are missing (Finding X-03).
+ */
+export function createPdp(adapters: DecisionAdapters): PdpInstance {
+  if (!adapters.members) {
+    throw new Error(
+      'PDP initialization failed: members adapter is required (fail closed at start-up)',
+    )
+  }
+  if (!adapters.denylist) {
+    throw new Error(
+      'PDP initialization failed: denylist adapter is required (fail closed at start-up)',
+    )
+  }
+  return {
+    decide: (s: Subject, action: Action, r: Resource, now: Date = new Date()) =>
+      decide(s, action, r, now, adapters),
+  }
+}
+
+// 1. RBAC Matrix from Blueprint §1.3 and §3.5 (7 roles x 13 resources)
 export const PERMISSIONS: Record<CadRole, Set<string>> = {
   super_admin: new Set([
     'tenants:create',
@@ -101,6 +127,8 @@ export const PERMISSIONS: Record<CadRole, Set<string>> = {
     'patient_directory:read',
     'consent_register:read',
     'commercial_aggregates:read',
+    'health_modes:propose',
+    'health_modes:read',
   ]),
   writing_clinician: new Set([
     'accounts:create',
@@ -117,6 +145,9 @@ export const PERMISSIONS: Record<CadRole, Set<string>> = {
     'target_bundles:read',
     'target_bundles:update',
     'consent_register:read',
+    'health_modes:approve',
+    'health_modes:update',
+    'health_modes:read',
   ]),
   viewing_dietician: new Set([
     'patient_directory:read',
@@ -125,6 +156,7 @@ export const PERMISSIONS: Record<CadRole, Set<string>> = {
     'dietary_tags:read',
     'dietary_tags:update',
     'target_bundles:read',
+    'health_modes:read',
   ]),
   compliance_auditor: new Set([
     'consent_register:read',
@@ -166,17 +198,24 @@ export const CLEARANCE: Record<CadRole, Set<ResourceClass>> = {
 
 export const CLINICAL_STAFF = new Set<CadRole>(['writing_clinician', 'viewing_dietician'])
 
-// 3. Sensitive actions requiring step-up (acr >= 2)
+// 3. Sensitive actions requiring step-up (acr >= 2) per Blueprint §3.5
 export const STEP_UP = new Set<string>([
   'target_bundles:create',
   'target_bundles:update',
   'emergency_grants:create',
   'accounts:update',
+  'accounts:create',
   'retention_policies:update',
+  'consent_register:update',
+  'clinical_records:update',
+  'tenants:create',
+  'tenants:read',
+  'tenants:update',
+  'tenants:delete',
 ])
 
 export function isWrite(action: Action): boolean {
-  return action === 'create' || action === 'update' || action === 'delete'
+  return action === 'create' || action === 'update' || action === 'delete' || action === 'approve'
 }
 
 export function audit(r: Resource, action: Action): Obligation {
@@ -216,7 +255,7 @@ export function allow(obligations: Obligation[] = []): Decision {
 }
 
 /**
- * Ordered ABAC decision algorithm from Blueprint §1.3.
+ * Ordered ABAC decision algorithm from Blueprint §1.3 and §3.5.
  * First deny wins. Callers receive a generic 403 HTTP response;
  * the specific reason is recorded in the immutable audit log.
  */
@@ -227,14 +266,27 @@ export async function decide(
   now: Date = new Date(),
   adapters: DecisionAdapters = {},
 ): Promise<Decision> {
+  // Finding X-03b: Fail-closed tenant isolation.
+  // Throws if tenantId is absent for PHI resource classes.
+  if ((r.class === 'PHI1' || r.class === 'PHI2') && !r.tenantId) {
+    throw new Error('TENANT_REQUIRED: tenantId is mandatory for PHI resources')
+  }
+
   const obligations: Obligation[] = []
   if (r.class === 'PHI1' || r.class === 'PHI2') {
     obligations.push(audit(r, action))
   }
 
-  // 1. Account inactive check (denylist or member status != active)
-  const isDenylisted = s.sid && adapters.denylist ? await adapters.denylist.has(s.sid) : false
-  const memberStatus = adapters.members ? await adapters.members.status(s.sub) : 'active'
+  // 1. Account inactive check concurrently (denylist or member status != active)
+  const [isDenylisted, memberStatus] = await Promise.all([
+    s.sid && adapters.denylist
+      ? Promise.resolve(adapters.denylist.has(s.sid))
+      : Promise.resolve(false),
+    adapters.members
+      ? Promise.resolve(adapters.members.status(s.sub))
+      : Promise.resolve('active' as string | null),
+  ])
+
   if (isDenylisted || memberStatus !== 'active') {
     return deny('ACCOUNT_INACTIVE')
   }
@@ -302,8 +354,11 @@ export async function decide(
     }
   }
 
-  // 7. Step-up authentication check (acr >= 2)
-  if (STEP_UP.has(`${r.type}:${action}`) && (s.acr ?? 1) < 2) {
+  // 7. Step-up authentication check (acr >= 2) per Finding X-03d
+  const acrLevel =
+    typeof s.acr === 'number' ? s.acr : s.acr !== undefined ? parseAcrLevel(s.acr) : 1
+
+  if (STEP_UP.has(`${r.type}:${action}`) && acrLevel < 2) {
     return deny('STEP_UP_REQUIRED')
   }
 

@@ -41,6 +41,22 @@ export interface KeyWrapper {
   deriveTenantMacKey(tenantId: string): Promise<Uint8Array> | Uint8Array
 }
 
+function assertStageACryptoAllowed(providerName: string): void {
+  const isProd =
+    typeof process !== 'undefined' &&
+    (process.env?.NODE_ENV === 'production' || process.env?.APP_ENV === 'production')
+  const allowOverride =
+    typeof process !== 'undefined' &&
+    (process.env?.ALLOW_STAGE_A_CRYPTO_IN_PROD === 'true' ||
+      process.env?.ALLOW_STAGE_A_CRYPTO === 'true')
+
+  if (isProd && !allowOverride) {
+    throw new Error(
+      `[SECURITY] Stage A crypto provider (${providerName}) is prohibited in production. A production HSM/KMS (e.g., HashiCorp Vault transit) is required per ADR-010 / Rule 12.`,
+    )
+  }
+}
+
 export class LocalKeyWrapper implements KeyWrapper {
   private readonly masterKey: Buffer
 
@@ -48,6 +64,7 @@ export class LocalKeyWrapper implements KeyWrapper {
    * @param masterKey - 32-byte master key buffer, or hex/base64 string.
    */
   constructor(masterKey?: string | Uint8Array) {
+    assertStageACryptoAllowed('LocalKeyWrapper')
     if (masterKey) {
       if (typeof masterKey === 'string') {
         if (/^[0-9a-fA-F]{64}$/.test(masterKey)) {
