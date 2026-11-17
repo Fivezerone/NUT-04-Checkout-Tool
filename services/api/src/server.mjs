@@ -1,24 +1,36 @@
 // services/api/src/server.mjs
 // Lightweight Node.js HTTP server for the NUT-04 ported API service.
-// Hosts Telemetry Gateway, Consent Register & BFF routes.
-// References: Golden Path 1; Blueprint §3.3 (N3), §3.9 (N9).
+// Hosts Telemetry Gateway, Consent Register & BFF routes with PDP enforcement.
+// References: Golden Path 1; Blueprint §3.3 (N3), §3.5 (N5), §3.7 (N7), §3.9 (N9).
 
 import { createServer } from 'node:http'
 import { defaultStore, TelemetryStore } from './store.mjs'
 import { ConsentRegisterService } from './consent-register.mjs'
 import { TelemetryGatewayService } from './telemetry-gateway.mjs'
+import { SessionManager } from './bff/session.mjs'
+import { computeCapabilitiesForSubject } from './bff/capabilities.mjs'
+import { maskObject } from './bff/masks.mjs'
+import { verifyAuditLedger, computeRowHash } from './audit/verifier.mjs'
+import { sendProblem } from './bff/errors.mjs'
 
 export function createApiApp(options = {}) {
   const store = options.store || defaultStore || new TelemetryStore()
   const consentService = options.consentService || new ConsentRegisterService(store)
   const gatewayService =
     options.gatewayService || new TelemetryGatewayService(store, consentService)
+  const sessionManager = options.sessionManager || new SessionManager(store)
+
+  // In-memory audit entries for testing and verification
+  const auditEntries = options.auditEntries || []
+  const auditRoots = options.auditRoots || []
 
   const requestListener = async (req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
     const pathname = url.pathname
 
-    // Health probes
+    // -------------------------------------------------------------------------
+    // Health probes & System Status
+    // -------------------------------------------------------------------------
     if (pathname === '/health' || pathname === '/healthz' || pathname === '/v1/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(
@@ -46,7 +58,9 @@ export function createApiApp(options = {}) {
       return
     }
 
+    // -------------------------------------------------------------------------
     // Telemetry Batch Ingestion: POST /v1/telemetry/batch
+    // -------------------------------------------------------------------------
     if (
       (pathname === '/v1/telemetry/batch' || pathname === '/api/v1/telemetry/batch') &&
       req.method === 'POST'
@@ -85,7 +99,9 @@ export function createApiApp(options = {}) {
       })
     }
 
-    // Consent Register: POST /v1/consent/register
+    // -------------------------------------------------------------------------
+    // Consent Register Routes
+    // -------------------------------------------------------------------------
     if (
       (pathname === '/v1/consent/register' || pathname === '/api/v1/consent/register') &&
       req.method === 'POST'
@@ -111,7 +127,6 @@ export function createApiApp(options = {}) {
       })
     }
 
-    // Consent Revocation: POST /v1/consent/revoke
     if (
       (pathname === '/v1/consent/revoke' || pathname === '/api/v1/consent/revoke') &&
       req.method === 'POST'
@@ -142,7 +157,6 @@ export function createApiApp(options = {}) {
       })
     }
 
-    // Consent Lookup: GET /v1/consent/:ref
     if (
       (pathname.startsWith('/v1/consent/') || pathname.startsWith('/api/v1/consent/')) &&
       req.method === 'GET'
@@ -166,11 +180,184 @@ export function createApiApp(options = {}) {
       return
     }
 
+    // -------------------------------------------------------------------------
+    // BFF Authentication & Session Routes (ADR-004, F-01, F-02)
+    // -------------------------------------------------------------------------
+    if (
+      (pathname === '/v1/auth/session' || pathname === '/api/v1/auth/session') &&
+      req.method === 'POST'
+    ) {
+      return new Promise((resolve) => {
+        let rawBody = ''
+        req.on('data', (chunk) => {
+          rawBody += chunk
+        })
+        req.on('end', async () => {
+          try {
+            const body = JSON.parse(rawBody)
+            const session = await sessionManager.createSession({
+              userId: body.userId || body.user_id,
+              tenantId: body.tenantId || body.tenant_id,
+              appRole: body.appRole || body.app_role,
+              acr: body.acr ?? 1,
+              amr: body.amr ?? [],
+              encryptedTokens: body.encryptedTokens ?? {},
+            })
+
+            const setCookie = sessionManager.createSetCookieHeader(session.sid)
+            res.writeHead(200, {
+              'Content-Type': 'application/json',
+              'Set-Cookie': setCookie,
+            })
+            res.end(
+              JSON.stringify({
+                ok: true,
+                csrf_token: session.csrf_secret,
+                role: session.app_role,
+                tenant_id: session.tenant_id,
+              }),
+            )
+          } catch (err) {
+            sendProblem(res, {
+              status: 400,
+              code: 'INVALID_CREDENTIALS',
+              detail: err.message,
+            })
+          } finally {
+            resolve()
+          }
+        })
+      })
+    }
+
+    if (
+      (pathname === '/v1/auth/logout' || pathname === '/api/v1/auth/logout') &&
+      req.method === 'POST'
+    ) {
+      const sid = sessionManager.parseSessionCookie(req.headers.cookie)
+      if (sid) {
+        await sessionManager.revokeSession(sid)
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Set-Cookie': sessionManager.createClearCookieHeader(),
+      })
+      res.end(JSON.stringify({ ok: true, message: 'Session logged out' }))
+      return
+    }
+
+    // -------------------------------------------------------------------------
+    // Session Verification Middleware for Protected Routes
+    // -------------------------------------------------------------------------
+    const sid = sessionManager.parseSessionCookie(req.headers.cookie)
+    const currentSession = sid ? await sessionManager.getSession(sid) : null
+
+    // Helper: Require authenticated BFF session
+    const requireBffSession = () => {
+      if (!currentSession) {
+        sendProblem(res, {
+          status: 401,
+          code: 'UNAUTHORIZED',
+          title: 'Unauthorized',
+          detail: 'Valid __Host-ns_sid session cookie required',
+        })
+        return null
+      }
+      // CSRF check on state-mutating methods
+      const csrfCheck = sessionManager.validateCsrf(req, currentSession)
+      if (!csrfCheck.valid) {
+        sendProblem(res, {
+          status: 403,
+          code: 'CSRF_INVALID',
+          title: 'Forbidden',
+          detail: csrfCheck.reason,
+        })
+        return null
+      }
+      return currentSession
+    }
+
+    // -------------------------------------------------------------------------
+    // Capabilities Endpoint: GET /v1/capabilities (Blueprint §3.5, §4.1)
+    // -------------------------------------------------------------------------
+    if (
+      (pathname === '/v1/capabilities' || pathname === '/api/v1/capabilities') &&
+      req.method === 'GET'
+    ) {
+      const session = requireBffSession()
+      if (!session) return
+
+      const capsResponse = computeCapabilitiesForSubject({
+        role: session.app_role,
+        acr: session.acr,
+        tenantId: session.tenant_id,
+      })
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(capsResponse))
+      return
+    }
+
+    // -------------------------------------------------------------------------
+    // Audit Ledger Verifier: GET /v1/audit/verify (Blueprint §3.7, F-05)
+    // -------------------------------------------------------------------------
+    if (
+      (pathname === '/v1/audit/verify' || pathname === '/api/v1/audit/verify') &&
+      req.method === 'GET'
+    ) {
+      const session = requireBffSession()
+      if (!session) return
+
+      const verification = verifyAuditLedger(auditEntries, auditRoots)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(verification))
+      return
+    }
+
+    // -------------------------------------------------------------------------
+    // Protected Mock Resource: Patient Directory (with Field Masking)
+    // -------------------------------------------------------------------------
+    if ((pathname === '/v1/patients' || pathname === '/api/v1/patients') && req.method === 'GET') {
+      const session = requireBffSession()
+      if (!session) return
+
+      // Delta D-4: super_admin has zero clinical visibility
+      if (session.app_role === 'super_admin') {
+        sendProblem(res, {
+          status: 403,
+          code: 'ACCESS_DENIED',
+          detail: 'super_admin is prohibited from clinical patient directory access',
+        })
+        return
+      }
+
+      const samplePatients = [
+        {
+          id: 'p-001',
+          patient_ref: 'pat-ref-001',
+          display_name: 'Patient Alpha',
+          care_team: ['dr-smith'],
+          consent_status: 'active',
+          active_targets: { sodium_max: 2000 },
+          internal_diagnosis: 'REDACTED_CONDITION', // Must NEVER leak!
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z',
+        },
+      ]
+
+      const masked = maskObject('patient_directory', session.app_role, samplePatients)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ data: masked }))
+      return
+    }
+
     // Default 404
-    res.writeHead(404, { 'Content-Type': 'application/json' })
-    res.end(
-      JSON.stringify({ message: 'NutriScore API Service: Route Not Found', endpoint: pathname }),
-    )
+    sendProblem(res, {
+      status: 404,
+      code: 'ROUTE_NOT_FOUND',
+      title: 'Not Found',
+      detail: `No handler mounted for path: ${pathname}`,
+    })
   }
 
   const server = createServer(requestListener)
@@ -179,6 +366,9 @@ export function createApiApp(options = {}) {
     store,
     consentService,
     gatewayService,
+    sessionManager,
+    auditEntries,
+    auditRoots,
     requestListener,
   }
 }
