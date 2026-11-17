@@ -1,0 +1,37 @@
+{
+  "retailer": "QUICKMART",
+  "specVersion": "1.0.0",
+  "minExtVersion": "0.0.1",
+  "killSwitch": false,
+  "hostSuffixes": ["quickmart.co.ke"],
+  "allowPaths": ["/", "/products", "/category", "/cart", "/checkout"],
+  "excludePaths": ["/account", "/login", "/checkout/payment"],
+  "card": [
+    ".product",
+    ".products-item",
+    ".product-card",
+    ".product-cell",
+    ".item-product",
+    "[data-selprod-id]",
+    "[data-product-id]"
+  ],
+  "id": [
+    { "attr": "data-selprod-id" },
+    { "attr": "data-product-id" },
+    { "attr": "data-id" },
+    { "selector": "input[name='selprod_id']", "attr": "value" },
+    { "hrefRegex": "/products/view/([0-9]+)" }
+  ],
+  "name": [
+    ".products-title",
+    ".product-title",
+    "h2",
+    "h3",
+    "h4",
+    "a[title]",
+    ".title"
+  ],
+  "price": {
+    "selector": ".products-price-new, .products-price, .product-price, .price, .special-price"
+  }
+}
