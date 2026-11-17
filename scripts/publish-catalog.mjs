@@ -353,13 +353,22 @@ for (const row of allRows) {
   })
 }
 
-// Compute catalog hashes
+// Compute catalog hashes (legacy localeCompare and modern codeUnitCompare per Blueprint §2.6 / X-10)
 const catalogHash = await computeCatalogHash(
   productRows.map((r) => ({
     retailer: r.retailer,
     product_id: r.product_id,
     record_hash: r.record_hash,
   })),
+  { legacy: true },
+)
+const catalogHashV2 = await computeCatalogHash(
+  productRows.map((r) => ({
+    retailer: r.retailer,
+    product_id: r.product_id,
+    record_hash: r.record_hash,
+  })),
+  { legacy: false },
 )
 const premiumHash = await computeCatalogHash(
   premiumRows.map((r) => ({
@@ -367,10 +376,21 @@ const premiumHash = await computeCatalogHash(
     product_id: r.product_id,
     record_hash: r.record_hash,
   })),
+  { legacy: true },
+)
+const premiumHashV2 = await computeCatalogHash(
+  premiumRows.map((r) => ({
+    retailer: r.retailer,
+    product_id: r.product_id,
+    record_hash: r.record_hash,
+  })),
+  { legacy: false },
 )
 
-info(`catalog_hash: ${catalogHash}`)
-info(`premium_hash: ${premiumHash}`)
+info(`catalog_hash (legacy): ${catalogHash}`)
+info(`catalog_hash_v2:       ${catalogHashV2}`)
+info(`premium_hash (legacy): ${premiumHash}`)
+info(`premium_hash_v2:       ${premiumHashV2}`)
 
 // ─── Build manifest (unsigned) ────────────────────────────────────────────────
 const gitSha = (() => {
@@ -403,13 +423,16 @@ const manifest = {
   engine_version: typeof gitSha === 'string' ? gitSha : 'unknown',
   min_client_version: '2.0.0',
   max_seq: null, // filled in on commit after DB writes
+  issued_at: now.toISOString(),
   counts: {
     CARREFOUR: carrefourValid.length,
     NAIVAS: naivasValid.length,
     ...(quickmartRaw ? { QUICKMART: quickmartValid.length } : {}),
   },
   catalog_hash: catalogHash,
+  catalog_hash_v2: catalogHashV2,
   premium_hash: premiumHash,
+  premium_hash_v2: premiumHashV2,
   disclaimer:
     'NutriScore grades are for informational purposes only. Consult a healthcare professional for dietary advice.',
 }

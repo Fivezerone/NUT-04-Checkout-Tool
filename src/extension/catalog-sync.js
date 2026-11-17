@@ -33,6 +33,17 @@ self.NutriCatalogSync = (() => {
 
   let syncPromise = null;
 
+  class IntegrityError extends Error {
+    constructor(message, code = "INTEGRITY_ERROR") {
+      super(message);
+      this.name = "IntegrityError";
+      this.code = code;
+    }
+  }
+
+  const codeUnitCompare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const legacyCompare = (a, b) => a.localeCompare(b, "en", { sensitivity: "variant" });
+
   // F-11: injected Supabase client accessor — set once at boot via init().
   let _getSupabase = null;
   function getSupabase() {
@@ -79,7 +90,30 @@ self.NutriCatalogSync = (() => {
     return undefined;
   }
 
-  async function verifyManifest(release) {
+  async function recordHash(record) {
+    return await sha256Hex(stableStringify(record));
+  }
+
+  async function computeCatalogHashFromRows(rows, options = {}) {
+    const isLegacy = options.legacy === true;
+    const comparator = isLegacy
+      ? (a, b) => {
+          const r = legacyCompare(a.retailer, b.retailer);
+          if (r !== 0) return r;
+          return legacyCompare(a.product_id, b.product_id);
+        }
+      : (a, b) => {
+          const r = codeUnitCompare(a.retailer, b.retailer);
+          if (r !== 0) return r;
+          return codeUnitCompare(a.product_id, b.product_id);
+        };
+
+    const sorted = [...rows].sort(comparator);
+    const lines = sorted.map(r => `${r.retailer}|${r.product_id}|${r.record_hash}\n`).join("");
+    return await sha256Hex(lines);
+  }
+
+  async function verifyManifest(release, meta) {
     const jwk = NUTRI_CONFIG.CATALOG_PUBLIC_KEYS.find(k => k.kid === release.key_id);
     if (!jwk) throw new Error("Unknown catalog key_id: " + release.key_id);
     const pub = await crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
@@ -88,21 +122,138 @@ self.NutriCatalogSync = (() => {
     const sigBytes = await base64urlDecode(release.signature);
     const valid = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pub, sigBytes, dataToVerify);
     if (!valid) throw new Error("Catalog manifest signature invalid");
+
+    // Check future issued_at (> now + 5 min)
+    if (release.manifest?.issued_at) {
+      const issuedAtMs = Date.parse(release.manifest.issued_at);
+      if (Number.isFinite(issuedAtMs) && issuedAtMs > Date.now() + 5 * 60_000) {
+        throw new Error("Catalog manifest issued_at is in the future (> now + 5 min)");
+      }
+    }
+
+    // Invariant A-03: Anti-rollback protection on release_seq
+    if (release.manifest?.release_seq !== undefined && meta) {
+      const maxSeen = meta.max_release_seen ?? meta.release_seq ?? 0;
+      if (release.manifest.release_seq <= maxSeen) {
+        throw new Error(
+          `Rollback rejected: catalog release_seq ${release.manifest.release_seq} <= stored max_release_seen ${maxSeen}`
+        );
+      }
+    }
+
     return release.manifest;
   }
 
   async function computeLocalHash(db, storeName) {
     const tx = db.transaction(storeName, "readonly");
     const hashes = await tx.store.getAll();
-    const sorted = hashes.sort((a, b) => {
-      const [ar, ap] = a.key.split("|");
-      const [br, bp] = b.key.split("|");
-      const r = ar.localeCompare(br, "en", { sensitivity: "variant" });
-      if (r !== 0) return r;
-      return ap.localeCompare(bp, "en", { sensitivity: "variant" });
+    const rows = hashes.map(h => {
+      const [retailer, productId] = h.key.split("|");
+      return { retailer, product_id: productId, record_hash: h.hash };
     });
-    const lines = sorted.map(r => `${r.key.replace("|", "|")}|${r.hash}\n`).join("");
-    return await sha256Hex(lines);
+    return await computeCatalogHashFromRows(rows, { legacy: false });
+  }
+
+  async function verifyStaging(manifest, db) {
+    // 1. Read all staged product rows from catalog_staging
+    const sTx = db.transaction("catalog_staging", "readonly");
+    const stagedRows = await sTx.store.getAll();
+    await sTx.done;
+
+    if (!stagedRows || stagedRows.length === 0) return;
+
+    // 2. Per-row integrity verification (A-01): recompute recordHash(row.record)
+    for (const row of stagedRows) {
+      if (!row.deleted && row.record) {
+        const computed = await recordHash(row.record);
+        if (computed !== row.record_hash) {
+          throw new IntegrityError(
+            `Staged row hash mismatch for ${row.key}: expected ${row.record_hash}, computed ${computed}`,
+            "ROW_HASH_MISMATCH"
+          );
+        }
+      }
+    }
+
+    // 3. Aggregate catalogue hash verification before commit (A-01, A-02, X-10)
+    const hTx = db.transaction("catalog_hashes", "readonly");
+    const existingHashes = await hTx.store.getAll();
+    await hTx.done;
+
+    // Merge staging on top of existing hashes in memory to simulate post-commit state
+    const hashSimMap = new Map();
+    for (const h of existingHashes) {
+      const [retailer, productId] = h.key.split("|");
+      hashSimMap.set(h.key, { retailer, product_id: productId, record_hash: h.hash });
+    }
+    for (const s of stagedRows) {
+      if (s.deleted) {
+        hashSimMap.delete(s.key);
+      } else {
+        hashSimMap.set(s.key, { retailer: s.retailer, product_id: s.product_id, record_hash: s.record_hash });
+      }
+    }
+
+    const simulatedRows = Array.from(hashSimMap.values());
+    const computedV2 = await computeCatalogHashFromRows(simulatedRows, { legacy: false });
+    const computedLegacy = await computeCatalogHashFromRows(simulatedRows, { legacy: true });
+
+    const expectedV2 = manifest.catalog_hash_v2;
+    const expectedLegacy = manifest.catalog_hash;
+
+    const matchedV2 = expectedV2 && computedV2 === expectedV2;
+    const matchedLegacy =
+      (expectedLegacy && computedLegacy === expectedLegacy) ||
+      (expectedLegacy && computedV2 === expectedLegacy);
+
+    if (!matchedV2 && !matchedLegacy) {
+      throw new IntegrityError(
+        `Catalog aggregate hash mismatch. Expected v2=${expectedV2 || 'none'} legacy=${expectedLegacy || 'none'}; computed v2=${computedV2} legacy=${computedLegacy}`,
+        "AGGREGATE_HASH_MISMATCH"
+      );
+    }
+  }
+
+  async function verifyPremiumStaging(manifest, db) {
+    const sTx = db.transaction("premium_staging", "readonly");
+    const stagedRows = await sTx.store.getAll();
+    await sTx.done;
+
+    if (!stagedRows || stagedRows.length === 0) return;
+
+    for (const row of stagedRows) {
+      if (!row.deleted && row.assessments) {
+        const computed = await recordHash(row.assessments);
+        if (computed !== row.record_hash) {
+          throw new IntegrityError(
+            `Premium row hash mismatch for ${row.key}: expected ${row.record_hash}, computed ${computed}`,
+            "ROW_HASH_MISMATCH"
+          );
+        }
+      }
+    }
+
+    const simRows = stagedRows
+      .filter(r => !r.deleted)
+      .map(r => ({ retailer: r.retailer, product_id: r.product_id, record_hash: r.record_hash }));
+
+    const computedV2 = await computeCatalogHashFromRows(simRows, { legacy: false });
+    const computedLegacy = await computeCatalogHashFromRows(simRows, { legacy: true });
+
+    const expectedV2 = manifest.premium_hash_v2;
+    const expectedLegacy = manifest.premium_hash;
+
+    const matchedV2 = expectedV2 && computedV2 === expectedV2;
+    const matchedLegacy =
+      (expectedLegacy && computedLegacy === expectedLegacy) ||
+      (expectedLegacy && computedV2 === expectedLegacy);
+
+    if (!matchedV2 && !matchedLegacy) {
+      throw new IntegrityError(
+        `Premium aggregate hash mismatch. Expected v2=${expectedV2 || 'none'} legacy=${expectedLegacy || 'none'}; computed v2=${computedV2} legacy=${computedLegacy}`,
+        "AGGREGATE_HASH_MISMATCH"
+      );
+    }
   }
 
   async function pullUpdates(supabase, table, cursor, maxSeq, dbStore, db) {
@@ -223,12 +374,54 @@ self.NutriCatalogSync = (() => {
     await cTx.done;
   }
 
+  async function syncProducts(manifest, meta, db, supabase) {
+    console.log(`[NutriCatalogSync] Pulling products into staging from seq ${meta.stagingCursor} to ${manifest.max_seq}`);
+    await pullUpdates(supabase, "catalog_products", meta.stagingCursor, manifest.max_seq, "catalog_staging", db);
+
+    // Verify BEFORE commit (A-01, A-02, Blueprint §2.6)
+    try {
+      await verifyStaging(manifest, db);
+    } catch (err) {
+      console.error("[NutriCatalogSync] Staging integrity verification failed. Discarding staging:", err.message);
+      // Fail-closed: discard staging, preserve live stores
+      const discardTx = db.transaction("catalog_staging", "readwrite");
+      await discardTx.store.clear();
+      await discardTx.done;
+
+      meta.integrity_failure_count = (meta.integrity_failure_count || 0) + 1;
+      meta.last_integrity_failure = {
+        timestamp: new Date().toISOString(),
+        error: err.message,
+        code: err.code || "INTEGRITY_ERROR",
+      };
+      await NutriScoreDB.putCatalogMeta(meta);
+
+      if (typeof self !== "undefined" && self.NutriObs?.count) {
+        self.NutriObs.count("catalog_integrity_failure", 1, { code: err.code || "unknown" });
+      }
+      throw err;
+    }
+
+    // Commit only after verification passes
+    await applyStaging(db);
+
+    meta.cursor = manifest.max_seq;
+    meta.stagingCursor = manifest.max_seq;
+    if (manifest.release_seq !== undefined) {
+      meta.max_release_seen = Math.max(meta.max_release_seen || 0, manifest.release_seq);
+    }
+    meta.updateRequired = false;
+    meta.lastSyncAt = new Date().toISOString();
+    await NutriScoreDB.putCatalogMeta(meta);
+    console.log("[NutriCatalogSync] Product sync verified and committed.");
+  }
+
   async function sync() {
     console.log("[NutriCatalogSync] Starting sync...");
     const db = await NutriScoreDB.getDB();
     // F-11: use the injected singleton client, not a freshly created one.
     const supabase = getSupabase();
-    
+
     // Bypass stale memory cache in the background script to ensure requests are authenticated
     const local = await chrome.storage.local.get("nutri_oidc_session");
     if (local.nutri_oidc_session) {
@@ -237,7 +430,7 @@ self.NutriCatalogSync = (() => {
         if (parsed?.access_token && parsed?.refresh_token) {
           await supabase.auth.setSession({
             access_token: parsed.access_token,
-            refresh_token: parsed.refresh_token
+            refresh_token: parsed.refresh_token,
           });
         }
       } catch (e) {
@@ -259,14 +452,14 @@ self.NutriCatalogSync = (() => {
       .select("manifest, signature, key_id")
       .eq("is_current", true)
       .single();
-      
+
     if (releaseErr) {
       if (releaseErr.code === 'PGRST116') {
         console.warn("[NutriCatalogSync] No active catalog release found in Supabase. Skipping sync.");
         return;
       }
       if (releaseErr.code === '42501') {
-        console.warn("[NutriCatalogSync] Permission denied for catalog_releases in Supabase. Skipping sync; using local catalog.");
+        console.warn("[NutriCatalogSync] Permission denied for catalog_releases in Supabase. User lacks CAD or verified entitlement. Skipping remote sync.");
         return;
       }
       console.warn("[NutriCatalogSync] Failed to fetch catalog release:", releaseErr?.message || releaseErr);
@@ -276,12 +469,35 @@ self.NutriCatalogSync = (() => {
       console.warn("[NutriCatalogSync] No catalog release data returned.");
       return;
     }
-    
-    const manifest = await verifyManifest(releaseData);
+
     let meta = (await NutriScoreDB.getCatalogMeta()) || {
-      retailer: "_catalog", version: "", maxSeq: 0, cursor: 0, stagingCursor: 0, lastSyncAt: "", disclaimer: "", updateRequired: true, premiumVersion: ""
+      retailer: "_catalog",
+      version: "",
+      maxSeq: 0,
+      cursor: 0,
+      stagingCursor: 0,
+      lastSyncAt: "",
+      disclaimer: "",
+      updateRequired: true,
+      premiumVersion: "",
+      max_release_seen: 0,
+      integrity_failure_count: 0,
     };
-    
+
+    // A-04 / Blueprint §2.6: Cadence check — skip if checked within last 6 hours unless forced or updateRequired
+    const options = arguments[0] || {};
+    const force = options.force === true;
+    if (!force && meta.lastSyncAt && !meta.updateRequired) {
+      const elapsedMs = Date.now() - Date.parse(meta.lastSyncAt);
+      if (Number.isFinite(elapsedMs) && elapsedMs < 6 * 3600 * 1000) {
+        console.log("[NutriCatalogSync] Sync skipped: catalog checked within last 6 hours.");
+        return;
+      }
+    }
+
+    // Verify manifest signature, issued_at, and anti-rollback release_seq (A-03, §2.6 #3)
+    const manifest = await verifyManifest(releaseData, meta);
+
     const isNewVersion = meta.version !== manifest.version;
     if (isNewVersion) {
       meta.updateRequired = true;
@@ -297,52 +513,40 @@ self.NutriCatalogSync = (() => {
 
     if (!meta.updateRequired && !needsPremiumSync) {
       console.log("[NutriCatalogSync] Up to date.");
+      meta.lastSyncAt = new Date().toISOString();
+      await NutriScoreDB.putCatalogMeta(meta);
       return;
     }
 
-    // 2. Stream products
+    // 2. Stream products into staging & verify BEFORE commit (A-01, A-02, Blueprint §2.6)
     if (meta.updateRequired) {
-      console.log(`[NutriCatalogSync] Pulling products from seq ${meta.stagingCursor} to ${manifest.max_seq}`);
-      await pullUpdates(supabase, "catalog_products", meta.stagingCursor, manifest.max_seq, "catalog_staging", db);
-      await applyStaging(db);
-      
-      const localHash = await computeLocalHash(db, "catalog_hashes");
-      if (localHash !== manifest.catalog_hash) {
-        throw new Error(`Catalog hash mismatch. Expected ${manifest.catalog_hash}, got ${localHash}`);
-      }
-      
-      meta.cursor = manifest.max_seq;
-      meta.stagingCursor = manifest.max_seq;
-      meta.updateRequired = false;
-      meta.lastSyncAt = new Date().toISOString();
-      await NutriScoreDB.putCatalogMeta(meta);
-      console.log("[NutriCatalogSync] Product sync complete and verified.");
+      await syncProducts(manifest, meta, db, supabase);
     }
 
-    // 3. Stream premium — F-09: atomic-swap pattern.
-    // OLD (broken): clear("premium_assessments") → pull → verify
-    //   → A network drop between clear and verify leaves an EMPTY store.
-    // NEW: pull into "premium_staging" → verify hash → atomic swap into "premium_assessments"
-    //   → A drop at any point leaves "premium_assessments" intact.
+    // 3. Stream premium into staging & verify before atomic swap (Blueprint §2.6)
     if (needsPremiumSync) {
       console.log(`[NutriCatalogSync] Pulling premium into staging (seq 0→${manifest.max_seq})...`);
-
-      // Step 1: Clear the staging store from any previous aborted attempt
       await db.clear("premium_staging");
-
-      // Step 2: Pull all premium rows into premium_staging (never touches premium_assessments)
       await pullUpdates(supabase, "catalog_premium", 0, manifest.max_seq, "premium_staging", db);
 
-      // Step 3: Verify integrity BEFORE touching the live store
+      try {
+        await verifyPremiumStaging(manifest, db);
+      } catch (err) {
+        await db.clear("premium_staging");
+        console.error("[NutriCatalogSync] Premium integrity verification failed:", err.message);
+        meta.integrity_failure_count = (meta.integrity_failure_count || 0) + 1;
+        await NutriScoreDB.putCatalogMeta(meta);
+        throw err;
+      }
+
       const localPremHash = await computeLocalHash(db, "premium_staging");
-      if (localPremHash !== manifest.premium_hash) {
+      if (localPremHash !== manifest.premium_hash && localPremHash !== manifest.premium_hash_v2) {
         // Hash mismatch — discard staging, leave premium_assessments untouched
         await db.clear("premium_staging");
         throw new Error(`Premium hash mismatch. Expected ${manifest.premium_hash}, got ${localPremHash}`);
       }
 
-      // Step 4: Atomic swap — read all staging rows then replace premium_assessments
-      // in a single IDB transaction so there is no window where both stores are empty.
+      // Atomic swap
       const stagingRows = await db.getAll("premium_staging");
       const swapTx = db.transaction(["premium_assessments", "premium_staging"], "readwrite");
       const assessStore = swapTx.objectStore("premium_assessments");
@@ -358,12 +562,13 @@ self.NutriCatalogSync = (() => {
           });
         }
       }
-      await stagingStore.clear(); // clean up staging after successful swap
+      await stagingStore.clear();
       await swapTx.done;
 
       meta.premiumVersion = manifest.version;
+      meta.lastSyncAt = new Date().toISOString();
       await NutriScoreDB.putCatalogMeta(meta);
-      console.log("[NutriCatalogSync] Premium sync complete and verified (atomic swap).");
+      console.log("[NutriCatalogSync] Premium sync verified and committed (atomic swap).");
     }
   }
 
@@ -416,7 +621,9 @@ self.NutriCatalogSync = (() => {
           lastSyncAt: new Date().toISOString(),
           disclaimer: "NutriScore grades are for informational purposes only. Consult a healthcare professional for dietary advice.",
           updateRequired: false,
-          premiumVersion: ""
+          premiumVersion: "",
+          max_release_seen: 0,
+          integrity_failure_count: 0,
         });
       }
     } catch (err) {
@@ -429,6 +636,26 @@ self.NutriCatalogSync = (() => {
       syncPromise = (async () => {
         const db = await NutriScoreDB.getDB();
         await seedFallbackIfEmpty(db);
+
+        // Schedule periodic 6-hour alarm check if chrome.alarms is available (A-04)
+        if (typeof chrome !== "undefined" && chrome.alarms?.create) {
+          try {
+            chrome.alarms.create("catalog-check", {
+              periodInMinutes: 360, // 6 hours
+              delayInMinutes: Math.floor(Math.random() * 30), // 0-30m jitter
+            });
+          } catch (_e) {}
+        }
+
+        const meta = await NutriScoreDB.getCatalogMeta();
+        // If meta exists and has lastSyncAt within 6 hours, do NOT sync on worker wake (A-04)
+        if (meta?.lastSyncAt && !meta?.updateRequired) {
+          const elapsed = Date.now() - Date.parse(meta.lastSyncAt);
+          if (Number.isFinite(elapsed) && elapsed < 6 * 3600 * 1000) {
+            return;
+          }
+        }
+
         return await sync();
       })().catch(async e => {
         const errName = e?.name || (e?.constructor?.name ?? "Error");
@@ -469,5 +696,17 @@ self.NutriCatalogSync = (() => {
     _getSupabase = sbAccessor;
   }
 
-  return { init, ensureReady, sync, seedFallbackIfEmpty };
+  return {
+    init,
+    ensureReady,
+    sync,
+    seedFallbackIfEmpty,
+    verifyManifest,
+    verifyStaging,
+    verifyPremiumStaging,
+    recordHash,
+    codeUnitCompare,
+    computeCatalogHashFromRows,
+    IntegrityError,
+  };
 })();
