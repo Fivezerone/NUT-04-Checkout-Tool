@@ -21,11 +21,9 @@ import {
   ED25519_PKCS8_PREFIX,
   type JwkEd25519,
 } from './provider'
-import { NodeCryptoProvider } from './node'
 import { WebCryptoProvider } from './web'
 
 export * from './provider'
-export { NodeCryptoProvider } from './node'
 export { WebCryptoProvider } from './web'
 
 let activeProvider: CryptoProvider | null = null
@@ -40,12 +38,25 @@ export function getCryptoProvider(): CryptoProvider {
     process.versions.node &&
     typeof window === 'undefined'
   ) {
-    activeProvider = new NodeCryptoProvider()
-    return activeProvider
+    try {
+      // Dynamic require avoids bundling node:crypto in browser Vite builds
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      const req =
+        typeof globalThis !== 'undefined' && (globalThis as any).require
+          ? (globalThis as any).require
+          : eval('require')
+      const { NodeCryptoProvider } = req('./node')
+      const nodeProvider: CryptoProvider = new NodeCryptoProvider()
+      activeProvider = nodeProvider
+      return nodeProvider
+    } catch {
+      // Fallback to WebCryptoProvider
+    }
   }
 
-  activeProvider = new WebCryptoProvider()
-  return activeProvider
+  const webProvider: CryptoProvider = new WebCryptoProvider()
+  activeProvider = webProvider
+  return webProvider
 }
 
 export function setCryptoProvider(provider: CryptoProvider): void {

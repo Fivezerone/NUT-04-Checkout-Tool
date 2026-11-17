@@ -18,6 +18,22 @@ export interface Signer {
   isAvailable(): boolean
 }
 
+function assertStageACryptoAllowed(providerName: string): void {
+  const isProd =
+    typeof process !== 'undefined' &&
+    (process.env?.NODE_ENV === 'production' || process.env?.APP_ENV === 'production')
+  const allowOverride =
+    typeof process !== 'undefined' &&
+    (process.env?.ALLOW_STAGE_A_CRYPTO_IN_PROD === 'true' ||
+      process.env?.ALLOW_STAGE_A_CRYPTO === 'true')
+
+  if (isProd && !allowOverride) {
+    throw new Error(
+      `[SECURITY] Stage A crypto provider (${providerName}) is prohibited in production. A production HSM/KMS (e.g., HashiCorp Vault transit) is required per ADR-010 / Rule 12.`,
+    )
+  }
+}
+
 export class LocalEd25519Signer implements Signer {
   private readonly keyPair: KeyPairSyncResult
   private readonly kid: string
@@ -25,6 +41,7 @@ export class LocalEd25519Signer implements Signer {
   private cachedJwk: Record<string, unknown> | null = null
 
   constructor(kid = 'dpt-key-2026-q4') {
+    assertStageACryptoAllowed('LocalEd25519Signer')
     this.kid = kid
     this.keyPair = generateKeyPairSync('ed25519')
   }

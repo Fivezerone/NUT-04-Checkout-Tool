@@ -23,7 +23,41 @@
     },
     "lic_ok": { "type": "boolean" },
     "auditor_scope": { "type": "string", "enum": ["tenant", "platform"] },
-    "acr": { "type": "string" },
+    "acr": {
+      "type": ["string", "integer"],
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        "0",
+        "1",
+        "2",
+        "3",
+        "loa0",
+        "loa1",
+        "loa2",
+        "loa3",
+        "aal1",
+        "aal2",
+        "aal3"
+      ]
+    },
+    "amr": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "iss": { "type": "string" },
+    "aud": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
+    "exp": { "type": "integer" },
+    "nbf": { "type": "integer" },
+    "iat": { "type": "integer" },
+    "jti": { "type": "string" },
     "ver": { "type": "integer", "const": 1 }
   },
   "allOf": [
