@@ -38,6 +38,52 @@ export interface DpopVerificationResult {
   error?: string
 }
 
+export class BoundedReplayCache {
+  private readonly maxEntries: number
+  private readonly ttlMs: number
+  private readonly entries = new Map<string, number>()
+
+  constructor(maxEntries = 5000, ttlSeconds = 120) {
+    this.maxEntries = maxEntries
+    this.ttlMs = ttlSeconds * 1000
+  }
+
+  has(jti: string): boolean {
+    const exp = this.entries.get(jti)
+    if (exp === undefined) return false
+    if (Date.now() > exp) {
+      this.entries.delete(jti)
+      return false
+    }
+    return true
+  }
+
+  add(jti: string): void {
+    const now = Date.now()
+    if (this.entries.size >= this.maxEntries) {
+      for (const [k, exp] of this.entries) {
+        if (now > exp) this.entries.delete(k)
+      }
+      if (this.entries.size >= this.maxEntries) {
+        let toDrop = Math.ceil(this.maxEntries * 0.1)
+        for (const k of this.entries.keys()) {
+          this.entries.delete(k)
+          if (--toDrop <= 0) break
+        }
+      }
+    }
+    this.entries.set(jti, now + this.ttlMs)
+  }
+
+  clear(): void {
+    this.entries.clear()
+  }
+
+  get size(): number {
+    return this.entries.size
+  }
+}
+
 function base64UrlEncode(buf: Uint8Array): string {
   return Buffer.from(buf)
     .toString('base64')
@@ -182,7 +228,7 @@ export function verifyDpopProof(
   proofJwt: string,
   expectedMethod: string,
   expectedUrl: string,
-  replayCache?: Set<string>,
+  replayCache?: Set<string> | BoundedReplayCache,
   maxAgeSeconds = 60,
 ): DpopVerificationResult {
   const parts = proofJwt.split('.')
@@ -276,7 +322,7 @@ export async function verifyDpopProofAsync(
   proofJwt: string,
   expectedMethod: string,
   expectedUrl: string,
-  replayCache?: Set<string>,
+  replayCache?: Set<string> | BoundedReplayCache,
   maxAgeSeconds = 60,
 ): Promise<DpopVerificationResult> {
   const parts = proofJwt.split('.')

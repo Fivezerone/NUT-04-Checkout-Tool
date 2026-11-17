@@ -229,6 +229,17 @@ export async function deriveShopperAliasAsync(
  * Derive opaque tenant routing alias: t_ + 8 base64url chars.
  */
 export function deriveTenantAlias(tenantId: string, secret?: Uint8Array): string {
+  const isProd =
+    typeof process !== 'undefined' &&
+    (process.env?.NODE_ENV === 'production' || process.env?.APP_ENV === 'production')
+  const allowOverride =
+    typeof process !== 'undefined' &&
+    (process.env?.ALLOW_STAGE_A_CRYPTO_IN_PROD === 'true' ||
+      process.env?.ALLOW_STAGE_A_CRYPTO === 'true')
+
+  if (!secret && isProd && !allowOverride) {
+    throw new Error('[SECURITY] Tenant routing secret is required in production per X-05 / Rule 12')
+  }
   const key = secret ? Buffer.from(secret) : Buffer.from('CAD_TENANT_ROUTING_SALT_V1', 'utf8')
   const h = createHmac('sha256', key)
     .update(Buffer.from(`tenant_alias:${tenantId}`, 'utf8'))
@@ -240,6 +251,17 @@ export async function deriveTenantAliasAsync(
   tenantId: string,
   secret?: Uint8Array,
 ): Promise<string> {
+  const isProd =
+    typeof process !== 'undefined' &&
+    (process.env?.NODE_ENV === 'production' || process.env?.APP_ENV === 'production')
+  const allowOverride =
+    typeof process !== 'undefined' &&
+    (process.env?.ALLOW_STAGE_A_CRYPTO_IN_PROD === 'true' ||
+      process.env?.ALLOW_STAGE_A_CRYPTO === 'true')
+
+  if (!secret && isProd && !allowOverride) {
+    throw new Error('[SECURITY] Tenant routing secret is required in production per X-05 / Rule 12')
+  }
   const key = secret ? toUint8Array(secret) : new TextEncoder().encode('CAD_TENANT_ROUTING_SALT_V1')
   const data = new TextEncoder().encode(`tenant_alias:${tenantId}`)
   const h = await getCryptoProvider().hmacSha256(key, data)
@@ -263,6 +285,7 @@ export function mintDpt(
     jti?: string
     iat?: number
     ttlSeconds?: number
+    tenantSecret?: Uint8Array
   },
 ): { token: string; payload: DptPayload; jti: string; expiresAt: Date } {
   if (!signer.isAvailable()) {
@@ -275,7 +298,7 @@ export function mintDpt(
   const jti = params.jti ?? randomBytes(16).toString('hex')
   const mode = params.mode ?? 'browse'
   const shp = deriveShopperAlias(mode, params.patientId, params.epochKey, params.epoch)
-  const tnt = deriveTenantAlias(params.tenantId)
+  const tnt = deriveTenantAlias(params.tenantId, params.tenantSecret)
 
   const payload: DptPayload = {
     iss: 'https://exchange.nutriscore.co.ke',
@@ -300,11 +323,93 @@ export function mintDpt(
   const payloadB64 = base64UrlEncode(Buffer.from(JSON.stringify(payload), 'utf8'))
   const signingInput = `${headerB64}.${payloadB64}`
 
-  const sig = signer.sign(signingInput) as Uint8Array
+  const rawSig = signer.sign(signingInput)
+  if (rawSig instanceof Promise) {
+    throw new Error('Async signer detected; use mintDptAsync instead.')
+  }
+  const sig = rawSig as Uint8Array
   const sigB64 = base64UrlEncode(sig)
+  const token = `${signingInput}.${sigB64}`
+
+  if (token.length > 4096) {
+    throw new Error(`DPT token exceeds 4 KB limit: ${token.length} bytes`)
+  }
 
   return {
-    token: `${signingInput}.${sigB64}`,
+    token,
+    payload,
+    jti,
+    expiresAt: new Date(exp * 1000),
+  }
+}
+
+/**
+ * Asynchronously assembles and signs a Dietary Profile Token (DPT).
+ * Awaits signer.sign() for async HSM / Vault transit key support.
+ */
+export async function mintDptAsync(
+  signer: Signer,
+  params: {
+    tenantId: string
+    patientId: string
+    constraints: Record<string, number>
+    dpopJkt: string
+    mode?: 'browse' | 'order'
+    epochKey?: Uint8Array
+    epoch?: string
+    policyVersion?: number
+    jti?: string
+    iat?: number
+    ttlSeconds?: number
+    tenantSecret?: Uint8Array
+  },
+): Promise<{ token: string; payload: DptPayload; jti: string; expiresAt: Date }> {
+  if (!signer.isAvailable()) {
+    throw new Error('Signer is unavailable')
+  }
+
+  const now = params.iat ?? Math.floor(Date.now() / 1000)
+  const ttl = params.ttlSeconds ?? 900 // 15-minute lifetime (Blueprint §3.4)
+  const exp = now + ttl
+  const jti = params.jti ?? encodeBase64Url(getCryptoProvider().randomBytes(16))
+  const mode = params.mode ?? 'browse'
+  const shp = await deriveShopperAliasAsync(mode, params.patientId, params.epochKey, params.epoch)
+  const tnt = await deriveTenantAliasAsync(params.tenantId, params.tenantSecret)
+
+  const payload: DptPayload = {
+    iss: 'https://exchange.nutriscore.co.ke',
+    aud: 'ns-commercial',
+    jti,
+    iat: now,
+    exp,
+    tnt,
+    shp,
+    cs: params.constraints,
+    pol: params.policyVersion ?? 4,
+    cnf: { jkt: params.dpopJkt },
+  }
+
+  const header = {
+    typ: 'JWT',
+    alg: 'EdDSA',
+    kid: signer.getKid(),
+  }
+
+  const headerB64 = encodeBase64Url(new TextEncoder().encode(JSON.stringify(header)))
+  const payloadB64 = encodeBase64Url(new TextEncoder().encode(JSON.stringify(payload)))
+  const signingInput = `${headerB64}.${payloadB64}`
+
+  const rawSig = await signer.sign(signingInput)
+  const sigBytes = toUint8Array(rawSig)
+  const sigB64 = encodeBase64Url(sigBytes)
+  const token = `${signingInput}.${sigB64}`
+
+  if (token.length > 4096) {
+    throw new Error(`DPT token exceeds 4 KB limit: ${token.length} bytes`)
+  }
+
+  return {
+    token,
     payload,
     jti,
     expiresAt: new Date(exp * 1000),
@@ -320,6 +425,10 @@ export function verifyDpt(
   dpopJkt?: string,
   revokedJtis?: Set<string>,
 ): { valid: boolean; payload?: DptPayload; error?: string } {
+  if (token.length > 4096) {
+    return { valid: false, error: 'Token exceeds 4 KB limit' }
+  }
+
   const parts = token.split('.')
   if (parts.length !== 3) {
     return { valid: false, error: 'Malformed token: expected 3 parts' }
@@ -337,6 +446,21 @@ export function verifyDpt(
 
   if (header.alg === 'none' || !header.alg) {
     return { valid: false, error: 'Algorithm "none" is rejected' }
+  }
+
+  if (header.alg !== 'EdDSA') {
+    return { valid: false, error: `Algorithm rejected: expected EdDSA, got ${header.alg}` }
+  }
+
+  // Verify signature FIRST before checking claims (Blueprint §2.7)
+  const signingInput = `${parts[0]}.${parts[1]}`
+  const sig = base64UrlDecode(parts[2])
+
+  try {
+    const ok = verify(null, Buffer.from(signingInput, 'utf8'), publicKey, sig)
+    if (!ok) return { valid: false, error: 'Invalid token signature' }
+  } catch (err) {
+    return { valid: false, error: `Signature verification error: ${(err as Error).message}` }
   }
 
   if (payload.iss !== 'https://exchange.nutriscore.co.ke') {
@@ -371,17 +495,6 @@ export function verifyDpt(
     }
   }
 
-  // Verify signature
-  const signingInput = `${parts[0]}.${parts[1]}`
-  const sig = base64UrlDecode(parts[2])
-
-  try {
-    const ok = verify(null, Buffer.from(signingInput, 'utf8'), publicKey, sig)
-    if (!ok) return { valid: false, error: 'Invalid token signature' }
-  } catch (err) {
-    return { valid: false, error: `Signature verification error: ${(err as Error).message}` }
-  }
-
   return { valid: true, payload }
 }
 
@@ -395,6 +508,10 @@ export async function verifyDptAsync(
   dpopJkt?: string,
   revokedJtis?: Set<string>,
 ): Promise<{ valid: boolean; payload?: DptPayload; error?: string }> {
+  if (token.length > 4096) {
+    return { valid: false, error: 'Token exceeds 4 KB limit' }
+  }
+
   const parts = token.split('.')
   if (parts.length !== 3) {
     return { valid: false, error: 'Malformed token: expected 3 parts' }
@@ -416,6 +533,21 @@ export async function verifyDptAsync(
     return { valid: false, error: 'Algorithm "none" is rejected' }
   }
 
+  if (header.alg !== 'EdDSA') {
+    return { valid: false, error: `Algorithm rejected: expected EdDSA, got ${header.alg}` }
+  }
+
+  // Verify signature FIRST via CryptoProvider before checking claims (Blueprint §2.7)
+  const signingInput = `${parts[0]}.${parts[1]}`
+  const sig = decodeBase64Url(parts[2])
+
+  try {
+    const ok = await getCryptoProvider().verifyEd25519(publicKey, signingInput, sig)
+    if (!ok) return { valid: false, error: 'Invalid token signature' }
+  } catch (err) {
+    return { valid: false, error: `Signature verification error: ${(err as Error).message}` }
+  }
+
   if (payload.iss !== 'https://exchange.nutriscore.co.ke') {
     return { valid: false, error: `Untrusted issuer: ${payload.iss}` }
   }
@@ -446,17 +578,6 @@ export async function verifyDptAsync(
     if (!(ALLOWLISTED_KEYS as readonly string[]).includes(k as any)) {
       return { valid: false, error: `DPT contains forbidden or unknown constraint key: ${k}` }
     }
-  }
-
-  // Verify signature via CryptoProvider
-  const signingInput = `${parts[0]}.${parts[1]}`
-  const sig = decodeBase64Url(parts[2])
-
-  try {
-    const ok = await getCryptoProvider().verifyEd25519(publicKey, signingInput, sig)
-    if (!ok) return { valid: false, error: 'Invalid token signature' }
-  } catch (err) {
-    return { valid: false, error: `Signature verification error: ${(err as Error).message}` }
   }
 
   return { valid: true, payload }
