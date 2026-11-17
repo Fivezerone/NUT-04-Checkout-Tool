@@ -84,17 +84,29 @@ export {
   lowerIndexCache,
 } from "./db/product-resolution";
 
-// Cart
+// Cart & Ledger v2
+export type { LedgerRow, CartItemInput } from "./db/cart";
 export {
   logCartEvent,
   getAllEntries,
+  getAllLedgerRows,
   syncCart,
+  applyCartSnapshot,
+  dedupeActiveCartItems,
   deleteLedgerEntry,
   purgeLedgerOlderThan,
   getEntriesSince,
   savePendingCartSync,
   clearPendingCartSync,
   getPendingCartSyncs,
+  isLedgerV2Enabled,
+  getNextClientSeq,
+  getOrCreateCartEpisodeId,
+  normalizeLedgerRow,
+  computeCartCoverage,
+  _consecutiveAbsentMap,
+  resetConsecutiveAbsentTracker,
+  RETENTION_90_DAYS_MS,
 } from "./db/cart";
 
 // Analytics

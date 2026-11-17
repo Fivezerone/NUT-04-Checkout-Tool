@@ -20,6 +20,8 @@ interface NutriDB extends DBSchema {
       "by-addedAt": number;
       "by-retailer-product-status": [string, string, string];
       "by-status": string;
+      by_episode: string;
+      by_seq: number;
     };
   };
   dataset_metadata: {
@@ -269,10 +271,21 @@ export function getDB() {
             settingsStore.delete("user_health_profile");
           }
         }
-        // v19 (E-11, E-12, Blueprint §2.2): Point-lookup NME index store for O(1) resolution without scans
+        // v19 (E-11, E-12, E-08..E-10, Blueprint §2.2, §2.3):
+        // 1. Point-lookup NME index store for O(1) resolution without scans
+        // 2. Indexes by_episode and by_seq on shopping_ledger for Ledger v2
         if (oldVersion < 19) {
           if (!db.objectStoreNames.contains("nme_index")) {
             db.createObjectStore("nme_index", { keyPath: "key" });
+          }
+          if (db.objectStoreNames.contains("shopping_ledger")) {
+            const ledger = transaction.objectStore("shopping_ledger");
+            if (!ledger.indexNames.contains("by_episode")) {
+              ledger.createIndex("by_episode", "cartEpisodeId");
+            }
+            if (!ledger.indexNames.contains("by_seq")) {
+              ledger.createIndex("by_seq", "clientSeq");
+            }
           }
         }
       },
