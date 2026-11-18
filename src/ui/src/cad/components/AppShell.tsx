@@ -47,7 +47,7 @@ export function AppShell({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const allowedTabs = getCadNavigationIds(claims.role)
+  const allowedTabs = claims.role ? getCadNavigationIds(claims.role) : []
 
   const filteredCommandItems = allowedTabs.filter((tabId) => {
     const label = TAB_LABELS[tabId] || tabId
@@ -63,7 +63,7 @@ export function AppShell({
 
       <div className="flex flex-1 min-h-0">
         <SidebarNavigation
-          role={claims.role}
+          role={claims.role || 'patient'}
           currentTab={currentTab}
           setCurrentTab={setCurrentTab}
           open={navigationOpen}

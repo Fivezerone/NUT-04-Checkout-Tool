@@ -12,12 +12,12 @@ import type { CadRole, Tenant } from '../types'
 import { claimsFromAccessToken, type CanonicalClaims } from '../../../../shared/claims'
 import { isCadFlagEnabled } from '../flags'
 import { defaultBffClient, BffError } from '../api/bff-client'
-// TODO (Stage C): import { OidcAuthProvider } from '../../../../shared/auth-provider'
+import { env } from '../../env'
 
 interface CadUserClaims {
   userId: string
   tenantId: string
-  role: CadRole
+  role: CadRole | null
   licenceVerified: boolean
   email?: string
   acr?: string
@@ -41,7 +41,7 @@ interface AuthContextType {
 const defaultClaims: CadUserClaims = {
   userId: '',
   tenantId: '00000000-0000-0000-0000-000000000000',
-  role: 'patient',
+  role: null,
   licenceVerified: false,
 }
 
@@ -50,7 +50,7 @@ function toCadUserClaims(claims: CanonicalClaims | null): CadUserClaims {
   return {
     userId: claims.sub,
     tenantId: claims.tenantId || '00000000-0000-0000-0000-000000000000',
-    role: claims.appRole,
+    role: (claims.appRole as CadRole) || null,
     licenceVerified: claims.licOk,
     acr: claims.acr,
     amr: claims.amr,
@@ -81,9 +81,9 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [mfaVerified, setMfaVerified] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState<boolean>(true)
 
-  // MFA is mandatory for every non-patient role (Plan §6.4)
+  // MFA is mandatory for every authenticated non-patient role (Plan §6.4, F-02)
   const mfaRequired = useMemo(() => {
-    return claims.role !== 'patient' && !mfaVerified
+    return Boolean(claims.role && claims.role !== 'patient' && !mfaVerified)
   }, [claims.role, mfaVerified])
 
   const resolveUserClaims = (
@@ -103,6 +103,10 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const parts = accessToken.split('.')
         if (parts.length === 3) {
           const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+          if (payload.exp && payload.exp * 1000 < Date.now()) {
+            console.warn('[CAD Auth] Token expired')
+            return { ...defaultClaims, email }
+          }
           const roles = (payload.realm_access?.roles || []) as string[]
           const matchedRole = roles.find((r: string) =>
             [
@@ -119,10 +123,10 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
             return {
               userId: payload.sub || '',
               tenantId: payload.tenant_id || '00000000-0000-0000-0000-000000000000',
-              role: (payload.app_role as CadRole) || matchedRole || 'patient',
+              role: (payload.app_role as CadRole) || matchedRole || null,
               licenceVerified: payload.lic_ok === true || payload.lic_ok === 'true',
               email: email || payload.email,
-              acr: payload.acr ? String(payload.acr) : (payload.aal ? String(payload.aal) : undefined),
+              acr: payload.acr ? String(payload.acr) : payload.aal ? String(payload.aal) : undefined,
               amr: Array.isArray(payload.amr) ? payload.amr : undefined,
             }
           }
@@ -194,24 +198,19 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         const storedToken = sessionStorage.getItem('cad_access_token')
-        const storedMfaVerified = sessionStorage.getItem('cad_mfa_verified') === 'true'
         if (storedToken) {
           const userClaims = resolveUserClaims(storedToken)
-          if (userClaims && userClaims.userId) {
+          if (userClaims && userClaims.userId && userClaims.role) {
             setUser({ id: userClaims.userId, email: userClaims.email })
             setClaims(userClaims)
-            // Derive assurance from JWT aal/acr claim or stored session verification (D-30)
-            const hasServerMfa =
+            // Derive assurance STRICTLY from server JWT aal/acr claims (F-02, D-30)
+            const hasServerMfa = Boolean(
               userClaims.acr === 'aal2' ||
-              userClaims.acr === '2' ||
-              (Array.isArray(userClaims.amr) &&
-                (userClaims.amr.includes('otp') || userClaims.amr.includes('webauthn'))) ||
-              userClaims.role === 'patient'
-
-            const isAssuranceAal2 = isCadFlagEnabled('ns.cad.strict_states')
-              ? hasServerMfa
-              : (hasServerMfa || storedMfaVerified) // LEGACY(ns-p4): stored session verification fallback
-            setMfaVerified(isAssuranceAal2)
+                userClaims.acr === '2' ||
+                (Array.isArray(userClaims.amr) &&
+                  (userClaims.amr.includes('otp') || userClaims.amr.includes('webauthn'))),
+            )
+            setMfaVerified(hasServerMfa)
           }
         }
       } catch (err) {
@@ -232,7 +231,7 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (claims.role !== 'super_admin') {
       throw new Error('Only super_admin can switch active tenant')
     }
-    setClaims(prev => ({ ...prev, tenantId }))
+    setClaims((prev) => ({ ...prev, tenantId }))
     await loadTenantData(tenantId)
   }
 
@@ -275,7 +274,12 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const userClaims = resolveUserClaims(accessToken, email)
       setUser({ id: userClaims.userId, email })
       setClaims(userClaims)
-      const isMfa = userClaims.acr === 'aal2' || userClaims.acr === '2' || userClaims.role === 'patient'
+      const isMfa = Boolean(
+        userClaims.acr === 'aal2' ||
+          userClaims.acr === '2' ||
+          (Array.isArray(userClaims.amr) &&
+            (userClaims.amr.includes('otp') || userClaims.amr.includes('webauthn'))),
+      )
       setMfaVerified(isMfa)
 
       if (isCadFlagEnabled('ns.cad.bff_client')) {
@@ -300,12 +304,6 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
 
-      if (isMfa) {
-        sessionStorage.setItem('cad_mfa_verified', 'true')
-      } else {
-        sessionStorage.removeItem('cad_mfa_verified')
-      }
-
       setIsLoading(false)
       return { success: true }
     } catch (err: any) {
@@ -322,45 +320,43 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return false
     }
 
-    if (isCadFlagEnabled('ns.cad.strict_states')) {
-      // Under strict states (F-01, ADR-4), client-side arbitrary 6 digits is rejected.
-      // Must verify server-side assurance via token exchange or OTP step-up.
-      try {
-        const storedToken = sessionStorage.getItem('cad_access_token')
-        if (!storedToken) return false
+    // Server-side assurance via token exchange or OTP step-up (F-02, ADR-004)
+    try {
+      const storedToken = sessionStorage.getItem('cad_access_token')
+      if (!storedToken) return false
 
-        const response = await fetch('/api/v1/auth/mfa/verify', {
+      const response = await fetch(
+        `${env.apiUrl || 'http://localhost:8080/api'}/v1/auth/mfa/verify`,
+        {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${storedToken}`,
+            Authorization: `Bearer ${storedToken}`,
           },
           body: JSON.stringify({ code: code.trim() }),
-        }).catch(() => null)
+        },
+      ).catch(() => null)
 
-        if (response && response.ok) {
-          const resData = await response.json().catch(() => ({}))
-          if (resData.verified || resData.access_token) {
-            if (resData.access_token) {
-              sessionStorage.setItem('cad_access_token', resData.access_token)
-              const updatedClaims = resolveUserClaims(resData.access_token)
-              setClaims(updatedClaims)
-            }
-            sessionStorage.setItem('cad_mfa_verified', 'true')
-            setMfaVerified(true)
-            return true
-          }
+      if (response && response.ok) {
+        const resData = await response.json().catch(() => ({}))
+        if (resData.access_token) {
+          sessionStorage.setItem('cad_access_token', resData.access_token)
+          const updatedClaims = resolveUserClaims(resData.access_token)
+          setClaims(updatedClaims)
+          const verified = Boolean(
+            updatedClaims.acr === 'aal2' ||
+              updatedClaims.acr === '2' ||
+              (Array.isArray(updatedClaims.amr) &&
+                (updatedClaims.amr.includes('otp') || updatedClaims.amr.includes('webauthn'))),
+          )
+          setMfaVerified(verified)
+          return verified
         }
-        return false // Fail closed: unverified code denied
-      } catch {
-        return false
       }
+      return false // Fail closed: unverified code denied
+    } catch {
+      return false
     }
-
-    // LEGACY(ns-p4): Client-side 6-digit stub for development
-    sessionStorage.setItem('cad_mfa_verified', 'true')
-    setMfaVerified(true)
-    return true
   }
 
   const signOut = async () => {
@@ -369,7 +365,6 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     sessionStorage.removeItem('cad_access_token')
     sessionStorage.removeItem('cad_refresh_token')
-    sessionStorage.removeItem('cad_mfa_verified')
     setUser(null)
     setClaims(defaultClaims)
     setActiveTenant(null)

@@ -28,7 +28,7 @@ import { isCadFlagEnabled } from './flags'
 const CadMainContent: React.FC = () => {
   const { user, claims, isLoading, mfaRequired, signIn } = useCadAuth()
   const [location, navigate] = useLocation()
-  const { nav: dynamicNav } = useCapabilities({ role: claims.role })
+  const { nav: dynamicNav } = useCapabilities({ role: claims.role || undefined })
 
   // Compute currentTab from URL path
   const normalizedPath = location.replace(/^\/cad\/?/, '/').replace(/^\//, '')
@@ -149,7 +149,11 @@ const CadMainContent: React.FC = () => {
     return <MfaChallenge />
   }
 
-  const allowedTabs = isCadFlagEnabled('ns.cad.bff_client') ? dynamicNav : getCadNavigationIds(claims.role)
+  const allowedTabs = isCadFlagEnabled('ns.cad.bff_client')
+    ? dynamicNav
+    : claims.role
+      ? getCadNavigationIds(claims.role)
+      : []
 
   const overview = (() => {
     if (claims.role === 'super_admin') return <PlatformOverviewView onNavigate={handleNavigate} />

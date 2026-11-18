@@ -98,4 +98,35 @@ The audit was conducted on a partial archive (omitting `src/shared`, `src/extens
 
 ---
 
+### Phase 2: Truth, Security and a Real API Client
+- **Findings Addressed:** F-02 (CAD MFA bypass & session storage vulnerability), F-03 (Audit trail false confirmation on 0 rows), F-05 (client-simulated shredding/link code/passwords via Math.random), F-13 (REST client relative path & error swallowing), D-29 (env boundary), D-30 (MFA claim inspection).
+- **Actions Taken:**
+  1. Updated `src/ui/src/env.ts` (D-29): Removed localhost fallback in production, removed client-side `clinicalRetentionYears` (server-enforced only), and added strict URL validation.
+  2. Created typed REST API client in `src/ui/src/cad/api/cad-api.ts`:
+     - Base URL derived from `env.apiUrl` (absolute URL).
+     - Full error propagation on non-2xx responses.
+     - Implemented real endpoints for `getAuditLogs`, `getTenants`, `getMembers`, `generateLinkCode`, `cryptoShredPatient`, and `inviteStaff`.
+  3. Hardened `src/ui/src/cad/context/AuthContext.tsx` (F-02, D-30):
+     - Removed `sessionStorage.cad_mfa_verified` writing and reading entirely.
+     - Replaced default role `'patient'` with `null` so unauthenticated users cannot bypass MFA.
+     - Enforced server-side AAL2 claims check (`acr === 'aal2' || acr === '2' || amr.includes('otp')`).
+     - Replaced client-side 6-digit regex auto-acceptance with server-side MFA verification call.
+  4. Hardened `src/ui/src/cad/views/AuditLogView.tsx` (F-03):
+     - Eliminated binary `chainValid = useState(true)` that defaulted to "verified" on empty logs.
+     - Implemented tri-state `verificationStatus`: `'unavailable'` on empty/loading logs, `'verified'` only when SHA-256 hash chaining checks pass across >= 1 row, `'failed'` on breaks.
+     - Wired `cadApi.getAuditLogs` and passed `isLoading` to `DataTable`.
+  5. Eliminated `Math.random()` simulation in `PatientLinkingConsentView.tsx` and `UserManagementView.tsx` (F-05):
+     - Wired real `cadApi.generateLinkCode` and `cadApi.cryptoShredPatient`.
+     - Wired real `cadApi.inviteStaff` without generating client-side plain-text passwords.
+     - Display honest "Not connected" error states when backend services are unreachable.
+  6. Documented all required backend endpoints in `Docs/Reports/api-requirements.md`.
+  7. Flipped reproductions A3, A4, A8, and A9 in `src/ui/src/app/__tests__/audit-reproductions.test.ts` from `it.fails` to `it` (all 4 passing).
+- **Gate Status:** PASS
+  - `npm run test`: 66 test files, 1221 tests passing (PASS)
+  - `npm run typecheck`: 0 errors (PASS)
+  - `npm run lint`: 0 errors (PASS)
+  - `npm run format:check`: PASS
+
+---
+
 *(Log continues in subsequent phases)*

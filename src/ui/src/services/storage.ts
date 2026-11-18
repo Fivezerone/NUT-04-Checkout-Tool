@@ -3,6 +3,7 @@
 // Reference: Stage C Implementation Plan (Phase C5: REST/OIDC Data Wiring)
 
 import { SESSION_STORAGE_KEY } from '../../../shared/session-key.mjs'
+import { env } from '../env'
 
 export { SESSION_STORAGE_KEY }
 
@@ -39,9 +40,12 @@ class PostgrestQueryBuilder {
     'Content-Type': 'application/json',
   }
 
-  constructor(table: string, baseUrl = '/rest/v1') {
+  constructor(table: string, baseUrl?: string) {
     this.table = table
-    this.endpoint = `${baseUrl}/${table}`
+    const root =
+      baseUrl ||
+      (env.apiUrl ? `${env.apiUrl.replace(/\/+$/, '')}/rest/v1` : 'http://localhost:8080/api/rest/v1')
+    this.endpoint = `${root}/${table}`
   }
 
   select(columns = '*'): this {

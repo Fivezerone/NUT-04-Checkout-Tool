@@ -5,6 +5,7 @@
 import React, { useState } from 'react'
 import { useCadAuth } from '../context/AuthContext'
 import { ConfirmDialog } from '../../app/components/ui'
+import { cadApi } from '../api/cad-api'
 import { 
   Link2, 
   ShieldCheck, 
@@ -52,20 +53,28 @@ export const PatientLinkingConsentView: React.FC = () => {
   const [erasureStatus, setErasureStatus] = useState<string | null>(null)
   const [shredTarget, setShredTarget] = useState<string | null>(null)
 
-  const handleGenerateLinkCode = () => {
-    const randomDigits = Math.floor(100000 + Math.random() * 900000)
-    const code = `NS-${randomDigits}`
-    setGeneratedCode(code)
-    setCopiedCode(false)
-
-    const newLink: PatientLinkItem = {
-      code,
-      patientRef: 'Pending Confirmation',
-      clinicianName: claims.email || 'Prescribing Clinician',
-      status: 'pending',
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  const handleGenerateLinkCode = async () => {
+    try {
+      const res = await cadApi.generateLinkCode()
+      if (res.success && res.code) {
+        setGeneratedCode(res.code)
+        setCopiedCode(false)
+        const newLink: PatientLinkItem = {
+          code: res.code,
+          patientRef: 'Pending Confirmation',
+          clinicianName: claims.email || 'Prescribing Clinician',
+          status: 'pending',
+          expiresAt: res.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        }
+        setLinks((prev) => [newLink, ...prev])
+      } else {
+        setErasureStatus(res.error || 'Failed to generate link code: service unavailable.')
+        setTimeout(() => setErasureStatus(null), 6000)
+      }
+    } catch (err: any) {
+      setErasureStatus(`Link code error: ${err.message}`)
+      setTimeout(() => setErasureStatus(null), 6000)
     }
-    setLinks([newLink, ...links])
   }
 
   const handleCopy = (code: string) => {
@@ -79,33 +88,44 @@ export const PatientLinkingConsentView: React.FC = () => {
       prev.map((c) =>
         c.patientRef === patientRef && c.purpose === purpose
           ? { ...c, status: 'revoked', revokedAt: new Date().toISOString() }
-          : c
-      )
+          : c,
+      ),
     )
   }
 
-  const executeCryptoShred = (patientRef: string) => {
-    const shreddedToken = `SHREDDED-${patientRef.substring(0, 4)}-${Math.random().toString(36).substring(2, 8)}`
-    
-    // Revoke all consents
-    setConsents((prev) =>
-      prev.map((c) =>
-        c.patientRef === patientRef
-          ? { ...c, patientRef: shreddedToken, status: 'revoked', revokedAt: new Date().toISOString() }
-          : c
-      )
-    )
-
-    // Mark link as revoked/shredded
-    setLinks((prev) =>
-      prev.map((l) =>
-        l.patientRef === patientRef
-          ? { ...l, patientRef: shreddedToken, status: 'revoked' }
-          : l
-      )
-    )
-
-    setErasureStatus(`Patient ${patientRef} crypto-shredded to ${shreddedToken}. Audit hash chain verified.`)
+  const executeCryptoShred = async (patientRef: string) => {
+    try {
+      const res = await cadApi.cryptoShredPatient(patientRef, 'Right to be forgotten request')
+      if (res.success && res.shredToken) {
+        const shreddedToken = res.shredToken
+        // Revoke all consents
+        setConsents((prev) =>
+          prev.map((c) =>
+            c.patientRef === patientRef
+              ? {
+                  ...c,
+                  patientRef: shreddedToken,
+                  status: 'revoked',
+                  revokedAt: new Date().toISOString(),
+                }
+              : c,
+          ),
+        )
+        // Mark link as revoked/shredded
+        setLinks((prev) =>
+          prev.map((l) =>
+            l.patientRef === patientRef ? { ...l, patientRef: shreddedToken, status: 'revoked' } : l,
+          ),
+        )
+        setErasureStatus(
+          `Patient ${patientRef} crypto-shredded to ${shreddedToken}. Audit hash chain verified.`,
+        )
+      } else {
+        setErasureStatus(res.error || 'Server-side cryptographic shredding endpoint required.')
+      }
+    } catch (err: any) {
+      setErasureStatus(`Shredding failed: ${err.message}`)
+    }
     setTimeout(() => setErasureStatus(null), 6000)
   }
 

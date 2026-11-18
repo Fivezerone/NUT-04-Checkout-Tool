@@ -99,7 +99,7 @@ export function Navigation({
           )}
 
           <span className="ui-role-badge hidden xl:inline-flex text-[12px] px-2.5 py-1 rounded-md bg-surface-raised border border-border-control/20 text-strong font-medium">
-            {ROLE_LABELS[claims.role]}
+            {claims.role ? ROLE_LABELS[claims.role] : 'Unauthenticated'}
           </span>
 
           {mfaVerified && (

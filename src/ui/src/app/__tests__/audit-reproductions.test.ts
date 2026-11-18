@@ -54,21 +54,21 @@ describe('Appendix A: Pre-Fix Audit Reproductions', () => {
     expect(themeCss).not.toMatch(/--input:\s*transparent/)
   })
 
-  // A3: MFA (F-02)
-  it.fails('A3: CAD MFA rejects arbitrary six-digit inputs and does not trust client sessionStorage (fails on pre-fix code)', () => {
+  // A3: MFA (F-02) - CLOSED in Phase 2
+  it('A3: CAD MFA rejects arbitrary six-digit inputs and does not trust client sessionStorage', () => {
     const authContextSrc = readFileSync(resolve(ROOT, 'src/ui/src/cad/context/AuthContext.tsx'), 'utf8')
 
-    // Pre-fix code accepts /^\d{6}$/ and writes sessionStorage.cad_mfa_verified = 'true'
+    // Post-fix code derives MFA strictly from server tokens without trusting sessionStorage
     expect(authContextSrc).not.toMatch(/sessionStorage\.setItem\(['"]cad_mfa_verified['"]/)
     expect(authContextSrc).not.toMatch(/^\s*setMfaVerified\(true\)/m)
     expect(authContextSrc).not.toMatch(/defaultClaims[\s\S]*role:\s*['"]patient['"]/)
   })
 
-  // A4: Audit Trail (F-03)
-  it.fails('A4: audit log view never displays verified state without actual verified rows (fails on pre-fix code)', () => {
+  // A4: Audit Trail (F-03) - CLOSED in Phase 2
+  it('A4: audit log view never displays verified state without actual verified rows', () => {
     const auditViewSrc = readFileSync(resolve(ROOT, 'src/ui/src/cad/views/AuditLogView.tsx'), 'utf8')
 
-    // Pre-fix code has const [chainValid, setChainValid] = useState<boolean>(true) and sets chainValid(true) on setLogs([])
+    // Post-fix code uses tri-state verificationStatus and never assumes verified on 0 rows
     expect(auditViewSrc).not.toMatch(/useState<boolean>\(true\)/)
     expect(auditViewSrc).not.toMatch(/setChainValid\(true\)/)
   })
@@ -105,20 +105,20 @@ describe('Appendix A: Pre-Fix Audit Reproductions', () => {
     expect(backgroundSrc).not.toMatch(/90 \* 24 \* 60 \* 60 \* 1000/)
   })
 
-  // A8: REST client (F-13)
-  it.fails('A8: PostgrestQueryBuilder uses absolute apiUrl from env and propagates errors on 5xx (fails on pre-fix code)', () => {
+  // A8: REST client (F-13) - CLOSED in Phase 2
+  it('A8: PostgrestQueryBuilder uses absolute apiUrl from env and propagates errors on 5xx', () => {
     const storageSrc = readFileSync(resolve(ROOT, 'src/ui/src/services/storage.ts'), 'utf8')
 
-    // Pre-fix code defaults to '/rest/v1' and returns { data: null, error: null } on maybeSingle() catch
+    // Post-fix code defaults baseUrl using env.apiUrl and avoids relative '/rest/v1' fallback
     expect(storageSrc).not.toMatch(/constructor\(table:\s*string,\s*baseUrl\s*=\s*['"]\/rest\/v1['"]\)/)
   })
 
-  // A9: Simulated flows (F-05)
-  it.fails('A9: CAD destructive and credential flows do not use Math.random client-side (fails on pre-fix code)', () => {
+  // A9: Simulated flows (F-05) - CLOSED in Phase 2
+  it('A9: CAD destructive and credential flows do not use Math.random client-side', () => {
     const consentViewSrc = readFileSync(resolve(ROOT, 'src/ui/src/cad/views/PatientLinkingConsentView.tsx'), 'utf8')
     const userMgmtSrc = readFileSync(resolve(ROOT, 'src/ui/src/cad/views/UserManagementView.tsx'), 'utf8')
 
-    // Pre-fix code uses Math.random() for link code, crypto-shredding, and password generation
+    // Post-fix code uses real API endpoints without client-side Math.random() simulation
     expect(consentViewSrc).not.toMatch(/Math\.random\(\)/)
     expect(userMgmtSrc).not.toMatch(/Nutri\$\{Math\.floor/)
   })
