@@ -1,0 +1,79 @@
+# NUT-04 UI/UX Overhaul and Facelift: Implementation Log
+
+**Branch:** `feat/ui-audit-closure`  
+**Execution Environment:** Docker Toolchain (`postgres:16-bookworm`, Node v22.23.4)  
+**Date Initialized:** 19 November 2026  
+**Status:** In Progress — Phase 0 Complete
+
+---
+
+## 1. Executive Baseline & Verification Matrix
+
+### 1.1 Quantitative Metrics (Before vs. Target)
+
+| Metric | Pre-Fix Baseline (Measured) | Target | Current Status |
+|---|---|---|---|
+| **Unresolved Colour Utilities** (`check:utilities`) | **82** distinct classes across 31+ files | 0 | Unresolved (F-01) |
+| **`text-muted` Over-relying on Surface Tone** | **155 uses** across 41 TSX files | 0 bare `text-muted` | Unresolved (F-01) |
+| **Duplicate `:root` Declarations with Overrides** | **47 properties** overridden by legacy CSS | 0 duplicates | Unresolved (F-06) |
+| **Non-Text Control Border Contrast** | **1.48:1** (falls back to subtle border / transparent) | >= 3.0:1 | Unresolved (F-01, D-04) |
+| **Grade B On-Colour Contrast** | **2.30:1** (white on `#85bb2f`) | >= 4.5:1 | Unresolved (F-09) |
+| **Grade C On-Colour Contrast (Sidepanel)** | **1.53:1** (white on `#fecb02`) | >= 4.5:1 | Unresolved (F-09) |
+| **Grade D On-Colour Contrast** | **2.70:1** (white on `#ee8100`) | >= 4.5:1 | Unresolved (F-09) |
+| **Hex Literals in Non-Test Code** | **24** in TS/TSX + **83** in `shared-ui.js` | 0 | Unresolved (D-01, EXT-01) |
+| **Sub-12px Font Declarations** | 0 in TSX/CSS (12px floor held) | 0 | Held |
+| **Truncation Classes** (`truncate`, `text-ellipsis`) | 0 in active classes | 0 | Held |
+| **TypeScript Compilation Errors** | 0 errors | 0 errors | Held |
+| **Vitest Regression Suite** | 66 test files (1,221 tests passing) | 100% pass | Held |
+
+### 1.2 Eager Gzip Payloads per Surface (`check:budget`)
+
+| Surface Entry | Measured (KB gz) | Budget (KB gz) | Variance | Status |
+|---|---|---|---|---|
+| **Popup** (`popup.html`) | **44.08** | <= 40 | +4.08 KB | **FAIL** |
+| **Side Panel** (`sidepanel.html`) | **26.75** | <= 60 | -33.25 KB | **PASS** |
+| **Dashboard** (`dashboard.html`) | **66.96** | <= 70 | -3.04 KB | **PASS** |
+| **Options** (`options.html`) | **50.46** | none | Report only | **REPORT** |
+| **CAD** (`dist-ui/cad/index.html`) | **73.83** | <= 110 | -36.17 KB | **PASS** |
+
+*Note: All pages currently bundle the identical 71.86 KB (13.3 KB gz) stylesheet `index-*.css` (D-23).*
+
+---
+
+## 2. Resolution of Previously Unverifiable Items
+
+The audit was conducted on a partial archive (omitting `src/shared`, `src/extension`, and `scripts`). Below is the authoritative verification against the complete repository snapshot:
+
+| Item | Real Repository Location | Audit Status | Reality & Verified Findings |
+|---|---|---|---|
+| **`ledger-retention` Alarm** | `src/extension/background.js:188-198` | Unverifiable | **Partial / Defective:** Alarm runs daily (`periodInMinutes: 1440`), but uses fixed `Date.now() - (90*24*60*60*1000)` instead of calendar-based `retentionCutoff()`. Only purges `shopping_ledger`; fails to purge `pending_cart_syncs` or `shopping_history`. Install/startup triggers omit the purge. |
+| **Manifest `side_panel` & Permissions** | `src/extension/manifest.json:7, 89-91` | Unverifiable | **Confirmed Present:** `"permissions": ["...","sidePanel"]` and `"side_panel": {"default_path": "sidepanel.html"}` exist. `minimum_chrome_version` is `"114"` (requires bump to `"116"` for stable user-gesture activation). |
+| **`OPEN_SIDE_PANEL_SWAPS` Handler** | `src/extension/background.js:590-601` | Unverifiable | **Confirmed Present:** Dispatches `chrome.sidePanel.open` with `tabId` and forwards `FOCUS_SWAP_CANDIDATES`. |
+| **`OPEN_UPGRADE` Listener** | `src/extension/background.js` | Unverifiable | **Closed by Supersession:** Zero listeners or emission points for `OPEN_UPGRADE` exist in `background.js` or `shared-ui.js`. |
+| **DTCG Token Pipeline & Sources** | `tokens/`, `scripts/build-tokens.mjs` | Unverifiable | **Present but Defective:** W3C DTCG 2025.10 token JSON files exist in `tokens/`. Generator emits runtime vars but lacks `@theme inline` block, preventing Tailwind from emitting utilities (F-01). |
+| **Official Nutri-Score Asset Pack** | `src/extension/assets` | Unverifiable | **Open (Gate 1):** Official SVG modules are not present; badge draws custom HTML spans. Will provide compliant SVG module with clearly named non-official fallback. |
+| **Engine Advisory Copy** | `src/extension/engine/health-flags.js`, `src/shared/health-modes.mjs` | Unverifiable | **Present:** Raw medical condition strings exist in engine. Will align to plain-language title + limit line format (Facelift 3.5). |
+| **`content.js` In-Page Wiring** | `src/extension/content.js:120-180` | Unverifiable | **Confirmed Present:** Wires DOM scanning and badge injection. Hook discrepancy noted: callout uses `data-ns-open-panel` while flyout uses `data-ns-open-sidepanel`. |
+| **Server Retention Policy** | `db/migrations/` | Unverifiable | **Confirmed:** Server storage enforces 20-year retention under DPA s.46 / HIM Reg 24. Client storage enforces 3 calendar months. |
+| **`src/shared/*` Core Modules** | `src/shared/claims.js`, `health-modes.mjs`, `session-key.mjs` | Unverifiable | **Confirmed Present:** Canonical claims parser and health modes definitions are intact. |
+
+---
+
+## 3. Phase Log & Gate Results
+
+### Phase 0: Baseline, Scaffolding & Reproduction Verification
+- **Branch created:** `feat/ui-audit-closure`
+- **Audit reports organized:**
+  - `Docs/Reports/ui-ux-overhaul-report.md` restored from git HEAD (6 Nov 2026 report).
+  - `Docs/Reports/ui-ux-audit-compliance-report.md` tracked (18 Nov 2026 compliance audit).
+- **Measurement scripts added (Appendix B):**
+  - `scripts/check-utilities.mjs` (measures unresolved colour utilities).
+  - `scripts/check-budget.mjs` (measures eager gzip payload against budgets).
+  - `scripts/check-contrast.mjs` (measures WCAG contrast ratios and duplicate `:root` declarations).
+- **Reproduction test suite added (Appendix A):**
+  - `src/ui/src/app/__tests__/audit-reproductions.test.ts` (reproducing A1 through A9 as expected-failing tests).
+- **Gate Status:** PASS (Baselines reproduced, unverifiable items resolved, reproductions committed).
+
+---
+
+*(Log continues in subsequent phases)*
