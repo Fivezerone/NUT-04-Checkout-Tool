@@ -3,7 +3,8 @@ import { createRoot } from "react-dom/client";
 import { useEffect, useState } from "react";
 import { Popup } from "./app/components/Popup";
 import { BlueThemeProvider } from "./app/context/BlueThemeProvider";
-import { ExtensionStorage, ChromeExtensionStorage, supabase, setOnboardingCompleted, SESSION_STORAGE_KEY } from "./services/storage";
+import type { ChromeExtensionStorage } from "./services/storage";
+import { SESSION_STORAGE_KEY } from "../../shared/session-key.mjs";
 import "./styles/index.css";
 
 /**
@@ -27,23 +28,32 @@ function PopupRoot() {
   const [authState, setAuthState] = useState<PopupAuthState>('checking');
   const [userData, setUserData] = useState<Partial<ChromeExtensionStorage> | null>(null);
 
-  /** Run both async checks in parallel so there is exactly ONE state transition
-   *  (no flash from 'new'→'loggedIn' or 'returning'→'loggedIn'). */
+  /** Resolve auth state directly from OIDC local storage without bundling heavy REST client */
   async function resolveAuthState() {
     try {
-      // PERF: Read session from local cache and local storage in parallel (<5ms total)
-      const [{ data: { session } }, storageData, local] = await Promise.all([
-        supabase.auth.getSession(),
-        ExtensionStorage.getOnboardingData(),
-        typeof chrome !== "undefined" && chrome.storage?.local
-          ? (chrome.storage.local.get(['onboarding_completed', 'nutri_entitlement', 'nutriscore_is_premium']) as Promise<Record<string, any>>)
-          : Promise.resolve({} as Record<string, any>)
-      ]);
+      const local = typeof chrome !== "undefined" && chrome.storage?.local
+        ? await (chrome.storage.local.get([
+            SESSION_STORAGE_KEY,
+            'partial_onboarding',
+            'user_preferences',
+            'user_account',
+            'onboarding_completed',
+            'nutri_entitlement',
+            'nutriscore_is_premium'
+          ]) as Promise<Record<string, any>>)
+        : {} as Record<string, any>;
 
-      let isOnboarded = !!storageData?.onboarding_completed || local?.onboarding_completed === true;
-      let isPremium = local?.nutriscore_is_premium === true || !!local?.nutri_entitlement;
+      const session = local[SESSION_STORAGE_KEY] || null;
+      const storageData = {
+        partial_onboarding: local.partial_onboarding,
+        user_preferences: local.user_preferences,
+        user_account: local.user_account
+      };
 
-      if (local?.nutri_entitlement) {
+      let isOnboarded = !!local.onboarding_completed;
+      let isPremium = local.nutriscore_is_premium === true || !!local.nutri_entitlement;
+
+      if (local.nutri_entitlement) {
         const ent = local.nutri_entitlement;
         if (ent.tier === 'premium' || ent.tier === 'clinical') {
           isPremium = true;
@@ -51,7 +61,6 @@ function PopupRoot() {
         }
       }
 
-      // PERF: Paint popup shell IMMEDIATELY (<10ms perceived load time, eliminates blank delay)
       setUserData({
         ...storageData,
         onboarding_completed: isOnboarded,
@@ -63,67 +72,7 @@ function PopupRoot() {
       } else {
         setAuthState(isOnboarded ? 'returning' : 'new');
       }
-
-      // Non-blocking background revalidation (Stale-While-Revalidate)
-      if (session?.user?.id) {
-        Promise.all([
-          typeof chrome !== "undefined" && chrome.runtime?.sendMessage
-            ? new Promise<boolean>((resolve) => {
-                chrome.runtime.sendMessage({ action: "CHECK_TIER", userId: session.user.id }, (response) => {
-                  resolve(!chrome.runtime.lastError && response?.tier === "premium");
-                });
-              })
-            : Promise.resolve(false),
-          supabase
-            .from('users')
-            .select('onboarding_completed, is_premium')
-            .eq('id', session.user.id)
-            .maybeSingle(),
-          supabase.rpc('get_my_entitlement')
-        ])
-          .then(async ([swTierIsPremium, profileRes, entRes]) => {
-            let updatedOnboarded = isOnboarded;
-            let updatedPremium = isPremium || swTierIsPremium;
-
-            if (profileRes?.data) {
-              if (profileRes.data.onboarding_completed) updatedOnboarded = true;
-              if (profileRes.data.is_premium === true) updatedPremium = true;
-            }
-
-            if (entRes?.data) {
-              const ent = entRes.data;
-              if (ent.tier === 'premium' || ent.tier === 'clinical') {
-                updatedPremium = true;
-                updatedOnboarded = true;
-              }
-            }
-
-            if (updatedPremium) {
-              updatedOnboarded = true;
-              setOnboardingCompleted(session.user.id, true).catch(() => {});
-              if (typeof chrome !== "undefined" && chrome.storage?.local) {
-                chrome.storage.local.set({
-                  onboarding_completed: true,
-                  nutriscore_is_premium: true
-                }).catch(() => {});
-              }
-            }
-
-            setUserData((prev: any) => prev ? {
-              ...prev,
-              onboarding_completed: updatedOnboarded,
-              nutriscore_is_premium: updatedPremium
-            } : prev);
-
-            setAuthState(updatedOnboarded ? 'loggedIn' : 'incomplete');
-          })
-          .catch((err) => {
-            console.warn("[Popup] remote profile background verification warning:", err);
-          });
-      }
     } catch (e) {
-      // D-11: never leave popup stuck at 'checking' — fall back to returning so
-      // the user can at least open the dashboard and investigate.
       console.warn('[popup] resolveAuthState error (showing returning state):', e);
       setAuthState('returning');
     }

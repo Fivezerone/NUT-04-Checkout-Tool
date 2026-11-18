@@ -9,7 +9,7 @@
     "check:tokens": "node scripts/check-tokens.mjs",
     "check:utilities": "node scripts/check-utilities.mjs --enforce",
     "check:contrast": "node scripts/check-contrast.mjs",
-    "check:budget": "node scripts/check-budget.mjs",
+    "check:budget": "node scripts/check-budget.mjs --enforce",
     "build:ext": "node scripts/build-ext.mjs",
     "build:ui": "npm run build:tokens && vite build --config vite.extension.config.ts && vite build --config vite.cad.config.ts",
     "build:cad": "node scripts/build-cad-dist.mjs",
@@ -18,7 +18,7 @@
     "check:dist": "node scripts/check-dist.mjs",
     "check:cad-security": "node scripts/check-cad-security.mjs",
     "verify:audit": "node scripts/verify-audit-chain.mjs",
-    "dev": "vite",
+    "dev": "vite --config vite.cad.config.ts",
     "test": "vitest run --no-cache src/ui/src/app/__tests__",
     "test:watch": "vitest src/ui/src/app/__tests__",
     "typecheck": "tsc --noEmit && node -e \"console.log('✓ TypeScript check passed: 0 errors')\"",
@@ -27,7 +27,7 @@
     "format:check": "prettier --check .",
     "enrich:quickmart": "node scripts/enrich_quickmart.mjs",
     "release:check": "node scripts/release-gate.mjs",
-    "ci": "node scripts/check-no-secrets-tracked.mjs && node scripts/check-no-hardcoded-data.mjs && npm run check:manifest && npm run check:cad-security && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && node scripts/check-no-fixtures-in-dist.mjs && node scripts/check-dist.mjs",
+    "ci": "node scripts/check-no-secrets-tracked.mjs && node scripts/check-no-hardcoded-data.mjs && npm run check:manifest && npm run check:cad-security && node --check src/extension/content.js && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && node scripts/check-no-fixtures-in-dist.mjs && node scripts/check-dist.mjs && npm run check:budget",
     "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {

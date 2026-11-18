@@ -11,7 +11,10 @@ import { supabase, signOutUser, setOnboardingCompleted } from "./services/storag
 import { AlertTriangle } from "lucide-react";
 import "./styles/index.css";
 
-import { ConsentGate, type ConsentAcceptance } from "./app/components/ConsentGate";
+import type { ConsentAcceptance } from "./app/components/ConsentGate";
+const ConsentGate = lazy(() =>
+  import("./app/components/ConsentGate").then((m) => ({ default: m.ConsentGate })),
+);
 
 interface UserProfile {
   name: string;

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { BarChart3, LogIn, Settings2, ShoppingBasket, Pause, Play, Clock, PanelRightOpen } from 'lucide-react'
 import { ChromeExtensionStorage } from '../../services/storage'
-import { GradeBadge, ConditionChip } from './ui'
+import { GradeBadge } from './ui/GradeBadge'
+import { ConditionChip } from './ui/ConditionChip'
 import type { Grade } from '../lib/nutriscore'
 
 interface PopupProps {

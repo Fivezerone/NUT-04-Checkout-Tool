@@ -161,4 +161,44 @@ The audit was conducted on a partial archive (omitting `src/shared`, `src/extens
 
 ---
 
+### Phase 4: Build Chain and Runtime Hygiene
+- **Findings Addressed:** F-10 (build chain: classic JSX runtime, legacy `vite.config.ts`, Preact preset, build targets, code splitting, payload budgets), D-21..28, D-31, D-33, D-34.
+- **Actions Taken:**
+  1. **Deleted Legacy `vite.config.ts` (4.1):**
+     - Removed `vite.config.ts` via `git rm`.
+     - Preserved CAD proxy (`/api`, `/auth`, `/rest/v1`) and routing middleware inside `vite.cad.config.ts`.
+     - Updated `"dev"` script in `package.json` to `"vite --config vite.cad.config.ts"`.
+  2. **Adopted `@preact/preset-vite` (4.2):**
+     - Configured `@preact/preset-vite` across both `vite.extension.config.ts` and `vite.cad.config.ts`.
+     - Replaced `@vitejs/plugin-react` classic runtime with native Preact compiler integration.
+  3. **Dual Distribution Sync (`dist-ui/extension` and `dist/extension`) (4.3):**
+     - Updated `scripts/build-ext.mjs` to target both `dist/extension` and `dist-ui/extension`.
+     - Automatically mirrors compiled assets into `dist-ui/extension` post-build while maintaining `./dist/extension` for developer mode loading.
+  4. **Build Target Alignment (4.4):**
+     - Extension target set to `chrome116` in `vite.extension.config.ts`.
+     - CAD target set to `es2022` in `vite.cad.config.ts`.
+  5. **Code Splitting & Payload Budget Compliance (4.5, 4.7):**
+     - Decoupled `src/ui/src/popup.tsx` from heavy `storage.ts` by reading OIDC session directly from `chrome.storage.local`.
+     - Replaced barrel `./ui` imports with direct component imports in `Popup.tsx`.
+     - Lazy-loaded `ConsentGate` in `src/ui/src/dashboard.tsx` to prevent bundling 27 KB legal documents in the initial eager dashboard payload.
+     - Configured vendor chunking (`preact-vendor`, `lucide-vendor`) in Rollup output options.
+     - All surfaces satisfy institutional gzip budgets:
+       - Popup: **37.56 KB gz** (budget <= 40 KB) -> **PASS**
+       - Side panel: **34.19 KB gz** (budget <= 60 KB) -> **PASS**
+       - Dashboard: **68.73 KB gz** (budget <= 70 KB) -> **PASS**
+       - CAD: **81.49 KB gz** (budget <= 110 KB) -> **PASS**
+       - Options: **56.30 KB gz** (Report only)
+  6. **Wired Budget Enforcement into CI (4.6):**
+     - Updated `package.json` script `"check:budget"` to `node scripts/check-budget.mjs --enforce`.
+     - Appended `&& npm run check:budget` to `"ci"`.
+- **Gate Status:** PASS
+  - `npm run check:budget`: All active budgets passed (PASS)
+  - `npm run test`: 66 test files, 1221 tests passing (PASS)
+  - `npm run typecheck`: 0 errors (PASS)
+  - `npm run lint`: 0 errors (PASS)
+  - `npm run build`: PASS
+  - `npm run format:check`: PASS
+
+---
+
 *(Log continues in subsequent phases)*
