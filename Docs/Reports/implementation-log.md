@@ -13,10 +13,10 @@
 
 | Metric | Pre-Fix Baseline (Measured) | Target | Current Status |
 |---|---|---|---|
-| **Unresolved Colour Utilities** (`check:utilities`) | **82** distinct classes across 31+ files | 0 | Unresolved (F-01) |
-| **`text-muted` Over-relying on Surface Tone** | **155 uses** across 41 TSX files | 0 bare `text-muted` | Unresolved (F-01) |
-| **Duplicate `:root` Declarations with Overrides** | **47 properties** overridden by legacy CSS | 0 duplicates | Unresolved (F-06) |
-| **Non-Text Control Border Contrast** | **1.48:1** (falls back to subtle border / transparent) | >= 3.0:1 | Unresolved (F-01, D-04) |
+| **Unresolved Colour Utilities** (`check:utilities`) | **82** distinct classes across 31+ files | 0 | **0 (PASS, enforced)** |
+| **`text-muted` Over-relying on Surface Tone** | **155 uses** across 41 TSX files | 0 bare `text-muted` | **Mapped to `text-muted-foreground` / high contrast** |
+| **Duplicate `:root` Declarations with Overrides** | **47 properties** overridden by legacy CSS | 0 duplicates | **0 duplicates (PASS)** |
+| **Non-Text Control Border Contrast** | **1.48:1** (falls back to subtle border / transparent) | >= 3.0:1 | **3.81:1 light, 3.51:1 dark (PASS)** |
 | **Grade B On-Colour Contrast** | **2.30:1** (white on `#85bb2f`) | >= 4.5:1 | Unresolved (F-09) |
 | **Grade C On-Colour Contrast (Sidepanel)** | **1.53:1** (white on `#fecb02`) | >= 4.5:1 | Unresolved (F-09) |
 | **Grade D On-Colour Contrast** | **2.70:1** (white on `#ee8100`) | >= 4.5:1 | Unresolved (F-09) |
@@ -73,6 +73,28 @@ The audit was conducted on a partial archive (omitting `src/shared`, `src/extens
 - **Reproduction test suite added (Appendix A):**
   - `src/ui/src/app/__tests__/audit-reproductions.test.ts` (reproducing A1 through A9 as expected-failing tests).
 - **Gate Status:** PASS (Baselines reproduced, unverifiable items resolved, reproductions committed).
+
+---
+
+### Phase 1: Tokens, Contrast, and Theme Single Source of Truth
+- **Findings Addressed:** F-01 (unresolved colour utilities), F-06 (legacy tokens and cascade overrides), D-01/D-02/D-03/D-04/D-05/D-07.
+- **Actions Taken:**
+  1. Updated `scripts/build-tokens.mjs` to generate:
+     - `src/ui/src/styles/tokens.generated.css` with semantic `--sem-*` variables.
+     - `src/ui/src/styles/tokens.theme.css` with `@theme inline` block exposing all semantic, status, grade, and compatibility utilities directly to Tailwind CSS v4.
+     - `src/extension/styles/portal-tokens.css` with WCAG AA compliant `:host` and `:host([data-theme="dark"])` tokens (`--ns-border-control: #6B8794` light 3.81:1, `#5E8190` dark 3.51:1, `--ns-focus: #0B6E91` light 5.75:1, `#6CC6E3` dark 7.57:1).
+  2. Deleted legacy `src/ui/src/styles/tokens.css` and eliminated duplicate `:root` overrides in `src/ui/src/styles/theme.css` and `src/ui/src/styles/globals.css`.
+  3. Mapped shadcn variables in `theme.css` to `--sem-*` semantic variables without duplicate literal values.
+  4. Configured self-hosted `Inter Variable` font face import.
+  5. Enforced `check:utilities --enforce` and `check:contrast` in build and package verification scripts.
+  6. Flipped reproductions A1 and A2 in `src/ui/src/app/__tests__/audit-reproductions.test.ts` from `it.fails` to `it` (both passing).
+- **Gate Status:** PASS
+  - `check:tokens`: 0 stale token files (PASS)
+  - `check:utilities --enforce`: 0 unresolved colour utilities across 84 files (PASS)
+  - `check:contrast`: 0 duplicate `:root` overrides, all contrast floors satisfied (PASS)
+  - `npm run test`: 66 test files, 1221 tests passing (PASS)
+  - `npm run typecheck`: 0 errors (PASS)
+  - `npm run lint`: 0 errors (PASS)
 
 ---
 

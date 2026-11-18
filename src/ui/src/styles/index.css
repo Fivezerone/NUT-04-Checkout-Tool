@@ -1,7 +1,7 @@
 @import '@fontsource-variable/inter';
 @import './tailwind.css';
 @import './tokens.generated.css';
-@import './tokens.css';
 @import './health-modes.generated.css';
+@import './tokens.theme.css';
 @import './theme.css';
 @import './globals.css';

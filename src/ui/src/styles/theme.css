@@ -2,12 +2,12 @@
 
 :root {
   /* Institutional theme: driven by surface action token, decoupled from health condition */
-  --shell-primary: var(--t-color-action-primary, #04785a);
-  --shell-accent-bg: #f0fdfa;
-  --shell-border: #ccfbf1;
-  --shell-header-bg: var(--t-color-action-primary, #04785a);
-  --shell-header-text: #ffffff;
-  --shell-header-sub: #99f6e4;
+  --shell-primary: var(--sem-brand, #04785a);
+  --shell-accent-bg: var(--sem-brand-subtle, #f0fdfa);
+  --shell-border: var(--sem-border-subtle, #ccfbf1);
+  --shell-header-bg: var(--sem-brand, #04785a);
+  --shell-header-text: var(--sem-on-brand, #ffffff);
+  --shell-header-sub: var(--sem-brand-subtle, #99f6e4);
 
   /* Condition palette reserved for condition badges & icons (never paints whole UI) */
   --condition-primary: #2E7D32;
@@ -16,100 +16,33 @@
   --condition-header-bg: #a5d6a7;
   --condition-header-text: #1b5e20;
   --condition-header-sub: #2e7d32;
-  --font-size: 16px;
-  --background: var(--color-canvas);
-  --foreground: var(--color-text);
-  --card: var(--color-surface);
-  --card-foreground: var(--color-text);
-  --popover: var(--color-surface-raised);
-  --popover-foreground: var(--color-text);
-  --primary: var(--color-brand);
-  --primary-foreground: var(--color-on-brand);
-  --secondary: var(--color-surface-muted);
-  --secondary-foreground: var(--color-text-strong);
-  --muted: var(--color-surface-muted);
-  --muted-foreground: var(--color-text-muted);
-  --accent: var(--color-brand-subtle);
-  --accent-foreground: var(--color-brand-hover);
-  --destructive: var(--color-critical);
-  --destructive-foreground: var(--color-on-brand);
-  --border: var(--color-border-subtle);
-  --input: transparent;
-  --input-background: #f3f3f5;
-  --switch-background: #cbced4;
+
+  /* Form control & typography bridge */
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: var(--ui-radius-lg);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #030213;
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
+  --input-background: var(--sem-surface);
+  --switch-background: var(--sem-surface-muted);
 
-[data-shell-theme="blue"] {
-  --shell-primary: #2563eb;
-  --shell-accent-bg: #eff6ff;
-  --shell-border: #bfdbfe;
-  --shell-header-bg: #dbeafe;
-  --shell-header-text: #1e3a8a;
-  --shell-header-sub: #1d4ed8;
-}
-
-/* D-23: health-modes.generated.css is now imported in index.css before theme.css.
-   @import must precede all non-@import rules; browsers silently ignored it here. */
-
-/* D-02: Competing oklch .dark block removed. Single dark theme is defined in tokens.generated.css */
-
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-input-background: var(--input-background);
-  --color-switch-background: var(--switch-background);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  /* shadcn/radix mapping directly linked to semantic tokens */
+  --background: var(--sem-canvas);
+  --foreground: var(--sem-strong);
+  --card: var(--sem-surface);
+  --card-foreground: var(--sem-strong);
+  --popover: var(--sem-surface-raised);
+  --popover-foreground: var(--sem-strong);
+  --primary: var(--sem-brand);
+  --primary-foreground: var(--sem-on-brand);
+  --secondary: var(--sem-surface-muted);
+  --secondary-foreground: var(--sem-text);
+  --muted: var(--sem-surface-muted);
+  --muted-foreground: var(--sem-muted-foreground);
+  --accent: var(--sem-brand-subtle);
+  --accent-foreground: var(--sem-brand);
+  --destructive: var(--sem-critical);
+  --destructive-foreground: #FFFFFF;
+  --border: var(--sem-border-subtle);
+  --input: var(--sem-border-control);
+  --ring: var(--sem-focus);
 }
 
 @layer base {
@@ -119,53 +52,6 @@
 
   body {
     @apply bg-background text-foreground;
-  }
-
-  /* Default typography styles for HTML elements (h1-h4, p, label, button, input). These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them. */
-
-  html {
-    font-size: var(--font-size);
-  }
-
-  h1 {
-    font-size: var(--text-2xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  h2 {
-    font-size: var(--text-xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  h3 {
-    font-size: var(--text-lg);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  h4 {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  label {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  button {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  input {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-normal);
-    line-height: 1.5;
+    font-family: var(--font-sans);
   }
 }

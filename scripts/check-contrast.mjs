@@ -139,7 +139,7 @@ const PAIRS = [
   { name: 'Dark text-strong on dark surface', fg: '#E6F2F5', bg: '#072C3A', floor: 4.5 },
   { name: 'Dark text-muted on dark canvas', fg: '#A9C3CC', bg: '#04222D', floor: 4.5 },
   { name: 'Dark border-control on dark surface', fg: '#5E8190', bg: '#072C3A', floor: 3.0 },
-  { name: 'Dark focus ring on dark surface', fg: '#0B6E91', bg: '#072C3A', floor: 3.0 },
+  { name: 'Dark focus ring on dark surface', fg: '#6CC6E3', bg: '#072C3A', floor: 3.0 },
   // NutriScore Grades
   { name: 'Grade A on-colour (white on green)', fg: '#FFFFFF', bg: '#038141', floor: 4.5 },
   { name: 'Grade B on-colour (--ns-on-grade-b on B)', fg: '#14320A', bg: '#85BB2F', floor: 4.5 },

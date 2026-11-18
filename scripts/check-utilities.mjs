@@ -219,6 +219,7 @@ for (const file of sourceFiles) {
 
       // Ignore arbitrary values like text-[12px] or bg-[#fff] or border-border-control/20 (we check base)
       if (baseToken.includes('[') && baseToken.includes(']')) continue
+      if (baseToken.includes('${') || baseToken.includes('{') || baseToken.includes('}')) continue
       if (ALLOW_LIST.has(baseToken)) continue
 
       // Strip opacity modifier like /20, /50
