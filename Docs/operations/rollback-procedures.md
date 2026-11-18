@@ -175,3 +175,70 @@ When a patient exercises their statutory Right to Erasure under Kenya DPA s.40, 
 4. The clinical records in `clinical.clinical_records` become irreversibly undecipherable ciphertext.
 5. An immutable audit record is committed to `audit.ledger` recording the erasure event.
 
+---
+
+## 8. Feature Flag Manifest Remote Rollback & Canary Controller (Blueprint §3.4, §3.8, §5.3)
+
+When a behavioral regression, latency spike, or scoring discrepancy is detected post-deployment, rollback occurs without requiring a Chrome Web Store binary resubmission by modifying the signed feature flag manifest.
+
+### Automated Triggers Evaluated by the Canary Controller:
+1. **Badge Latency Spike:** P95 > 200 ms in any window, or > 120 ms across 3 consecutive 10-minute windows -> automatically rolls back `ns.scanner.v2` and `ns.nme.v2` to previous cohort.
+2. **Neutral-Fallback Rate Elevation:** > 3 percentage points above baseline and > 5% total for 2 consecutive windows -> rolls back `ns.scoring.v5` and `ns.nme.v2`.
+3. **Evaluation Error Rate:** > 0.5% -> immediately rolls back `ns.scoring.v5` and `ns.policy.v2`.
+4. **Service Worker RPC Failure:** > 2% -> rolls back `ns.scanner.v2`.
+5. **Fast Burn Error Budget (14.4x):** Over 1h and 5m windows -> pages on-call, freezes flag changes, and reverts active flag cohort.
+
+### Emergency Manual Rollback via API:
+To force an immediate emergency rollback of a specific flag:
+```powershell
+# In container environment
+docker compose exec toolchain node -e "
+  fetch('http://localhost:4000/v1/canary/rollback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flag: 'ns.scoring.v5', reason: 'manual_operator_revert' })
+  }).then(r => r.json()).then(console.log);
+"
+```
+
+---
+
+## 9. Retailer Selector Emergency Kill-Switch Procedure (Blueprint §3.8, G-08)
+
+If a supermarket retailer pushes markup changes that break DOM scraping or corrupt price extraction:
+
+### Step 1: Detect Selector Health Breach via Canary Runner
+```powershell
+docker compose exec toolchain node scripts/verify-selector-canary.mjs
+```
+If failure rate > 2%, the runner outputs a breach alert and marks `killSwitchRecommended: true`.
+
+### Step 2: Remotely Actuate Retailer Kill-Switch
+Remotely disable the retailer's adapter via the canary controller:
+```powershell
+docker compose exec toolchain node -e "
+  fetch('http://localhost:4000/v1/canary/rollback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flag: 'ns.adapter.core.quickmart', reason: 'retailer_dom_markup_change' })
+  }).then(r => r.json()).then(console.log);
+"
+```
+The browser extension falls back neutral on all unsupported or kill-switched pages within 5 minutes.
+
+---
+
+## 10. Operational Fire Drill Execution (Blueprint §5.2, §5.5)
+
+Run the containerized automated fire drill suite to verify disaster recovery and tamper detection mechanisms:
+```powershell
+docker compose exec toolchain node scripts/fire-drill-runner.mjs
+```
+The suite verifies 5 automated drills:
+- Audit Ledger Tamper Detection (T-10)
+- Latency Spike Automated Rollback (T-13)
+- Retailer Selector Kill-Switch Actuation (G-08)
+- Fail-Static Silent Controller Lockdown (§3.4)
+- Scoring v5 Gate 2 Negative Completeness (§2.1)
+
+
