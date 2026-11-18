@@ -13,6 +13,28 @@ import { maskObject } from './bff/masks.mjs'
 import { verifyAuditLedger, computeRowHash } from './audit/verifier.mjs'
 import { sendProblem } from './bff/errors.mjs'
 import { RealtimeHub } from './sse/hub.mjs'
+import { CanaryController } from './canary/controller.mjs'
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = ''
+    req.on('data', (chunk) => {
+      raw += chunk
+    })
+    req.on('end', () => {
+      if (!raw.trim()) {
+        resolve({})
+        return
+      }
+      try {
+        resolve(JSON.parse(raw))
+      } catch (e) {
+        reject(e)
+      }
+    })
+    req.on('error', reject)
+  })
+}
 
 export function createApiApp(options = {}) {
   const store = options.store || defaultStore || new TelemetryStore()
@@ -21,6 +43,8 @@ export function createApiApp(options = {}) {
     options.gatewayService || new TelemetryGatewayService(store, consentService)
   const sessionManager = options.sessionManager || new SessionManager(store)
   const realtimeHub = options.realtimeHub || new RealtimeHub()
+  const canaryController =
+    options.canaryController || new CanaryController(options.canaryOptions || {})
 
   // In-memory audit entries for testing and verification
   const auditEntries = options.auditEntries || []
@@ -380,6 +404,114 @@ export function createApiApp(options = {}) {
       return
     }
 
+    // -------------------------------------------------------------------------
+    // Canary Controller & SLO Routes (N4, N8; Blueprint §3.4, §3.8, §5.3)
+    // -------------------------------------------------------------------------
+    if (
+      (pathname === '/v1/canary/status' || pathname === '/api/v1/canary/status') &&
+      req.method === 'GET'
+    ) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(canaryController.getStatus()))
+      return
+    }
+
+    if (
+      (pathname === '/v1/canary/manifest' || pathname === '/api/v1/canary/manifest') &&
+      req.method === 'GET'
+    ) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(canaryController.getSignedManifest()))
+      return
+    }
+
+    if (
+      (pathname === '/v1/canary/evaluate' || pathname === '/api/v1/canary/evaluate') &&
+      req.method === 'POST'
+    ) {
+      try {
+        const body = await readJsonBody(req)
+        const result = canaryController.evaluateMetrics(body)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true, result }))
+      } catch (err) {
+        sendProblem(res, {
+          status: 400,
+          code: 'CANARY_EVALUATION_ERROR',
+          title: 'Evaluation Error',
+          detail: err.message,
+        })
+      }
+      return
+    }
+
+    if (
+      (pathname === '/v1/canary/rollback' || pathname === '/api/v1/canary/rollback') &&
+      req.method === 'POST'
+    ) {
+      try {
+        const body = await readJsonBody(req)
+        if (!body.flag) {
+          sendProblem(res, {
+            status: 400,
+            code: 'MISSING_FLAG',
+            title: 'Bad Request',
+            detail: 'flag name is required for rollback',
+          })
+          return
+        }
+        const manifest = canaryController.rollbackFlag(
+          body.flag,
+          body.reason || 'manual_rollback',
+          true,
+        )
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true, manifest }))
+      } catch (err) {
+        sendProblem(res, {
+          status: 400,
+          code: 'ROLLBACK_ERROR',
+          title: 'Rollback Error',
+          detail: err.message,
+        })
+      }
+      return
+    }
+
+    if (
+      (pathname === '/v1/canary/cohort' || pathname === '/api/v1/canary/cohort') &&
+      req.method === 'POST'
+    ) {
+      try {
+        const body = await readJsonBody(req)
+        if (!body.flag || typeof body.stageIndex !== 'number') {
+          sendProblem(res, {
+            status: 400,
+            code: 'INVALID_COHORT_REQUEST',
+            title: 'Bad Request',
+            detail: 'flag and numeric stageIndex are required',
+          })
+          return
+        }
+        const manifest = canaryController.setFlagCohort(
+          body.flag,
+          body.stageIndex,
+          body.reason || 'manual_promotion',
+          Boolean(body.bypassCooldown),
+        )
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true, manifest }))
+      } catch (err) {
+        sendProblem(res, {
+          status: 400,
+          code: 'COHORT_PROMOTION_ERROR',
+          title: 'Promotion Error',
+          detail: err.message,
+        })
+      }
+      return
+    }
+
     // Default 404
     sendProblem(res, {
       status: 404,
@@ -397,6 +529,7 @@ export function createApiApp(options = {}) {
     gatewayService,
     sessionManager,
     realtimeHub,
+    canaryController,
     auditEntries,
     auditRoots,
     requestListener,
