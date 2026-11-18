@@ -8,6 +8,9 @@
   "excludePaths": ["/account", "/login", "/checkout/payment"],
   "card": [
     "[data-testid='product-card']",
+    ".group",
+    ".border-gray-50",
+    "div[class*='relative flex flex-col']",
     ".product-card",
     "[class*='productCard']",
     "[class*='product-tile']",
@@ -28,6 +31,6 @@
     "h3"
   ],
   "price": {
-    "selector": "[data-testid='product-price'], [class*='price'], .text-lg.font-bold, .text-xl.font-bold"
+    "selector": "div.items-baseline, div[class*='items-baseline'], [data-testid='product-price'], [class*='price'], .text-lg.font-bold, .text-xl.font-bold"
   }
 }

@@ -73,24 +73,24 @@ describe('Appendix A: Pre-Fix Audit Reproductions', () => {
     expect(auditViewSrc).not.toMatch(/setChainValid\(true\)/)
   })
 
-  // A5: Grades (F-04)
-  it.fails('A5: fail-closed grade rendering has zero fallbacks to C or B (fails on pre-fix code)', () => {
+  // A5: Grades (F-04) - CLOSED in Phase 3
+  it('A5: fail-closed grade rendering has zero fallbacks to C or B', () => {
     const shopperShellSrc = readFileSync(resolve(ROOT, 'src/ui/src/app/components/ShopperShell.tsx'), 'utf8')
     const sidepanelSrc = readFileSync(resolve(ROOT, 'src/ui/src/sidepanel.tsx'), 'utf8')
     const sharedUiSrc = readFileSync(resolve(ROOT, 'src/extension/adapters/shared-ui.js'), 'utf8')
 
-    // Pre-fix fallbacks:
+    // Pre-fix fallbacks eliminated:
     expect(shopperShellSrc).not.toMatch(/gradeSnapshot\s*\|\|\s*['"]C['"]/)
     expect(sidepanelSrc).not.toMatch(/useState<['"][A-E]['"]>\(['"]C['"]\)/)
     expect(sharedUiSrc).not.toMatch(/averageGrade\s*\|\|\s*['"]B['"]/)
     expect(sharedUiSrc).not.toMatch(/gradeColors\.C/)
   })
 
-  // A6: In-page flyout Tab trap (F-08)
-  it.fails('A6: flyout Tab trap uses shadow root activeElement, not document.activeElement (fails on pre-fix code)', () => {
+  // A6: In-page flyout Tab trap (F-08) - CLOSED in Phase 3
+  it('A6: flyout Tab trap uses shadow root activeElement, not document.activeElement', () => {
     const sharedUiSrc = readFileSync(resolve(ROOT, 'src/extension/adapters/shared-ui.js'), 'utf8')
 
-    // Pre-fix code compares document.activeElement === first / last (broken in Shadow DOM)
+    // Uses shadow root activeElement:
     expect(sharedUiSrc).toMatch(/flyoutEl\.getRootNode\(\)\.activeElement/)
     expect(sharedUiSrc).not.toMatch(/document\.activeElement === first/)
   })

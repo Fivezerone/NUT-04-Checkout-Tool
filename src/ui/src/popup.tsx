@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { useEffect, useState } from "react";
 import { Popup } from "./app/components/Popup";
 import { BlueThemeProvider } from "./app/context/BlueThemeProvider";
-import { ExtensionStorage, ChromeExtensionStorage, supabase, setOnboardingCompleted } from "./services/storage";
+import { ExtensionStorage, ChromeExtensionStorage, supabase, setOnboardingCompleted, SESSION_STORAGE_KEY } from "./services/storage";
 import "./styles/index.css";
 
 /**
@@ -22,6 +22,7 @@ function PopupRoot() {
   const [siteName, setSiteName] = useState("");
   const [scoredCount, setScoredCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [basketGrade, setBasketGrade] = useState<'A' | 'B' | 'C' | 'D' | 'E' | null>(null);
 
   const [authState, setAuthState] = useState<PopupAuthState>('checking');
   const [userData, setUserData] = useState<Partial<ChromeExtensionStorage> | null>(null);
@@ -131,17 +132,33 @@ function PopupRoot() {
   useEffect(() => {
     resolveAuthState();
 
+    // ── Basket grade session sync ─────────────────────────────────────────
+    if (typeof chrome !== "undefined" && chrome.storage?.session) {
+      chrome.storage.session.get(['basket_grade'], (data) => {
+        if (data?.basket_grade) setBasketGrade(data.basket_grade as any);
+      });
+    }
+
     // ── Storage change listener ───────────────────────────────────────────
-    // Re-resolve whenever auth tokens or onboarding state change.
-    // Supabase v2 stores the session under a key derived from the project URL,
-    // e.g. "sb-<project-ref>-auth-token". We match any key that starts with "sb-"
-    // to catch token refresh events without hard-coding the project ref.
-    const storageListener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
-      const authKeyChanged = Object.keys(changes).some(
-        (k) => k.startsWith('sb-') || k === 'onboarding_completed'
-      );
-      if (authKeyChanged || changes.user_account || changes.user_preferences) {
-        resolveAuthState();
+    const storageListener = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName?: string,
+    ) => {
+      if (areaName === 'session') {
+        if (changes.basket_grade) {
+          setBasketGrade((changes.basket_grade.newValue as any) || null);
+        }
+      }
+      if (!areaName || areaName === 'local') {
+        const authKeyChanged = Object.keys(changes).some(
+          (k) =>
+            k === SESSION_STORAGE_KEY ||
+            k === 'onboarding_completed' ||
+            k === 'nutri_entitlement',
+        );
+        if (authKeyChanged || changes.user_account || changes.user_preferences) {
+          resolveAuthState();
+        }
       }
     };
 
@@ -224,6 +241,7 @@ function PopupRoot() {
         siteName={siteName}
         scoredCount={scoredCount}
         totalCount={totalCount}
+        basketGrade={basketGrade}
         userData={userData}
         onOpenDashboard={handleOpenDashboard}
         hasActiveSession={authState === 'loggedIn' || authState === 'incomplete'}

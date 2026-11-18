@@ -129,4 +129,36 @@ The audit was conducted on a partial archive (omitting `src/shared`, `src/extens
 
 ---
 
+### Phase 3: Fail-Closed Grades & In-Page Surfaces
+- **Findings Addressed:** F-04 (fail-open grades), F-08 (flyout Tab trap inside Shadow DOM & outside-click focus theft), F-09 (Nutri-Score contrast & redraws), F-14 (popup pause state restoration, basket grade live sync, neutral condition chip), F-15 (in-page Shadow DOM residue: emoji replacement, WCAG AA contrast colors, touch targets >= 24px, accessible region/status roles).
+- **Actions Taken:**
+  1. **Fail-Closed Grades (F-04):**
+     - `src/ui/src/sidepanel.tsx`: Replaced hardcoded `'C'` default with `null`. Wired live updates from `chrome.storage.session`.
+     - `src/ui/src/app/components/ShopperShell.tsx`: Removed `|| 'C'` fallbacks at lines 602 and 672. Unrated items explicitly pass `null` to `GradeBadge` to display compliant "—" unscored placeholder.
+     - `src/extension/adapters/shared-ui.js`: Eliminated `averageGrade || 'B'` and `gradeColors.C` fallback. Added full 5-grade color map with CSS variables and WCAG AA contrast on-colors.
+  2. **GradeBadge Contrast Compliance (F-09, Section 2.3):**
+     - Updated `src/ui/src/app/components/ui/GradeBadge.tsx`: Grade B `#85bb2f` with dark text `#14320a` (6.14:1), Grade C `#fecb02` with dark text `#3a2e00` (8.76:1), Grade D `#ee8100` with dark text `#331c00` (5.95:1), Grade E `#d1320a` fill with white text `#ffffff` (4.85:1, exceeding 4.5:1 floor for small text).
+  3. **Shadow DOM Focus & Tab Trap (F-08):**
+     - `src/extension/adapters/shared-ui.js`: Corrected keyboard Tab trap inside custom element by evaluating `flyoutEl.getRootNode().activeElement` rather than `document.activeElement`.
+     - Outside clicks no longer steal focus back to the trigger button (`restoreFocus: false`). Focus is preserved for user clicks and only restored on explicit keyboard Escape dismissal or Close button click.
+     - Preserved host card styling without modifying parent card position or inline styles.
+  4. **Popup Enhancements & Neutral Condition Chip (F-14, Decision 2.2 #8):**
+     - `src/ui/src/app/components/Popup.tsx`: Restored `paused_<siteName>` state from `chrome.storage.local` on mount and URL changes.
+     - Replaced colored condition wrapper with neutral `ConditionChip.tsx` with icon and neutral borders, respecting Decision 2.2 #8.
+     - Ensured all interactive touch targets meet or exceed 24px minimum.
+     - `src/ui/src/popup.tsx`: Wired live `basketGrade` sync with `chrome.storage.session`. Cleaned up legacy `sb-` and Supabase keys.
+  5. **In-Page Surface Accessibility & Typography (F-15, EXT-12):**
+     - Replaced emojis (`📊`, `📋`, `⚠`) with crisp inline SVGs.
+     - Added `role="status"` to store paused pill and `role="region"` with accessible label to checkout callout.
+  6. **Audit Reproductions Flipped:**
+     - Flipped A5 (F-04 fail-closed grades) and A6 (F-08 Tab trap in Shadow DOM) in `src/ui/src/app/__tests__/audit-reproductions.test.ts` from `it.fails` to `it` (both passing).
+- **Gate Status:** PASS
+  - `npm run test`: 66 test files, 1221 tests passing (PASS)
+  - `npm run typecheck`: 0 errors (PASS)
+  - `npm run lint`: 0 errors (PASS)
+  - `npm run build:ui`: PASS
+  - `npm run format:check`: PASS
+
+---
+
 *(Log continues in subsequent phases)*

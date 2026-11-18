@@ -599,7 +599,7 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
                   {filtered.slice(0, 5).map((item) => (
                     <li key={item.id} className="py-2.5 flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
-                        <GradeBadge grade={(item.gradeSnapshot || 'C') as Grade} size="sm" />
+                        <GradeBadge grade={(item.gradeSnapshot || null) as Grade | null} size="sm" />
                         <div className="flex flex-col min-w-0">
                           <span className="text-[12px] font-medium text-strong break-words">
                             {item.name}
@@ -669,8 +669,8 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
                 {
                   id: 'grade',
                   header: 'Grade',
-                  accessor: (r) => r.gradeSnapshot || 'C',
-                  cell: (v) => <GradeBadge grade={v as Grade} size="sm" />,
+                  accessor: (r) => (r.gradeSnapshot || null) as Grade | null,
+                  cell: (v) => <GradeBadge grade={v} size="sm" />,
                   sortable: true,
                   priority: 1,
                   kind: 'status',

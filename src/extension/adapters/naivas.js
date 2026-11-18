@@ -171,12 +171,32 @@ const NaivasAdapter = {
 
   getObserveTarget() {
     if (typeof document === "undefined") return null;
-    return document.querySelector(".products.list.items.product-items") || 
+    return document.querySelector("main") || 
+           document.querySelector("#root") || 
+           document.querySelector("[data-slot='main']") ||
+           document.querySelector(".products.list.items.product-items") || 
            document.querySelector("[wire\\:id]") || 
            document.querySelector(".columns") || 
-           document.querySelector("main") ||
-           document.querySelector("#maincontent") ||
+           document.querySelector("#maincontent") || 
            document.body;
+  },
+
+  /**
+   * Evaluates if a category or URL corresponds to non-food segments (e.g. electronics).
+   * Used to gate badges exclusively to food segments.
+   */
+  _isNonFoodCategory(categoryText, urlString) {
+    const combined = `${categoryText || ""} ${urlString || ""}`.toLowerCase().replace(/[-_&/]/g, " ").replace(/\s+/g, " ");
+    const nonFoodKeywords = [
+      "electronic", "appliance", "television", "tv", "audio", "video",
+      "smartphone", "phone", "mobile", "tablet", "computer", "laptop",
+      "clothing", "apparel", "shoe", "fashion",
+      "home and living", "home living", "home cleaning", "cleaning", "pet", "furniture", "kitchenware", "cookware",
+      "bedding", "bath", "hardware", "tool", "garden",
+      "beauty", "cosmetic", "perfume", "fragrance", "personal care",
+      "stationery", "office", "toy", "game", "baby gear", "luggage", "automotive"
+    ];
+    return nonFoodKeywords.some(kw => combined.includes(kw));
   },
 
   /**
@@ -185,7 +205,7 @@ const NaivasAdapter = {
    */
   _extractCategory() {
     if (typeof document === "undefined") return "";
-    const categorySelector = ".category-description, .items.breadcrumbs, .breadcrumb, .page-title-wrapper";
+    const categorySelector = "nav[aria-label='breadcrumb'], [data-slot='breadcrumb'], .breadcrumb, .breadcrumbs, .category-description, .items.breadcrumbs, .page-title-wrapper";
     let categoryText = "";
     document.querySelectorAll(categorySelector).forEach(el => {
       categoryText += " " + (el?.textContent?.trim() || "");
@@ -203,13 +223,19 @@ const NaivasAdapter = {
   _parseCard(card, pageCategory) {
     if (!card) return null;
 
-    const nameSelector = "span.line-clamp-2, [class*='line-clamp'], .product-item-name a, a[href*='.html'], h3, h4";
-    const priceSelector = "span[class*='text-naivas-green'], .product-price, .price-box .price, .price";
+    const nameSelector = "p.line-clamp-2, [class*='line-clamp'], .product-item-name a, a[href*='.html'], h1, h2, h3, h4, span.font-medium";
+    const priceSelector = "div.flex.items-center span, span[class*='font-semibold'], span[class*='text-naivas-green'], .product-price, .price-box .price, .price, [class*='price']";
 
     const nameEl = card.querySelector(nameSelector);
     let name = nameEl?.textContent?.trim() || "";
     if (!name && nameEl?.tagName?.toLowerCase() === 'a') {
       name = nameEl?.getAttribute("title") || nameEl?.getAttribute("aria-label") || "";
+    }
+    if (!name) {
+      const img = card.querySelector("img[alt]");
+      if (img && img.getAttribute("alt")) {
+        name = img.getAttribute("alt").trim();
+      }
     }
 
     if (!name) return null;
@@ -217,14 +243,41 @@ const NaivasAdapter = {
     let priceNumeric = 0;
     const priceEl = card.querySelector(priceSelector);
     if (priceEl) {
-      priceNumeric = (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).parsePrice(priceEl.textContent);
+      const container = (typeof priceEl.closest === "function" ? priceEl.closest("div.flex, [class*='price']") : null) || priceEl;
+      priceNumeric = (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).parsePrice(container.textContent);
     }
 
-    const id = card.getAttribute("data-product-id") ||
-               card.getAttribute("data-sku") ||
-               (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).generateIdFromName(name);
+    // 1. Direct data attributes (highest fidelity when present)
+    let id = card.getAttribute("data-product-id") ||
+             card.getAttribute("data-sku") ||
+             card.getAttribute("data-id") ||
+             null;
+
+    // 2. Extract SKU/ID from CloudFront CDN image path (e.g. /product/12345/)
+    if (!id) {
+      const imgWithSku = card.querySelector("img[src*='product/']");
+      if (imgWithSku) {
+        const srcMatch = imgWithSku.src.match(/product\/(\d+)/);
+        if (srcMatch) id = srcMatch[1];
+      }
+    }
+
+    // 3. Extract SKU/ID from product link href slug
+    const anchor = card.querySelector("a[href*='naivas.online/'], a[href*='/'], a[href]") || (typeof card.closest === "function" ? card.closest("a") : null);
+    const href = anchor?.href || card.getAttribute("data-url") || null;
+    if (!id && href) {
+      const slugMatch = href.match(/naivas\.online\/([a-zA-Z0-9_-]+)/);
+      if (slugMatch && !["cart", "checkout", "categories", "category", "products"].includes(slugMatch[1])) {
+        id = slugMatch[1].replace(/\.html$/, "");
+      }
+    }
+
+    if (!id) {
+      id = (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).generateIdFromName(name);
+    }
+
     const hash = card.getAttribute("data-original-hash") || null;
-    const url = card.querySelector("a[href]")?.href || null;
+    const url = href || (typeof location !== "undefined" ? location.href : null);
 
     return {
       id: String(id),
@@ -238,10 +291,21 @@ const NaivasAdapter = {
 
   detectProducts() {
     const products = [];
-    const productSelector = "[class*='border-naivas-bg'], .product-item";
     const pageCategory = this._extractCategory();
+    const pageUrl = typeof location !== "undefined" ? location.href : "";
+    if (this._isNonFoodCategory(pageCategory, pageUrl)) {
+      return products; // Gated: zero cards on non-food categories
+    }
 
-    const cards = document.querySelectorAll(productSelector);
+    const productSelector = ".group, [class*='border-naivas-bg'], .product-item, div:has(> a img[src*='cloudfront.net/product/'])";
+    const rawCards = Array.from(document.querySelectorAll(productSelector));
+
+    // Deduplicate: if cardA contains cardB, only keep the outer cardA.
+    // This eliminates the inner div.group (image wrapper) that nests inside outer div.group.border-naivas-bg,
+    // which would otherwise produce two candidates — and two badges — for the same product tile.
+    const cards = rawCards.filter((card, idx, arr) =>
+      !arr.some((other, oIdx) => oIdx !== idx && other.contains(card))
+    );
 
     cards.forEach((card) => {
       if (card.hasAttribute("data-nutriscore-scanned")) {
@@ -280,21 +344,41 @@ const NaivasAdapter = {
    */
   candidatesIn(root) {
     const candidates = [];
-    const productSelector = "[class*='border-naivas-bg'], .product-item";
-    const pageCategory = this._extractCategory();
-
-    // Use root when it provides querySelectorAll, else document
     const scope = (root && typeof root.querySelectorAll === "function") ? root : (typeof document !== "undefined" ? document : null);
     if (!scope) return candidates;
-    const cards = [];
-    if (scope.matches?.(productSelector)) {
-      cards.push(scope);
-    }
-    cards.push(...scope.querySelectorAll(productSelector));
 
-    cards.forEach((card) => {
+    const productSelector = ".group, [class*='border-naivas-bg'], .product-item, div:has(> a img[src*='cloudfront.net/product/'])";
+    const directCards = [];
+    if (scope.matches?.(productSelector)) {
+      directCards.push(scope);
+    }
+    directCards.push(...scope.querySelectorAll(productSelector));
+
+    const pageCategory = this._extractCategory();
+    const pageUrl = typeof location !== "undefined" ? location.href : "";
+    if (this._isNonFoodCategory(pageCategory, pageUrl)) {
+      return candidates; // Gated: zero candidates on non-food categories
+    }
+
+    const processedCards = new Set();
+
+    // Also anchor-first discovery via image or product links
+    const productImages = scope.querySelectorAll("img[src*='cloudfront.net/product/'], img[src*='/product/']");
+    productImages.forEach(img => {
+      const card = img.closest(".group") || img.closest("div[class*='border']") || img.closest("div[class*='rounded']") || img.parentElement;
+      if (card && !directCards.includes(card)) directCards.push(card);
+    });
+
+    // Deduplicate: If cardA contains cardB, retain outer container cardA and drop child cardB
+    const uniqueCards = directCards.filter((card, idx, arr) => {
+      return !arr.some((other, oIdx) => oIdx !== idx && other.contains(card));
+    });
+
+    uniqueCards.forEach((card) => {
+      if (processedCards.has(card)) return;
       if (card.querySelector(".nutriscore-isolated-root")) return; // already injected
 
+      processedCards.add(card);
       const parsed = this._parseCard(card, pageCategory);
       if (!parsed) return;
 
@@ -413,6 +497,45 @@ const NaivasAdapter = {
       items.push({ retailer: 'NAIVAS', productId, product_name: name, priceSnapshot: price, quantity });
     }
 
+    // Modern React/Vite cart drawer / checkout item rows
+    if (items.length === 0 && typeof document !== "undefined") {
+      const modernCartItems = document.querySelectorAll(
+        "[data-slot='cart-drawer'] li, [data-slot='cart-drawer'] div[class*='cart-item'], [class*='cart-drawer'] li, .cart-items-wrapper > div, div:has(> input[type='checkbox'])"
+      );
+      modernCartItems.forEach(el => {
+        const nameEl = el.querySelector("p.line-clamp-2, [class*='line-clamp'], [class*='title'], h3, h4");
+        const name = nameEl?.textContent?.trim() || "";
+        if (!name) return;
+
+        const priceEl = el.querySelector("[class*='price'], .font-bold, span:has(> text())");
+        const price = (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).parsePrice(priceEl?.textContent || "");
+
+        let productId = el.getAttribute("data-product-id") || el.getAttribute("data-id");
+        if (!productId) {
+          const img = el.querySelector("img[src*='product/']");
+          if (img) {
+            const m = img.src.match(/product\/(\d+)/);
+            if (m) productId = m[1];
+          }
+        }
+        if (!productId) {
+          productId = (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).generateIdFromName(name);
+        }
+
+        if (seen.has(productId)) return;
+        seen.add(productId);
+
+        let quantity = 1;
+        const qtyEl = el.querySelector("input[type='number'], [class*='qty'], [class*='quantity']");
+        if (qtyEl) {
+          const val = parseInt(qtyEl.value || qtyEl.textContent || "1", 10);
+          if (!isNaN(val) && val > 0) quantity = val;
+        }
+
+        items.push({ retailer: 'NAIVAS', productId: String(productId), product_name: name, priceSnapshot: price, quantity });
+      });
+    }
+
     return items;
   },
 
@@ -519,72 +642,62 @@ const NaivasAdapter = {
   /* Detect clicks on Naivas "Add to Cart" buttons. */
   extractCartAction(node) {
     if (!node) return null;
-    // --- A. Livewire add-to-cart: <a wire:click="addToCart(ID)"> or <button wire:click="addToCart(ID)">
-    const wireEl = node.closest ? node.closest('[wire\\:click]') : null;
-    if (wireEl) {
-      const wireClick = wireEl.getAttribute('wire:click') || '';
-      const addMatch = wireClick.match(/addToCart\((\d+)\)/);
-      if (addMatch) {
-        const productId = addMatch[1];
-        // Walk up to find card container with the product name and price
-        const card = wireEl.closest('.product-item, [class*="product-card"], li, article')
-          || wireEl.parentElement;
 
-        let name = '';
-        const nameEl = card.querySelector(
-          'a[wire\\:click^="redirectToProductPage"], [class*="product-name"], h2, h3'
-        );
-        if (nameEl) name = nameEl.getAttribute('title') || nameEl.textContent.trim();
-        if (!name) name = wireEl.getAttribute('title') || '';
-        if (!name) return null;
-
-        const priceEl = card.querySelector('.font-extrabold, [class*="text-naivas-green"], .price-box .price');
-        const price = priceEl ? (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).parsePrice(priceEl.textContent) : 0;
-
-        return {
-          retailer: 'NAIVAS',
-          productId: String(productId),
-          product_name: name,
-          priceSnapshot: price,
-          quantity: 1
-        };
-      }
-
-      // Livewire redirect to product page click — not an add-to-cart, skip
-      if (wireClick.includes('redirectToProductPage')) return null;
-    }
-
-    // --- B. Magento 2 standard .tocart button fallback ---
-    const btn = node.closest ? node.closest(
-      'button.tocart, button[data-role="tocart"], button.action.tocart, button[title="Add to Cart"]'
+    // 1. Identify Add-to-Cart button or icon
+    const btn = (typeof node.closest === "function") ? node.closest(
+      "button, [role='button'], a, div[class*='btn'], div[class*='cursor-pointer']"
     ) : null;
+
     if (!btn) return null;
 
-    const card = btn.closest(
-      '.product-item, .product-info-main, [class*="product-card"], .product-item-info'
-    ) || btn.parentElement;
+    // Check if this element or its children represent an Add to Cart action:
+    // a) Wire:click addToCart
+    const wireClick = btn.getAttribute?.("wire:click") || "";
+    const isWireAdd = /addToCart\((\d+)\)/.test(wireClick);
 
-    let name = '';
-    const nameEl = card.querySelector(
-      '.product-item-name a, .product-item-name, h1.page-title span, [itemprop="name"]'
-    );
-    if (nameEl) name = nameEl.textContent.trim();
-    if (!name) name = btn.getAttribute('aria-label') || btn.getAttribute('title') || '';
-    if (!name) return null;
+    // b) Text matches add to cart / buy now / +
+    const btnText = (btn.textContent || "").trim();
+    const isAddText = /^(?:\+|add to cart|add to basket|buy now|add)$/i.test(btnText) ||
+                      /(?:add to cart|add to basket|buy now)/i.test(btnText);
 
-    const productId = card.getAttribute('data-product-id')
-      || card.querySelector('input[name="product"]')?.value
-      || (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).generateIdFromName(name);
+    // c) Aria-label / Title
+    const aria = (btn.getAttribute?.("aria-label") || btn.getAttribute?.("title") || "").toLowerCase();
+    const isAddAria = aria.includes("add to cart") || aria.includes("add to basket") || aria === "add";
 
-    const priceEl = card.querySelector('.price-box .price, .price-wrapper .price, .price');
-    const price = priceEl ? (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).parsePrice(priceEl.textContent) : 0;
+    // d) Visual / SVG Plus button (orange circular + button on modern Naivas card)
+    const hasPlusSvg = !!btn.querySelector?.("svg, path, [data-icon*='plus'], [class*='plus']");
+    const isModernPlusBtn = (btn.matches?.("button[class*='orange'], button[class*='rounded-full'], button[class*='naivas']") ||
+                            btn.className?.includes?.("orange") ||
+                            btn.className?.includes?.("rounded-full")) && (hasPlusSvg || btnText === "+");
+
+    // e) Magento tocart
+    const isMagentoTocart = btn.matches?.("button.tocart, button[data-role='tocart'], button.action.tocart");
+
+    const isAddAction = isWireAdd || isAddText || isAddAria || isModernPlusBtn || isMagentoTocart;
+    if (!isAddAction) return null;
+
+    // Reject redirect links
+    if (wireClick.includes("redirectToProductPage")) return null;
+
+    // 2. Find the product card container
+    const card = (typeof btn.closest === "function" ? btn.closest(
+      ".group, [class*='border-naivas-bg'], [class*='border'], .product-item, .product-info-main, div:has(> a img[src*='cloudfront.net/product/']), main, [data-slot='main']"
+    ) : null) || btn.parentElement;
+
+    if (!card) return null;
+
+    // 3. Extract Canonical Details
+    const pageCategory = this._extractCategory?.() || "";
+    const parsed = this._parseCard(card, pageCategory);
+    if (!parsed || !parsed.name) return null;
 
     return {
-      retailer: 'NAIVAS',
-      productId: String(productId),
-      product_name: name,
-      priceSnapshot: price,
-      quantity: 1
+      retailer: "NAIVAS",
+      productId: String(parsed.id),
+      product_name: parsed.name,
+      priceSnapshot: parsed.price,
+      quantity: 1,
+      url: parsed.url || null
     };
   },
 

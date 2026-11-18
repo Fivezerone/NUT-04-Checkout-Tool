@@ -30,10 +30,7 @@ describe("1. Popup Health Mode Toggle Deprecation", () => {
 
   it("Popup.tsx renders an active health mode indicator badge", () => {
     expect(popupSrc).toContain("Health Mode");
-    expect(popupSrc).toContain("General Wellness");
-    expect(popupSrc).toContain("HEALTH_MODES[activeFocusTag");
-    expect(popupSrc).toContain("tagColor.bg");
-    expect(popupSrc).toContain("tagColor.label");
+    expect(popupSrc).toContain("<ConditionChip");
   });
 });
 

@@ -1,9 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { BarChart3, LogIn, Settings2, ShoppingBasket, Pause, Play, Clock, PanelRightOpen } from 'lucide-react'
 import { ChromeExtensionStorage } from '../../services/storage'
 import { GradeBadge, ConditionChip } from './ui'
 import type { Grade } from '../lib/nutriscore'
-import { HEALTH_MODES } from '../../../../shared/health-modes.mjs'
 
 interface PopupProps {
   siteActive: boolean
@@ -35,6 +34,23 @@ export function Popup({
   const [isPaused, setIsPaused] = useState(false)
   const [pauseMenuOpen, setPauseMenuOpen] = useState(false)
 
+  // Restore pause state for active supermarket domain on mount/domain change (F-14)
+  useEffect(() => {
+    if (!siteName || typeof chrome === 'undefined' || !chrome.storage?.local) return
+    const key = `paused_${siteName}`
+    chrome.storage.local.get([key], (data) => {
+      const until = data?.[key]
+      if (until && typeof until === 'number' && until > Date.now()) {
+        setIsPaused(true)
+      } else {
+        setIsPaused(false)
+        if (until) {
+          chrome.storage.local.remove([key]).catch(() => {})
+        }
+      }
+    })
+  }, [siteName])
+
   // Display name is derived from user_account fullName
   const displayName = userData?.user_account?.fullName?.split(' ')[0] ?? null
 
@@ -42,11 +58,6 @@ export function Popup({
     (userData?.user_preferences?.selectedTags && userData.user_preferences.selectedTags[0]) ||
     (userData?.user_account as any)?.condition ||
     'general'
-  const isGeneralWellness = !activeFocusTag || activeFocusTag === 'general'
-  const activeModeObj = HEALTH_MODES[activeFocusTag as keyof typeof HEALTH_MODES] as any
-  const tagColor = activeModeObj
-    ? { bg: activeModeObj.palette.accentBg, accent: activeModeObj.palette.primary, label: activeModeObj.palette.primary }
-    : { bg: 'var(--color-info-subtle)', label: 'var(--color-info-text)', accent: 'var(--color-info-border)' }
 
   const handlePause = (durationMinutes: number) => {
     setIsPaused(true)
@@ -202,24 +213,10 @@ export function Popup({
           )}
         </div>
 
-        {/* Active Health Profile Banner */}
+        {/* Active Health Profile Banner - Neutral chip with icon (Decision 2.2 #8) */}
         <div className="flex items-center justify-between border-b border-border-control/20 px-1 py-1 text-[12px]">
           <span className="font-semibold text-strong">Health Mode</span>
-          {isGeneralWellness ? (
-            <span className="px-2.5 py-0.5 rounded-md bg-surface-raised border border-border-control/30 text-strong font-medium">
-              General Wellness
-            </span>
-          ) : (
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] font-bold"
-              style={{
-                backgroundColor: tagColor.bg,
-                color: tagColor.label,
-              }}
-            >
-              <ConditionChip condition={activeFocusTag} />
-            </span>
-          )}
+          <ConditionChip condition={activeFocusTag} size="sm" />
         </div>
 
         {/* Live Basket Quality Snapshot Card */}
