@@ -1,14 +1,14 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { BlueThemeProvider } from "./app/context/BlueThemeProvider";
+import { ThemeProvider } from "./app/context/ThemeContext";
 import { Options } from "./options/Options";
 import "./styles/index.css";
 
 function OptionsRoot() {
   return (
-    <BlueThemeProvider>
+    <ThemeProvider>
       <Options />
-    </BlueThemeProvider>
+    </ThemeProvider>
   );
 }
 

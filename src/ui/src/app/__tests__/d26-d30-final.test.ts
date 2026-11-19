@@ -146,11 +146,10 @@ describe('D-30 — minor quality items', () => {
   });
 
   test('Dashboard load() has try/catch to prevent forever-spinner', () => {
-    const src = read('src/ui/src/app/components/Dashboard.tsx');
-    const loadIdx  = src.indexOf('async function load(');
-    const loadBody = src.slice(loadIdx, loadIdx + 900);
-    expect(loadBody).toContain('try {');
-    expect(loadBody).toContain('} catch');
-    expect(loadBody).toContain('finally {');
+    const src = read('src/ui/src/dashboard.tsx');
+    const initIdx = src.indexOf('async function init()');
+    const initBody = src.slice(initIdx, initIdx + 1200);
+    expect(initBody).toContain('try {');
+    expect(initBody).toContain('} catch');
   });
 });

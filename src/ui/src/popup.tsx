@@ -2,7 +2,7 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { useEffect, useState } from "react";
 import { Popup } from "./app/components/Popup";
-import { BlueThemeProvider } from "./app/context/BlueThemeProvider";
+import { ThemeProvider } from "./app/context/ThemeContext";
 import type { ChromeExtensionStorage } from "./services/storage";
 import { SESSION_STORAGE_KEY } from "../../shared/session-key.mjs";
 import "./styles/index.css";
@@ -184,7 +184,7 @@ function PopupRoot() {
   };
 
   return (
-    <BlueThemeProvider>
+    <ThemeProvider>
       <Popup
         siteActive={siteActive}
         siteName={siteName}
@@ -198,7 +198,7 @@ function PopupRoot() {
         onboardingCompleted={authState === 'returning' || authState === 'loggedIn'}
         onOpenAuth={handleOpenAuth}
       />
-    </BlueThemeProvider>
+    </ThemeProvider>
   );
 }
 

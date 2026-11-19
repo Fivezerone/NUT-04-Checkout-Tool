@@ -175,7 +175,7 @@ export function Options() {
 
   const handleSignOut = async () => {
     await signOutUser();
-    window.location.href = "onboarding.html";
+    window.location.reload();
   };
 
   if (loading) {

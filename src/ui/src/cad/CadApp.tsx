@@ -100,8 +100,9 @@ const CadMainContent: React.FC = () => {
 
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="text-[12px] font-semibold text-strong">Email address</label>
+                <label htmlFor="cad-login-email" className="text-[12px] font-semibold text-strong">Email address</label>
                 <input
+                  id="cad-login-email"
                   type="email"
                   required
                   value={email}
@@ -112,8 +113,9 @@ const CadMainContent: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-[12px] font-semibold text-strong">Password</label>
+                <label htmlFor="cad-login-password" className="text-[12px] font-semibold text-strong">Password</label>
                 <input
+                  id="cad-login-password"
                   type="password"
                   required
                   value={password}

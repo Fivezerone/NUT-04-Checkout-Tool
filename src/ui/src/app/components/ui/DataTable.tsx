@@ -178,7 +178,12 @@ export function DataTable<T>({
           </div>
 
           {/* Table View on >= 640px containers */}
-          <div className="hidden @[640px]:block w-full overflow-x-auto rounded-2xl border border-border-control/20 bg-surface shadow-xs">
+          <div
+            role="region"
+            aria-label={caption || 'Data table'}
+            tabIndex={0}
+            className="hidden @[640px]:block w-full overflow-x-auto rounded-2xl border border-border-control/20 bg-surface shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          >
             <table className="w-full text-[12px] border-collapse">
               {caption && <caption className="sr-only">{caption}</caption>}
               <thead>
@@ -193,15 +198,16 @@ export function DataTable<T>({
                     const isSorted = sortCol === col.id
                     const ariaSort = isSorted ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined
                     const isP3 = col.priority === 3
+                    const isNumericOrAction = col.kind === 'number' || col.kind === 'actions'
 
                     return (
                       <th
                         key={col.id}
                         scope="col"
                         aria-sort={ariaSort}
-                        className={`p-3 font-semibold text-strong text-left select-none ${
-                          isP3 ? 'hidden @[960px]:table-cell' : ''
-                        }`}
+                        className={`p-3 font-semibold text-strong select-none ${
+                          isNumericOrAction ? 'text-right' : 'text-left'
+                        } ${isP3 ? 'hidden @[960px]:table-cell' : ''}`}
                       >
                         {col.sortable ? (
                           <button
@@ -257,15 +263,18 @@ export function DataTable<T>({
                           const val = col.accessor(row)
                           const rendered = col.cell ? col.cell(val, row) : String(val ?? '—')
                           const isP3 = col.priority === 3
+                          const isIdOrHash = col.kind === 'id' || col.kind === 'hash'
+                          const isNumber = col.kind === 'number'
+                          const isActions = col.kind === 'actions'
 
                           return (
                             <td
                               key={col.id}
                               className={`p-3 align-top leading-relaxed text-foreground ${
-                                col.kind === 'number' ? 'tabular-nums text-right' : ''
-                              } ${col.kind === 'actions' ? 'text-right' : ''} ${
-                                isP3 ? 'hidden @[960px]:table-cell' : ''
-                              }`}
+                                isIdOrHash ? 'font-mono [overflow-wrap:anywhere] break-all' : ''
+                              } ${isNumber ? 'tabular-nums text-right' : ''} ${
+                                isActions ? 'text-right' : ''
+                              } ${isP3 ? 'hidden @[960px]:table-cell' : ''}`}
                             >
                               {rendered}
                             </td>

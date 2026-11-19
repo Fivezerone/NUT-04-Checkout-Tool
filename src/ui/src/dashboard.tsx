@@ -274,7 +274,7 @@ function DashboardRoot() {
           </p>
           <button
             type="button"
-            onClick={() => signOutUser().then(() => (window.location.href = "onboarding.html"))}
+            onClick={() => signOutUser().then(() => window.location.reload())}
             className="mt-5 px-4 py-2 border border-border-control hover:bg-surface-raised text-strong rounded-xl text-[12px] font-semibold transition cursor-pointer"
           >
             Sign Out
