@@ -186,12 +186,15 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     return;
   }
   if (alarm.name === "ledger-retention") {
-    // ADR-005 & §4.10: 90-day device storage ceiling
+    // ADR-005, Decision 4 & §4.10: 3 calendar months device storage ceiling
     try {
       await ensureStorageReady();
       if (typeof NutriScoreDB === "undefined" || !NutriScoreDB.purgeLedgerOlderThan) return;
-      const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
-      await NutriScoreDB.purgeLedgerOlderThan(ninetyDaysAgo);
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      now.setMonth(now.getMonth() - 3);
+      const threeCalendarMonthsCutoff = now.getTime();
+      await NutriScoreDB.purgeLedgerOlderThan(threeCalendarMonthsCutoff);
     } catch (e) {
       console.warn("[NutriScore SW] Ledger retention alarm failed:", e.message);
     }

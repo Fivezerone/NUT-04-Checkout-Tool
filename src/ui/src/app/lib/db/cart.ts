@@ -10,6 +10,7 @@ import type { Grade, ShoppingLedgerRow, LedgerRow } from "../nutriscore";
 import { getDB } from "./shared";
 import { resolveProductMatch } from "./product-resolution";
 import { interpretProduct, computeGradeFromProduct, resolveDisplayCategory } from "./grading";
+import { retentionCutoff } from "../timeframes";
 
 export type { LedgerRow };
 
@@ -21,7 +22,9 @@ export type CartItemInput = {
   retailer: string | null;
 };
 
-export const RETENTION_90_DAYS_MS = 90 * 24 * 60 * 60 * 1000; // 7,776,000,000 ms (90 days, ADR-005)
+export function getRetentionCutoff(now = new Date()): number {
+  return retentionCutoff(now);
+}
 
 // ── Feature Flag Evaluation ───────────────────────────────────────────────────
 export function isLedgerV2Enabled(): boolean {
@@ -503,12 +506,13 @@ export async function deleteLedgerEntry(id: string): Promise<void> {
 }
 
 /**
- * ADR-005 & §4.10: 90-Day Device Storage Ceiling
- * Purges shopping ledger entries older than the cutoff timestamp (default: 90 days ago).
+ * ADR-005, Decision 4 & §4.10: 3 Calendar Months Device Storage Ceiling
+ * Purges shopping ledger entries older than the cutoff timestamp (default: 3 calendar months).
+ * The boundary row is kept. Also purges matching expired pending_cart_syncs and shopping_history.
  */
 export async function purgeLedgerOlderThan(cutoff?: number): Promise<number> {
   const db = await getDB();
-  const actualCutoff = cutoff ?? (Date.now() - RETENTION_90_DAYS_MS);
+  const actualCutoff = cutoff ?? retentionCutoff();
   const range =
     typeof IDBKeyRange !== "undefined"
       ? IDBKeyRange.upperBound(actualCutoff, true)
@@ -523,6 +527,35 @@ export async function purgeLedgerOlderThan(cutoff?: number): Promise<number> {
     cursor = await cursor.continue();
   }
   await tx.done;
+
+  // Multi-store retention cleanup across auxiliary caches
+  try {
+    if (db.objectStoreNames.contains("pending_cart_syncs")) {
+      const syncTx = db.transaction("pending_cart_syncs", "readwrite");
+      let syncCursor = await syncTx.store.openCursor();
+      while (syncCursor) {
+        if (syncCursor.value.savedAt && syncCursor.value.savedAt < actualCutoff) {
+          await syncCursor.delete();
+        }
+        syncCursor = await syncCursor.continue();
+      }
+      await syncTx.done;
+    }
+    if (db.objectStoreNames.contains("shopping_history" as any)) {
+      const histTx = db.transaction("shopping_history" as any, "readwrite");
+      let histCursor = await histTx.store.openCursor();
+      while (histCursor) {
+        if (histCursor.value.viewedAt && histCursor.value.viewedAt < actualCutoff) {
+          await histCursor.delete();
+        }
+        histCursor = await histCursor.continue();
+      }
+      await histTx.done;
+    }
+  } catch (err) {
+    console.debug("[Cart] Auxiliary store purge skipped:", err);
+  }
+
   return count;
 }
 

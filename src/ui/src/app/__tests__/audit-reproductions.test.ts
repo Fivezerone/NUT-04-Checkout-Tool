@@ -95,8 +95,8 @@ describe('Appendix A: Pre-Fix Audit Reproductions', () => {
     expect(sharedUiSrc).not.toMatch(/document\.activeElement === first/)
   })
 
-  // A7: Retention boundary (F-12)
-  it.fails('A7: retention cutoff is calendar-month based (3 calendar months), not a fixed 90-day approximation', () => {
+  // A7: Retention boundary (F-12) - CLOSED in Phase 6
+  it('A7: retention cutoff is calendar-month based (3 calendar months), not a fixed 90-day approximation', () => {
     const cartDbSrc = readFileSync(resolve(ROOT, 'src/ui/src/app/lib/db/cart.ts'), 'utf8')
     const backgroundSrc = readFileSync(resolve(ROOT, 'src/extension/background.js'), 'utf8')
 

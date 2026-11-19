@@ -54,7 +54,7 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
   const [destination, setDestination] = useState<ShopperDestination>('home')
   const [entries, setEntries] = useState<ShoppingLedgerRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [range, setRange] = useState<TimeframeKey>('month')
+  const [range, setRange] = useState<TimeframeKey>('week')
   const [retailerFilter, setRetailerFilter] = useState<RetailerKey>('all')
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
@@ -135,7 +135,7 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
   const goodCount = useMemo(() => {
     if (!analytics) return 0
     const dist = analytics.basketQuality.distribution
-    return (dist.A || 0) + (dist.B || 0) + (dist.C || 0)
+    return (dist.A || 0) + (dist.B || 0)
   }, [analytics])
 
   const qualityPct = totalRated > 0 ? Math.round((goodCount / totalRated) * 100) : 0
@@ -154,6 +154,80 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
     alertCounts.cvd +
     alertCounts.kidney +
     alertCounts.obesity
+
+  // Longitudinal timeframe deltas (vs previous equivalent period)
+  const previousPeriodMetrics = useMemo(() => {
+    const tf = getTimeframe(range)
+    if (!tf.previous) return null
+
+    const prevEntries = entries.filter((e) => {
+      const inTime = e.addedAt >= tf.previous!.start && e.addedAt <= tf.previous!.end
+      const inRetailer =
+        retailerFilter === 'all' || (e.retailer && e.retailer.toUpperCase() === retailerFilter)
+      const notRemoved = e.status !== 'removed'
+      return inTime && inRetailer && notRemoved
+    })
+
+    if (prevEntries.length === 0) return null
+
+    let prevA = 0
+    let prevB = 0
+    let prevTotal = 0
+    let prevAlerts = 0
+
+    for (const e of prevEntries) {
+      const g = (e.gradeSnapshot || (e as any).grade || '').toUpperCase()
+      if (g === 'A') {
+        prevA++
+        prevTotal++
+      } else if (g === 'B') {
+        prevB++
+        prevTotal++
+      } else if (g === 'C' || g === 'D' || g === 'E') {
+        prevTotal++
+      }
+
+      const snap = e.nutritionSnapshot
+      const sod = snap?.sodiumMg ?? (e as any).sodiumMg ?? null
+      const sug = snap?.sugarsG ?? (e as any).sugarsG ?? null
+      const sat = snap?.satFatG ?? (e as any).satFatG ?? null
+
+      if (sod !== null && sod > 600) prevAlerts++
+      if (sug !== null && sug > 10) prevAlerts++
+      if (sat !== null && sat > 5) prevAlerts++
+    }
+
+    const prevQualityPct = prevTotal > 0 ? Math.round(((prevA + prevB) / prevTotal) * 100) : null
+    const periodLabel =
+      range === 'week' ? 'vs last week' : range === 'month' ? 'vs last month' : 'vs yesterday'
+
+    return {
+      prevTotal,
+      prevQualityPct,
+      prevAlerts,
+      periodLabel,
+    }
+  }, [entries, range, retailerFilter])
+
+  const abDelta =
+    previousPeriodMetrics &&
+    previousPeriodMetrics.prevQualityPct !== null &&
+    totalRated > 0
+      ? {
+          value: qualityPct - previousPeriodMetrics.prevQualityPct,
+          label: previousPeriodMetrics.periodLabel,
+          favorableDirection: 'up' as const,
+        }
+      : undefined
+
+  const alertsDelta =
+    previousPeriodMetrics && filtered.length > 0
+      ? {
+          value: totalAlerts - previousPeriodMetrics.prevAlerts,
+          label: previousPeriodMetrics.periodLabel,
+          favorableDirection: 'down' as const,
+        }
+      : undefined
 
   // Nutrient adherence percentages
   const nutrientAdherence = useMemo(() => {
@@ -178,9 +252,9 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
 
     return {
       total: totalWithData,
-      sodiumPct: totalWithData > 0 ? Math.round((sodiumOk / totalWithData) * 100) : 100,
-      sugarPct: totalWithData > 0 ? Math.round((sugarOk / totalWithData) * 100) : 100,
-      satFatPct: totalWithData > 0 ? Math.round((satFatOk / totalWithData) * 100) : 100,
+      sodiumPct: totalWithData > 0 ? Math.round((sodiumOk / totalWithData) * 100) : 0,
+      sugarPct: totalWithData > 0 ? Math.round((sugarOk / totalWithData) * 100) : 0,
+      satFatPct: totalWithData > 0 ? Math.round((satFatOk / totalWithData) * 100) : 0,
     }
   }, [filtered])
 
@@ -248,13 +322,32 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
   }, [analytics])
 
   const handleDeleteItem = async (id: string) => {
-    try {
-      await deleteLedgerEntry(id)
-      setEntries((prev) => prev.filter((e) => e.id !== id))
-      toast.success('Removed item from ledger')
-    } catch {
-      toast.error('Failed to remove item')
-    }
+    const itemToDelete = entries.find((e) => e.id === id)
+    if (!itemToDelete) return
+    setEntries((prev) => prev.filter((e) => e.id !== id))
+    let isUndone = false
+    const deleteTimer = setTimeout(async () => {
+      if (!isUndone) {
+        try {
+          await deleteLedgerEntry(id)
+        } catch (err) {
+          console.warn('Failed to delete item from storage', err)
+        }
+      }
+    }, 5000)
+
+    toast('Removed item from ledger', {
+      duration: 5000,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          isUndone = true
+          clearTimeout(deleteTimer)
+          setEntries((prev) => [itemToDelete, ...prev])
+          toast.success('Restored item to ledger')
+        },
+      },
+    })
   }
 
   const handleClearAll = async () => {
@@ -424,12 +517,13 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
                 variant="hero"
                 label="Basket Quality"
                 value={totalRated > 0 ? `${qualityPct}%` : '—'}
-                unit={totalRated > 0 ? 'rated A–C' : ''}
+                unit={totalRated > 0 ? 'rated A–B' : ''}
                 subtitle={
                   totalRated > 0
                     ? `Grade ${typicalGrade || '—'} typical`
                     : 'No graded purchases'
                 }
+                delta={abDelta}
                 tone="mint"
               />
               <KpiCard
@@ -452,6 +546,7 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
                     ? 'Crossed recommended thresholds'
                     : 'Within planned thresholds'
                 }
+                delta={alertsDelta}
                 tone={totalAlerts > 0 ? 'coral' : 'mint'}
                 direction={totalAlerts === 0 ? 'favorable' : 'unfavorable'}
               />
@@ -765,11 +860,11 @@ export function ShopperShell({ onBack }: ShopperShellProps) {
             </div>
 
             <div className="bg-surface rounded-2xl border border-border-control/20 p-5 shadow-xs flex flex-col gap-3">
-              <h3 className="text-[14px] font-bold text-strong">90-Day Device Storage Ceiling</h3>
+              <h3 className="text-[14px] font-bold text-strong">3-Month Device Storage Ceiling</h3>
               <p className="text-[12px] text-muted leading-relaxed">
                 In compliance with Digital Health Platform standards and ADR-005, your shopping ledger
-                is stored exclusively on your local device (IndexedDB) and is capped at a strict 90-day
-                (3-month) window. Records older than 90 days are automatically purged daily.
+                is stored exclusively on your local device (IndexedDB) and is capped at a strict 3-calendar-month
+                window. Records older than 3 months are automatically purged daily.
               </p>
               <div className="mt-2 p-3 bg-surface-raised rounded-xl border border-border-control/20 flex items-center justify-between text-[12px]">
                 <span className="text-muted font-medium">Retention Status:</span>

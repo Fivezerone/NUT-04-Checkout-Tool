@@ -56,7 +56,7 @@ import {
   computeCartCoverage,
   resetConsecutiveAbsentTracker,
   syncCart,
-  RETENTION_90_DAYS_MS,
+  getRetentionCutoff,
   type CartItemInput,
   type LedgerRow,
 } from '../lib/db/cart'
@@ -586,7 +586,7 @@ describe('WP-11: Ledger v2 (ns.ledger.v2, E-08, E-09, E-10, E-13)', () => {
       await fakeStore.put(expiredRow)
       expect((await fakeStore.getAll()).length).toBe(2)
 
-      const purgedCount = await purgeLedgerOlderThan(now - RETENTION_90_DAYS_MS)
+      const purgedCount = await purgeLedgerOlderThan(getRetentionCutoff(new Date(now)))
       expect(purgedCount).toBe(1)
 
       const remaining = await fakeStore.getAll()

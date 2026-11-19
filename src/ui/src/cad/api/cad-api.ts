@@ -13,6 +13,8 @@
 import { env } from '../../env'
 import type { AuditLogEntry, CadRole, Tenant, TenantMember } from '../types'
 
+export type { AuditLogEntry, CadRole, Tenant, TenantMember }
+
 export interface LinkCodeResponse {
   success: boolean
   code?: string
