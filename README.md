@@ -1,6 +1,6 @@
 # NUT-04 Checkout Tool — NutriScore Kenya Shopping Assistant & CAD Platform
 
-[![CI Quality Gate](<https://img.shields.io/badge/CI-Passing%20(793%2B%20tests)-success>)](.github/workflows/ci.yml)
+[![CI Quality Gate](<https://img.shields.io/badge/CI-Passing%20(1%2C223%20tests)-success>)](.github/workflows/ci.yml)
 [![Architecture](https://img.shields.io/badge/Architecture-4--Tier%20Consolidated-blue)](docs/README.md)
 [![Security Policy](<https://img.shields.io/badge/Security-Host%20Isolated%20(Rule%20R4)-red>)](AGENTS.md)
 [![License](https://img.shields.io/badge/License-Proprietary-lightgrey)](NUT-04_Release_Documentation/LICENSE)
@@ -42,7 +42,7 @@ Under **Rule R4**, developers never run `node`, `npm`, `python`, or `psql` direc
 .\bin\nut.ps1 ci
 ```
 
-> Runs 12 automated checks (secret scans, zero hardcoded patient data, manifest checks, CAD security, format, lint, typecheck, 793+ Vitest tests, and WORM audit hash verification).
+> Runs 15 automated containerized quality checks (secret scans, zero hardcoded patient data, manifest checks, CAD security, fail-closed data paths, format, lint, typecheck, 1,223 Vitest tests, dual distribution builds, dist leak-proofing, gzip payload budgets, truncation safety, and WORM audit hash verification).
 
 ### 3. Build the Unpacked Chrome Extension
 

@@ -38,6 +38,14 @@ export default defineConfig({
     },
   },
   envDir: __dirname,
+  define: {
+    'import.meta.env.VITE_API_URL': JSON.stringify(
+      process.env.VITE_API_URL || 'https://api.nutriscore.co.ke/api',
+    ),
+    'import.meta.env.VITE_OIDC_ISSUER': JSON.stringify(
+      process.env.VITE_OIDC_ISSUER || 'https://auth.nutriscore.co.ke/realms/nutriscore',
+    ),
+  },
   plugins: [preact(), tailwindcss(), cadDevRoutingPlugin()],
   resolve: {
     alias: {

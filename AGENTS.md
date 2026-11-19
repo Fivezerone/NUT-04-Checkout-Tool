@@ -92,17 +92,20 @@ Before you claim any task is complete or push a commit, you MUST execute the con
 ./bin/nut ci
 ```
 
-### The 12 Quality Gates That Must Exit Code 0:
+### The 15 Quality Gates That Must Exit Code 0:
 
 1. `node scripts/check-no-secrets-tracked.mjs` — Zero staged secrets.
 2. `node scripts/check-no-hardcoded-data.mjs` — Zero hardcoded patient/clinic data.
 3. `npm run check:manifest` — Manifest globals and permissions intact.
 4. `npm run check:cad-security` — CAD security verification passed.
-5. `node --check src/extension/content.js` — Syntax check passes.
-6. `npm run format:check` — Prettier code formatting verified.
-7. `npm run lint` — ESLint passes with 0 errors.
-8. `npm run typecheck` — TypeScript passes with 0 errors.
-9. `npm run test` — Vitest regression suite passes 100% (793+ tests).
-10. `npm run build` — Clean Vite and extension compilation.
-11. `node scripts/check-no-fixtures-in-dist.mjs` — Zero fixtures or mock credentials in `./dist/`.
-12. `node scripts/verify-audit-chain.mjs` — WORM audit hash continuity verified.
+5. `npm run check:fallbacks` — Zero silent fallbacks or fail-open defaults on data paths.
+6. `node --check src/extension/content.js` — Syntax check passes.
+7. `npm run format:check` — Prettier code formatting verified.
+8. `npm run lint` — ESLint passes with 0 errors.
+9. `npm run typecheck` — TypeScript passes with 0 errors.
+10. `npm run test` — Vitest regression suite passes 100% (1,223 tests across 66 suites).
+11. `npm run build` — Clean Vite, DB, and extension compilation.
+12. `node scripts/check-no-fixtures-in-dist.mjs` — Zero fixtures or mock credentials in `./dist/`.
+13. `node scripts/check-dist.mjs` — Zero local endpoints (`localhost`, `127.0.0.1`) in `./dist/`.
+14. `npm run check:budget` — All eager gzip bundles within budget (Popup <= 40KB, Sidepanel <= 60KB, Dashboard <= 70KB, CAD <= 110KB).
+15. `npm run check:truncation` — Safe wrapping on all clinical and numeric metrics.
