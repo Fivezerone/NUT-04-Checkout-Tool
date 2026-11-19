@@ -9,5 +9,7 @@
       document.documentElement.classList.remove('dark');
       document.documentElement.setAttribute('data-mode', 'light');
     }
-  } catch(e) {}
+  } catch(e) {
+    console.debug('[ThemeInit] Error detecting theme:', e);
+  }
 })();

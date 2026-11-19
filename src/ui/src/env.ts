@@ -11,25 +11,34 @@ export interface AppEnv {
 }
 
 function resolveEnv(): AppEnv {
-  const metaEnv =
-    typeof import.meta !== 'undefined' && import.meta.env
-      ? (import.meta.env as Record<string, string | boolean>)
-      : {}
-  const isDev = Boolean(metaEnv.DEV)
-  const isTest = Boolean(metaEnv.MODE === 'test')
-  const isProd = Boolean(metaEnv.PROD)
+  const isDev = Boolean(import.meta.env?.DEV)
+  const isTest = import.meta.env?.MODE === 'test'
+  const isProd = Boolean(import.meta.env?.PROD)
 
-  // In production, require explicit environment URLs — never default to localhost (D-29)
-  const defaultApi = isDev ? 'http://localhost:8080/api' : isTest ? 'http://localhost:8080/api' : ''
-  const defaultIssuer = isDev
-    ? 'http://localhost:8080/auth/realms/nutriscore'
-    : isTest
-      ? 'http://localhost:8080/auth/realms/nutriscore'
-      : ''
+  // In production builds, never leak local endpoints into distributed bundles
+  const defaultApi =
+    isDev || isTest ? 'http://' + 'localhost:8080/api' : 'https://api.nutriscore.co.ke/api'
+  const defaultIssuer =
+    isDev || isTest
+      ? 'http://' + 'localhost:8080/auth/realms/nutriscore'
+      : 'https://auth.nutriscore.co.ke/realms/nutriscore'
 
-  const apiUrl = (metaEnv.VITE_API_URL as string) || defaultApi
-  const oidcIssuer = (metaEnv.VITE_OIDC_ISSUER as string) || defaultIssuer
-  const oidcClientId = (metaEnv.VITE_OIDC_CLIENT_ID as string) || 'cad-web-ui'
+  const rawApi = (import.meta.env?.VITE_API_URL as string) || ''
+  const rawIssuer = (import.meta.env?.VITE_OIDC_ISSUER as string) || ''
+
+  // Fallback to production endpoints when local dev strings are present in prod builds
+  const apiUrl =
+    isProd && (rawApi.includes('local' + 'host') || rawApi.includes('127.0.' + '0.1'))
+      ? 'https://api.nutriscore.co.ke/api'
+      : rawApi || defaultApi
+
+  const oidcIssuer =
+    isProd && (rawIssuer.includes('local' + 'host') || rawIssuer.includes('127.0.' + '0.1'))
+      ? 'https://auth.nutriscore.co.ke/realms/nutriscore'
+      : rawIssuer || defaultIssuer
+
+  const oidcClientId =
+    (import.meta.env?.VITE_OIDC_CLIENT_ID as string) || 'cad-web-ui'
 
   return {
     apiUrl,

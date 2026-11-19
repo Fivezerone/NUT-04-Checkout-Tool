@@ -225,7 +225,7 @@ export function Dashboard({ onBack }: DashboardProps) {
   }, [analytics]);
 
   const qualityPct = totalRated > 0 ? Math.round((goodCount / totalRated) * 100) : 0;
-  const typicalGrade = (analytics?.basketQuality.averageGrade || "C") as Grade;
+  const typicalGrade = (analytics?.basketQuality.averageGrade || null) as Grade | null;
 
   const alertCounts = analytics?.healthAlerts || { diabetes: 0, hypertension: 0, cvd: 0, kidney: 0, obesity: 0 };
   const totalAlerts = alertCounts.diabetes + alertCounts.hypertension + alertCounts.cvd + alertCounts.kidney + alertCounts.obesity;
@@ -725,7 +725,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                     </tr>
                   ) : (
                     sortedFiltered.slice(0, ledgerVisible).map((item) => {
-                      const grade = (item.gradeSnapshot || (item as any).grade || "C") as Grade;
+                      const grade = (item.gradeSnapshot || (item as any).grade || null) as Grade | null;
                       const dateStr = new Date(item.addedAt).toLocaleDateString(undefined, {
                         month: "short",
                         day: "numeric",

@@ -49,8 +49,11 @@ export function getCryptoProvider(): CryptoProvider {
       const nodeProvider: CryptoProvider = new NodeCryptoProvider()
       activeProvider = nodeProvider
       return nodeProvider
-    } catch {
-      // Fallback to WebCryptoProvider
+    } catch (nodeCryptoErr) {
+      // In browser contexts, fallback to WebCryptoProvider
+      if (typeof console !== 'undefined' && console.debug) {
+        console.debug('[CryptoProvider] Node crypto unavailable, using WebCrypto:', nodeCryptoErr)
+      }
     }
   }
 

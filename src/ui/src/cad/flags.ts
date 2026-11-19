@@ -40,8 +40,8 @@ export function isCadFlagEnabled(flagName: string): boolean {
           return parsed[flagName]
         }
       }
-    } catch {
-      // Fall through to defaults on parsing errors
+    } catch (err) {
+      console.warn('[Flags] Failed to parse sessionStorage ns_flags:', err)
     }
   }
 

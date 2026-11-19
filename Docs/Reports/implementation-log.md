@@ -201,4 +201,55 @@ The audit was conducted on a partial archive (omitting `src/shared`, `src/extens
 
 ---
 
+### Phase 5: Quality Gates That Can Fail
+- **Findings Addressed:** F-11 (quality gates cannot detect defects), F-20 (in-page gate matches strings; test spec couldn't run as written), D-32 (DOM-rendered primitive tests & axe a11y, no truncation, no silent fallbacks).
+- **Actions Taken:**
+  1. **DOM-Rendered Design Primitives & A11y Suite (F-11, D-32):**
+     - Converted `src/ui/src/app/__tests__/primitives.test.ts` to `primitives.test.tsx` using `@testing-library/preact`, `jsdom`, and `axe-core`.
+     - Created `vitest.config.ts` utilizing `@preact/preset-vite` and `lucide-react` ESM aliases for seamless Preact component rendering in JSDOM.
+     - All 7 mounted tests pass:
+       - `GradeBadge`: Renders all grades A through E with compliant colors and accessible descriptions (`Grade A` to `Grade E`).
+       - `GradeBadge` (scale mode): Renders 5-grade scale with `aria-current="true"` on the active grade.
+       - `ConditionChip`: Renders neutral indicator (`bg-surface-raised`, `text-strong`) with icon without surface recoloring.
+       - `KpiCard`: Renders numeric KPI, unit, label, and favorable delta direction (`vs last week`).
+       - `TargetMeter`: Renders accessible group role (`role="group"`) and target adherence statuses.
+       - `ConfirmDialog`: Enforces typed phrase confirmation (`SHRED`) before enabling destructive action button.
+       - `axe-core`: Zero accessibility violations found across all mounted primitives.
+  2. **Truncation Safety Gate (5.3, D-32):**
+     - Built `scripts/check-no-truncation.mjs` to scan UI sources and built outputs for CSS `truncate` and `text-ellipsis` utilities.
+     - Enforces that clinical thresholds, nutrients, patient identifiers, and currency values wrap or use accessible tooltips. Only opaque hashes and tokens (with `font-mono` or `data-allow-truncate`) may truncate.
+     - Zero non-hash truncation instances detected (`check:truncation` PASS).
+  3. **Fail-Closed & Silent-Fallback Safety Gate (5.4, D-32):**
+     - Built `scripts/check-no-silent-fallbacks.mjs` to scan data paths (`src/ui/src`, `src/shared`, `src/extension/db.js`, `src/extension/engine`, sync modules) for forbidden fail-open defaults and empty catch blocks.
+     - Resolved all defects identified by the gate:
+       - `src/ui/src/app/lib/db/analytics.ts:259` and `src/extension/db.js:2489`: Removed `|| 'C'` fallback on `averageGrade` when no items are rated.
+       - `src/ui/src/app/lib/nutriscore.ts`: Updated `DashboardViewModel.basketQuality.averageGrade` to `Grade | null`, removed `|| 'C'` fallback in `gradeColorVar` and `gradeOnColorVar`.
+       - `src/ui/src/options/Options.tsx`: Removed `|| 'diabetes'` fallback and hardcoded fake medical condition data, defaulting to `'general'` neutral wellness.
+       - Replaced empty `catch {}` blocks across UI, storage, CAD, and sync modules with structured warning and debug logging.
+  4. **Leak-Proof Production Boundary & Clean Builds (`check-dist`):**
+     - Configured `.env.production` with institutional domain endpoints (`https://api.nutriscore.co.ke/api`, `https://auth.nutriscore.co.ke/realms/nutriscore`).
+     - Hardened `src/ui/src/env.ts` to automatically override any local dev URLs in production builds.
+     - Added clean asset directory purge prior to Vite compilation in `package.json` `build:ui` script to prevent stale chunk accumulation.
+  5. **Wired Gates into CI:**
+     - Added `"check:truncation"` and `"check:fallbacks"` to `package.json`.
+     - All 15 CI quality gates pass with exit code 0.
+- **Gate Status:** PASS
+  - `check-no-secrets-tracked`: PASS
+  - `check-no-hardcoded-data`: PASS
+  - `check:manifest`: PASS
+  - `check:cad-security`: PASS
+  - `check:fallbacks`: PASS (Zero silent fallbacks or empty catch blocks in data paths)
+  - `node --check src/extension/content.js`: PASS
+  - `format:check`: All files match Prettier style (PASS)
+  - `lint`: 0 errors (PASS)
+  - `typecheck`: 0 errors (PASS)
+  - `test`: 66 test files, 1,223 tests passing (PASS)
+  - `build`: PASS
+  - `check-no-fixtures-in-dist`: PASS
+  - `check:dist`: PASS (Zero placeholders, 0 localhost endpoints in dist)
+  - `check:budget`: All 4 eager payloads within budget (PASS)
+  - `check:truncation`: PASS (Zero disallowed truncation utilities)
+
+---
+
 *(Log continues in subsequent phases)*

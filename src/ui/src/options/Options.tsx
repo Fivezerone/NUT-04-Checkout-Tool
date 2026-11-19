@@ -34,13 +34,10 @@ export function Options() {
     patientEmail: "",
     clinicianName: "Assigned Primary Clinician",
     clinicName: "Primary Care Clinical Unit (Cardio-Metabolic Clinic)",
-    healthMode: "diabetes",
-    healthModeLabel: "Cardio-Metabolic (Type 2 Diabetes)",
-    healthModeRationale: "Prescribed free sugar restriction and glycaemic control",
-    targets: [
-      { nutrient: "Sugars", threshold: "≤ 25 g / day", reason: "Glycaemic regulation" },
-      { nutrient: "Sodium", threshold: "≤ 2000 mg / day", reason: "Cardiovascular risk reduction" },
-    ],
+    healthMode: "general",
+    healthModeLabel: "General Wellness",
+    healthModeRationale: "Standard balanced nutritional guidelines",
+    targets: [],
     notificationFrequency: "realtime",
     language: "en-KE",
     enrollmentStatus: "active",
@@ -78,8 +75,8 @@ export function Options() {
 
       const clinician = "Assigned Primary Clinician";
       let clinic = "Primary Care Clinical Unit";
-      const modeKey = idbSettings?.activeTheme || "diabetes";
-      const modeLabel = HEALTH_MODES[modeKey as keyof typeof HEALTH_MODES]?.label || "Cardio-Metabolic (Type 2 Diabetes)";
+      const modeKey = idbSettings?.activeTheme || "general";
+      const modeLabel = HEALTH_MODES[modeKey as keyof typeof HEALTH_MODES]?.label || "General Wellness";
 
       // If online and session exists, fetch latest tenant member info & assigned targets
       if (user) {
@@ -119,8 +116,8 @@ export function Options() {
             consentGrantedAt: consent?.accepted_at,
             enrollmentStatus: (memberData?.status as any) || "active",
           }));
-        } catch {
-          // Fallback to local
+        } catch (err) {
+          console.warn("[Options] Failed to load remote profile data, falling back to local:", err);
         }
       } else {
         setProfile((prev) => ({

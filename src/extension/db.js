@@ -1142,6 +1142,7 @@ var NutriScoreDB = (() => {
           globalThis.NutriObs.count("eval_error", 1);
         }
       } catch (_ignored) {
+        console.debug("[Grading] Telemetry counter error:", _ignored);
       }
       return {
         status: "NOT_ATTEMPTED",
@@ -2486,7 +2487,7 @@ var NutriScoreDB = (() => {
       totalStoredEvents: totalStoredCount,
       filteredPeriodEvents: filteredLedger.length,
       basketQuality: {
-        averageGrade: computeAverageGrade(counts) || "C",
+        averageGrade: computeAverageGrade(counts),
         pts: ptsState.ptsSum,
         distribution: counts
       },

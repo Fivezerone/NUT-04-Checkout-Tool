@@ -74,7 +74,7 @@ const NutriSharedUI = {
         const result = await strategy();
         if (result && result.length > 0) return result;
       } catch (e) {
-        // Strategy failed, continue to next
+        console.debug('[SharedUI] Strategy execution failed, trying next:', e);
       }
     }
     return [];
@@ -101,7 +101,9 @@ const NutriSharedUI = {
       if (restoreFocus) {
         try {
           window._nutriscoreActiveTrigger.focus?.({ preventScroll: true });
-        } catch (e) {}
+        } catch (e) {
+          console.debug('[SharedUI] Focus restore prevented:', e);
+        }
       }
       window._nutriscoreActiveTrigger = null;
     }
@@ -970,7 +972,9 @@ if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged)
         }
       }
     });
-  } catch (e) {}
+  } catch (e) {
+    console.debug('[SharedUI] Theme init storage read failed:', e);
+  }
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local') {

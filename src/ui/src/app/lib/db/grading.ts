@@ -597,7 +597,7 @@ export function evaluateItem(
         (globalThis as any).NutriObs.count("eval_error", 1);
       }
     } catch (_ignored) {
-      // Ignore telemetry errors
+      console.debug('[Grading] Telemetry counter error:', _ignored);
     }
 
     return {

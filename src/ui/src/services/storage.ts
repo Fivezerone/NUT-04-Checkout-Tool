@@ -44,7 +44,7 @@ class PostgrestQueryBuilder {
     this.table = table
     const root =
       baseUrl ||
-      (env.apiUrl ? `${env.apiUrl.replace(/\/+$/, '')}/rest/v1` : 'http://localhost:8080/api/rest/v1')
+      (env.apiUrl ? `${env.apiUrl.replace(/\/+$/, '')}/rest/v1` : 'https://api.nutriscore.co.ke/api/rest/v1')
     this.endpoint = `${root}/${table}`
   }
 
@@ -163,8 +163,8 @@ export const supabase = {
           const session = raw ? JSON.parse(raw) : null
           return { data: { session }, error: null }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn('[Storage] Failed to read session:', err)
       }
       return { data: { session: null }, error: null }
     },
@@ -213,8 +213,8 @@ export const signOutUser = async (): Promise<void> => {
     if (typeof localStorage !== 'undefined') {
       USER_STORAGE_KEYS.forEach((k) => localStorage.removeItem(k))
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('[Storage] Failed to clear user storage keys:', err)
   }
 };
 

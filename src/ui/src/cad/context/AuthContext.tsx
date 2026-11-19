@@ -192,8 +192,8 @@ export const CadAuthProvider: React.FC<{ children: React.ReactNode }> = ({ child
               setIsLoading(false)
               return
             }
-          } catch {
-            // Not signed in to BFF session
+          } catch (err) {
+            console.debug('[AuthContext] BFF session check not active:', err)
           }
         }
 

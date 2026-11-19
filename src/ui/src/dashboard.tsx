@@ -175,8 +175,8 @@ function DashboardRoot() {
               setAuthState("active");
               setReady(true);
             }
-          } catch {
-            // Ignore
+          } catch (storageErr) {
+            console.debug("[Dashboard] Local storage pre-flight read failed:", storageErr);
           }
         }
 
