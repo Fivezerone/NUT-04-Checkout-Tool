@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
-import react from '@vitejs/plugin-react'
+import preact from '@preact/preset-vite'
 
 // Dev middleware plugin to route /cad or /cad/ to /cad.html
 const cadDevRoutingPlugin = (): Plugin => ({
@@ -38,22 +38,35 @@ export default defineConfig({
     },
   },
   envDir: __dirname,
-  plugins: [react({ jsxRuntime: 'classic' }), tailwindcss(), cadDevRoutingPlugin()],
+  define: {
+    'import.meta.env.VITE_API_URL': JSON.stringify(
+      process.env.VITE_API_URL || 'https://api.nutriscore.co.ke/api',
+    ),
+    'import.meta.env.VITE_OIDC_ISSUER': JSON.stringify(
+      process.env.VITE_OIDC_ISSUER || 'https://auth.nutriscore.co.ke/realms/nutriscore',
+    ),
+  },
+  plugins: [preact(), tailwindcss(), cadDevRoutingPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/ui/src'),
-      react: 'preact/compat',
-      'react-dom': 'preact/compat',
-      'react/jsx-runtime': 'preact/jsx-runtime',
-      'react/jsx-dev-runtime': 'preact/jsx-runtime',
     },
   },
   build: {
+    target: 'es2022',
     outDir: '../../dist-ui/cad',
     emptyOutDir: true,
     rollupOptions: {
       input: {
         cad: path.resolve(__dirname, 'src/ui/cad.html'),
+      },
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('preact')) return 'preact-vendor'
+            if (id.includes('lucide-react')) return 'lucide-vendor'
+          }
+        },
       },
     },
   },

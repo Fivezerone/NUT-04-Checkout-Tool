@@ -12,6 +12,7 @@ import { Badge } from '../../app/components/ui/Badge'
 import { Button } from '../../app/components/ui/Button'
 import { Input } from '../../app/components/ui/Input'
 import { Select } from '../../app/components/ui/Select'
+import { cadApi } from '../api/cad-api'
 
 const PROVISIONABLE_ROLES: Record<CadRole, CadRole[]> = {
   super_admin: [
@@ -52,7 +53,7 @@ export const UserManagementView: React.FC = () => {
   } | null>(null)
   const [copiedPwd, setCopiedPwd] = useState<boolean>(false)
 
-  const permittedProvisionRoles = PROVISIONABLE_ROLES[claims.role]
+  const permittedProvisionRoles = claims.role ? PROVISIONABLE_ROLES[claims.role] || [] : []
   const isPlatformAuditor = claims.role === 'super_admin' && newRole === 'compliance_auditor'
   const tenantChoices = availableTenants.filter(
     (tenant) => tenant.id !== '00000000-0000-0000-0000-000000000000',
@@ -88,9 +89,10 @@ export const UserManagementView: React.FC = () => {
   const loadMembers = async () => {
     setLoading(true)
     try {
-      setMembers([])
+      const data = await cadApi.getMembers(selectedTenantId || claims.tenantId)
+      setMembers(data)
     } catch {
-      // Ignore
+      setMembers([])
     } finally {
       setLoading(false)
     }
@@ -126,25 +128,33 @@ export const UserManagementView: React.FC = () => {
     setSubmitting(true)
     setErrorMsg(null)
     try {
-      const generatedPwd = `Nutri${Math.floor(1000 + Math.random() * 9000)}!2026`
-      const newMember: TenantMember = {
-        tenant_id: selectedTenantId || claims.tenantId,
-        user_id: `usr-${Date.now().toString(36)}`,
+      const res = await cadApi.inviteStaff({
         email: newEmail,
         role: newRole,
-        licence_number: newLicence || undefined,
-        licence_verified: true,
-        status: 'active',
-        created_at: new Date().toISOString(),
-      }
-      setMembers((prev) => [newMember, ...prev])
-      setProvisionSuccess({
-        email: newEmail,
-        role: newRole,
-        password: generatedPwd,
+        tenantId: selectedTenantId || claims.tenantId,
+        licenceNumber: newLicence || undefined,
       })
-    } catch {
-      setErrorMsg('Permission Denied or network error while provisioning member.')
+      if (res.success) {
+        const newMember: TenantMember = {
+          tenant_id: selectedTenantId || claims.tenantId,
+          user_id: res.inviteId || `inv-${Date.now().toString(36)}`,
+          email: newEmail,
+          role: newRole,
+          licence_number: newLicence || undefined,
+          licence_verified: false,
+          status: 'invited',
+          created_at: new Date().toISOString(),
+        }
+        setMembers((prev) => [newMember, ...prev])
+        setProvisionSuccess({
+          email: newEmail,
+          role: newRole,
+        })
+      } else {
+        setErrorMsg(res.error || 'Keycloak staff provisioning endpoint unavailable.')
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Permission Denied or network error while provisioning member.')
     } finally {
       setSubmitting(false)
       setShowInviteModal(false)

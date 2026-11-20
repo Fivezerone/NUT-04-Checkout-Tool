@@ -4,9 +4,25 @@
   "minExtVersion": "0.0.1",
   "killSwitch": false,
   "hostSuffixes": ["naivas.online", "naivas.co.ke"],
-  "allowPaths": ["/", "/products", "/categories", "/category", "/checkout", "/cart"],
+  "allowPaths": [
+    "/",
+    "/products",
+    "/categories",
+    "/category",
+    "/checkout",
+    "/cart",
+    "/food-cupboard",
+    "/fresh-food",
+    "/beverages",
+    "/bakery",
+    "/frozen",
+    "/dairy"
+  ],
   "excludePaths": ["/customer/account", "/customer/login", "/checkout/payment"],
   "card": [
+    ".group",
+    "div[class*='rounded-lg border']",
+    "div:has(> a img[src*='cloudfront.net/product/'])",
     ".product-item",
     ".item.product.product-item",
     "[wire\\:key*='product']",
@@ -15,19 +31,27 @@
   ],
   "id": [
     { "attr": "data-product-id" },
+    { "attr": "data-sku" },
     { "attr": "data-id" },
     { "selector": "input[name='product']", "attr": "value" },
-    { "hrefRegex": "/products/([a-zA-Z0-9_-]+)" }
+    { "hrefRegex": "/product/([0-9]+)" },
+    { "hrefRegex": "/products/([a-zA-Z0-9_-]+)" },
+    { "hrefRegex": "naivas\\.online/([a-zA-Z0-9_-]+)" }
   ],
   "name": [
+    "p.line-clamp-2",
+    "[class*='line-clamp']",
     ".product-item-link",
     ".product-name",
     ".product-item-name a",
+    "span.font-medium",
+    "h1",
+    "h2",
     "h3",
     "h4",
     ".name"
   ],
   "price": {
-    "selector": ".price-box .price, .price-wrapper .price, .price, .font-extrabold"
+    "selector": "div.items-center span, span[class*='font-semibold'], span[class*='text-naivas-green'], .price-box .price, .price-wrapper .price, .price, .font-extrabold"
   }
 }

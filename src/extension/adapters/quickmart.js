@@ -180,6 +180,24 @@ const QuickmartAdapter = {
   },
 
   /**
+   * Evaluates if a category or URL corresponds to non-food segments (e.g. electronics).
+   * Used to gate badges exclusively to food segments.
+   */
+  _isNonFoodCategory(categoryText, urlString) {
+    const combined = `${categoryText || ""} ${urlString || ""}`.toLowerCase().replace(/[-_&/]/g, " ").replace(/\s+/g, " ");
+    const nonFoodKeywords = [
+      "electronic", "appliance", "television", "tv", "audio", "video",
+      "smartphone", "phone", "mobile", "tablet", "computer", "laptop",
+      "clothing", "apparel", "shoe", "fashion",
+      "home and living", "home living", "home cleaning", "cleaning", "pet", "furniture", "kitchenware", "cookware",
+      "bedding", "bath", "hardware", "tool", "garden",
+      "beauty", "cosmetic", "perfume", "fragrance", "personal care",
+      "stationery", "office", "toy", "game", "baby gear", "luggage", "automotive"
+    ];
+    return nonFoodKeywords.some(kw => combined.includes(kw));
+  },
+
+  /**
    * Helper to parse a single product card element.
    * Returns null if product name cannot be resolved.
    * @param {Element} card
@@ -264,6 +282,10 @@ const QuickmartAdapter = {
         categoryText += " " + (el?.textContent?.trim() || "");
       });
       const pageCategory = categoryText.toLowerCase();
+      const pageUrl = typeof location !== "undefined" ? location.href : "";
+      if (this._isNonFoodCategory(pageCategory, pageUrl)) {
+        return products; // Gated: zero cards on non-food categories
+      }
 
       // Quickmart product cards on Growcer:
       // Primary: .product-listing .products, .productInfoJs, or card ancestor of product links
@@ -357,6 +379,10 @@ const QuickmartAdapter = {
         });
       }
       const pageCategory = categoryText.toLowerCase();
+      const pageUrl = typeof location !== "undefined" ? location.href : "";
+      if (this._isNonFoodCategory(pageCategory, pageUrl)) {
+        return candidates; // Gated: zero candidates on non-food categories
+      }
 
       const scope = (root && typeof root.querySelectorAll === "function") ? root : (hasDoc ? document : null);
       if (!scope) return candidates;

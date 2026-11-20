@@ -35,7 +35,6 @@ var NutriScoreDB = (() => {
     QUEUE_MAX_BYTES: () => QUEUE_MAX_BYTES,
     QUEUE_MAX_EVENTS: () => QUEUE_MAX_EVENTS,
     RATE_LIMIT_PER_SEC: () => RATE_LIMIT_PER_SEC,
-    RETENTION_90_DAYS_MS: () => RETENTION_90_DAYS_MS,
     SALT_TO_SODIUM_FACTOR_MG_PER_G: () => SALT_TO_SODIUM_FACTOR_MG_PER_G,
     _consecutiveAbsentMap: () => _consecutiveAbsentMap,
     applyCartSnapshot: () => applyCartSnapshot,
@@ -72,6 +71,7 @@ var NutriScoreDB = (() => {
     getOrCreateCartEpisodeId: () => getOrCreateCartEpisodeId,
     getPendingCartSyncs: () => getPendingCartSyncs,
     getPremiumAssessment: () => getPremiumAssessment,
+    getRetentionCutoff: () => getRetentionCutoff,
     getSettings: () => getSettings,
     getSizeBucket: () => getSizeBucket,
     interpretProduct: () => interpretProduct,
@@ -1142,6 +1142,7 @@ var NutriScoreDB = (() => {
           globalThis.NutriObs.count("eval_error", 1);
         }
       } catch (_ignored) {
+        console.debug("[Grading] Telemetry counter error:", _ignored);
       }
       return {
         status: "NOT_ATTEMPTED",
@@ -1834,8 +1835,72 @@ var NutriScoreDB = (() => {
     });
   }
 
+  // node_modules/date-fns/toDate.mjs
+  function toDate(argument) {
+    const argStr = Object.prototype.toString.call(argument);
+    if (argument instanceof Date || typeof argument === "object" && argStr === "[object Date]") {
+      return new argument.constructor(+argument);
+    } else if (typeof argument === "number" || argStr === "[object Number]" || typeof argument === "string" || argStr === "[object String]") {
+      return new Date(argument);
+    } else {
+      return /* @__PURE__ */ new Date(NaN);
+    }
+  }
+
+  // node_modules/date-fns/constructFrom.mjs
+  function constructFrom(date, value) {
+    if (date instanceof Date) {
+      return new date.constructor(value);
+    } else {
+      return new Date(value);
+    }
+  }
+
+  // node_modules/date-fns/addMonths.mjs
+  function addMonths(date, amount) {
+    const _date = toDate(date);
+    if (isNaN(amount)) return constructFrom(date, NaN);
+    if (!amount) {
+      return _date;
+    }
+    const dayOfMonth = _date.getDate();
+    const endOfDesiredMonth = constructFrom(date, _date.getTime());
+    endOfDesiredMonth.setMonth(_date.getMonth() + amount + 1, 0);
+    const daysInMonth = endOfDesiredMonth.getDate();
+    if (dayOfMonth >= daysInMonth) {
+      return endOfDesiredMonth;
+    } else {
+      _date.setFullYear(
+        endOfDesiredMonth.getFullYear(),
+        endOfDesiredMonth.getMonth(),
+        dayOfMonth
+      );
+      return _date;
+    }
+  }
+
+  // node_modules/date-fns/startOfDay.mjs
+  function startOfDay(date) {
+    const _date = toDate(date);
+    _date.setHours(0, 0, 0, 0);
+    return _date;
+  }
+
+  // node_modules/date-fns/subMonths.mjs
+  function subMonths(date, amount) {
+    return addMonths(date, -amount);
+  }
+
+  // src/ui/src/app/lib/timeframes.ts
+  var RETENTION_MONTHS = 3;
+  function retentionCutoff(now = /* @__PURE__ */ new Date()) {
+    return subMonths(startOfDay(now), RETENTION_MONTHS).getTime();
+  }
+
   // src/ui/src/app/lib/db/cart.ts
-  var RETENTION_90_DAYS_MS = 90 * 24 * 60 * 60 * 1e3;
+  function getRetentionCutoff(now = /* @__PURE__ */ new Date()) {
+    return retentionCutoff(now);
+  }
   function isLedgerV2Enabled() {
     if (typeof self !== "undefined" && self.NutriFlags?.isEnabled) {
       return Boolean(self.NutriFlags.isEnabled("ns.ledger.v2"));
@@ -2217,7 +2282,7 @@ var NutriScoreDB = (() => {
   }
   async function purgeLedgerOlderThan(cutoff) {
     const db = await getDB();
-    const actualCutoff = cutoff ?? Date.now() - RETENTION_90_DAYS_MS;
+    const actualCutoff = cutoff ?? retentionCutoff();
     const range = typeof IDBKeyRange !== "undefined" ? IDBKeyRange.upperBound(actualCutoff, true) : { upper: actualCutoff, upperOpen: true };
     const tx = db.transaction("shopping_ledger", "readwrite");
     const index = tx.store.index("by-addedAt");
@@ -2229,6 +2294,32 @@ var NutriScoreDB = (() => {
       cursor = await cursor.continue();
     }
     await tx.done;
+    try {
+      if (db.objectStoreNames.contains("pending_cart_syncs")) {
+        const syncTx = db.transaction("pending_cart_syncs", "readwrite");
+        let syncCursor = await syncTx.store.openCursor();
+        while (syncCursor) {
+          if (syncCursor.value.savedAt && syncCursor.value.savedAt < actualCutoff) {
+            await syncCursor.delete();
+          }
+          syncCursor = await syncCursor.continue();
+        }
+        await syncTx.done;
+      }
+      if (db.objectStoreNames.contains("shopping_history")) {
+        const histTx = db.transaction("shopping_history", "readwrite");
+        let histCursor = await histTx.store.openCursor();
+        while (histCursor) {
+          if (histCursor.value.viewedAt && histCursor.value.viewedAt < actualCutoff) {
+            await histCursor.delete();
+          }
+          histCursor = await histCursor.continue();
+        }
+        await histTx.done;
+      }
+    } catch (err) {
+      console.debug("[Cart] Auxiliary store purge skipped:", err);
+    }
     return count;
   }
   async function getEntriesSince(start) {
@@ -2486,7 +2577,7 @@ var NutriScoreDB = (() => {
       totalStoredEvents: totalStoredCount,
       filteredPeriodEvents: filteredLedger.length,
       basketQuality: {
-        averageGrade: computeAverageGrade(counts) || "C",
+        averageGrade: computeAverageGrade(counts),
         pts: ptsState.ptsSum,
         distribution: counts
       },

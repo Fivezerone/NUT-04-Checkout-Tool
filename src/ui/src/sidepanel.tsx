@@ -2,6 +2,7 @@ import * as React from 'react'
 import { createRoot } from 'react-dom/client'
 import { useState, useEffect } from 'react'
 import { ShoppingBag, AlertTriangle, ArrowRight, ShieldCheck, RefreshCw } from 'lucide-react'
+import { GradeBadge } from './app/components/ui/GradeBadge'
 import './styles/index.css'
 
 interface BasketItem {
@@ -20,7 +21,7 @@ interface BasketItem {
 export function SidePanelApp() {
   const [loading, setLoading] = useState(false)
   const [retailer, setRetailer] = useState<string>('Supermarket')
-  const [basketGrade, setBasketGrade] = useState<'A' | 'B' | 'C' | 'D' | 'E'>('C')
+  const [basketGrade, setBasketGrade] = useState<'A' | 'B' | 'C' | 'D' | 'E' | null>(null)
   const [items, setItems] = useState<BasketItem[]>([])
 
   useEffect(() => {
@@ -38,6 +39,28 @@ export function SidePanelApp() {
           setRetailer('Active Supermarket')
         }
       })
+    }
+
+    // Connect to chrome.storage.session for real live basket state (F-04)
+    if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+      chrome.storage.session.get(['current_basket', 'basket_grade'], (data) => {
+        if (data?.basket_grade) setBasketGrade(data.basket_grade as any)
+        if (Array.isArray(data?.current_basket)) setItems(data.current_basket)
+      })
+
+      const storageListener = (
+        changes: Record<string, chrome.storage.StorageChange>,
+        area: string,
+      ) => {
+        if (area === 'session') {
+          if (changes['basket_grade']) setBasketGrade((changes['basket_grade'].newValue as any) || null)
+          if (changes['current_basket'] && Array.isArray(changes['current_basket'].newValue)) {
+            setItems(changes['current_basket'].newValue)
+          }
+        }
+      }
+      chrome.storage.onChanged.addListener(storageListener)
+      return () => chrome.storage.onChanged.removeListener(storageListener)
     }
   }, [])
 
@@ -73,24 +96,10 @@ export function SidePanelApp() {
               Live Basket Quality
             </h2>
             <p className="text-[14px] font-bold text-strong mt-0.5">
-              Grade {basketGrade} Overall
+              {basketGrade ? `Grade ${basketGrade} Overall` : 'No basket grade yet'}
             </p>
           </div>
-          <div
-            className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg text-white shadow-xs ${
-              basketGrade === 'A'
-                ? 'bg-ns-grade-a'
-                : basketGrade === 'B'
-                ? 'bg-ns-grade-b text-strong'
-                : basketGrade === 'C'
-                ? 'bg-ns-grade-c'
-                : basketGrade === 'D'
-                ? 'bg-ns-grade-d text-strong'
-                : 'bg-ns-grade-e'
-            }`}
-          >
-            {basketGrade}
-          </div>
+          <GradeBadge grade={basketGrade} size="lg" />
         </div>
       </section>
 

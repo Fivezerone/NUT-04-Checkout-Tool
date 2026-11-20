@@ -228,7 +228,7 @@
             globalThis.NutriObs.count('eval_error', 1)
           }
         } catch (_ignored) {
-          // Ignore telemetry errors
+          console.debug('[Evaluate] Telemetry count error:', _ignored)
         }
 
         return {

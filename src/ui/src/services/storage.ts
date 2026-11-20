@@ -3,6 +3,7 @@
 // Reference: Stage C Implementation Plan (Phase C5: REST/OIDC Data Wiring)
 
 import { SESSION_STORAGE_KEY } from '../../../shared/session-key.mjs'
+import { env } from '../env'
 
 export { SESSION_STORAGE_KEY }
 
@@ -39,9 +40,12 @@ class PostgrestQueryBuilder {
     'Content-Type': 'application/json',
   }
 
-  constructor(table: string, baseUrl = '/rest/v1') {
+  constructor(table: string, baseUrl?: string) {
     this.table = table
-    this.endpoint = `${baseUrl}/${table}`
+    const root =
+      baseUrl ||
+      (env.apiUrl ? `${env.apiUrl.replace(/\/+$/, '')}/rest/v1` : 'https://api.nutriscore.co.ke/api/rest/v1')
+    this.endpoint = `${root}/${table}`
   }
 
   select(columns = '*'): this {
@@ -159,8 +163,8 @@ export const supabase = {
           const session = raw ? JSON.parse(raw) : null
           return { data: { session }, error: null }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn('[Storage] Failed to read session:', err)
       }
       return { data: { session: null }, error: null }
     },
@@ -209,8 +213,8 @@ export const signOutUser = async (): Promise<void> => {
     if (typeof localStorage !== 'undefined') {
       USER_STORAGE_KEYS.forEach((k) => localStorage.removeItem(k))
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('[Storage] Failed to clear user storage keys:', err)
   }
 };
 

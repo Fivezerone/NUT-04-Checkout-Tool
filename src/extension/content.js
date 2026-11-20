@@ -66,6 +66,7 @@ class NutriScoreContentEngine {
         if (item) {
           // D-16: use safeSend to survive extension context invalidation
           this._safeSend({ action: "LOG_CART_ADD", payload: item });
+          setTimeout(() => this.syncCart(false), 800);
         }
       }
     });
@@ -210,33 +211,65 @@ class NutriScoreContentEngine {
   }
 
 
-  /* Poll for URL changes (covers SPA navigation on both Naivas and Carrefour). Falls back gracefully when the Navigation API is not available. */
+  /* Handle SPA route transition: reset page flags, rescan DOM for badges, and re-sync cart. */
+  _handleNavigation() {
+    this.orderDetected = false;
+    this.checkoutCalloutShown = false;
+
+    // On SPA navigation, the old observe root (e.g. <main>) is frequently replaced by the
+    // framework with a fresh DOM node. Re-bind both MutationObservers to the new root
+    // before triggering rescans, so mutations on the new page are captured.
+    const newObserveTarget = (this.adapter?.getObserveTarget?.()) || document.body;
+
+    if (this._scanner) {
+      // Re-bind NutriScanner's MutationObserver to the new root if the old root detached.
+      if (!this._scanner._root?.isConnected) {
+        this._scanner._mo?.disconnect();
+        this._scanner._root = newObserveTarget;
+        this._scanner._mo?.observe(newObserveTarget, { childList: true, subtree: true });
+      }
+      // Re-bind cart observer to the new root too.
+      if (this._cartObserver) {
+        this._cartObserver.disconnect();
+        this._cartObserver.observe(newObserveTarget, { childList: true, subtree: true });
+      }
+    }
+
+    // Rescan immediately and staggered to capture async SPA DOM rendering across PLP and PDP
+    this.rescan();
+    setTimeout(() => this.rescan(), 300);
+    setTimeout(() => {
+      this.rescan();
+      this.syncCart(true);
+      this.checkOrderConfirmation();
+    }, 800);
+  }
+
+  /* Monitor for URL changes (covers SPA navigation on both Naivas and Carrefour). */
   _startNavMonitor() {
+    const onNavChange = () => {
+      if (typeof location !== "undefined" && location.href !== this.lastHref) {
+        this.lastHref = location.href;
+        this._handleNavigation();
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("popstate", onNavChange, { passive: true });
+      window.addEventListener("hashchange", onNavChange, { passive: true });
+    }
+
     // Modern Navigation API (Chrome 102+)
     if (typeof navigation !== "undefined") {
       navigation.addEventListener("navigate", () => {
-        setTimeout(() => {
-          this.orderDetected = false;
-          this.checkoutCalloutShown = false;
-          this.syncCart(true);
-          this.checkOrderConfirmation();
-        }, 800); // give the new page time to render
+        setTimeout(onNavChange, 150);
+        setTimeout(onNavChange, 600);
       });
-    } else {
-      // Polling fallback for older Chrome or Naivas (Magento multi-page)
-      setInterval(() => {
-        if (location.href !== this.lastHref) {
-          this.lastHref = location.href;
-          // Reset order detection flag on new page
-          this.orderDetected = false;
-          this.checkoutCalloutShown = false;
-          setTimeout(() => {
-            this.syncCart(true);
-            this.checkOrderConfirmation();
-          }, 800);
-        }
-      }, 1000);
     }
+
+    // Polling fallback to catch history.pushState / history.replaceState
+    if (this._navInterval) clearInterval(this._navInterval);
+    this._navInterval = setInterval(onNavChange, 300);
   }
 
   /* Check whether the current page is an order confirmation page. If so, mark all in-cart items as purchased. */
@@ -443,8 +476,10 @@ class NutriScoreContentEngine {
     }
     clearTimeout(this.debounceTimer);
     clearTimeout(this.cartDebounceTimer);
+    if (this._navInterval) clearInterval(this._navInterval);
     this.debounceTimer = null;
     this.cartDebounceTimer = null;
+    this._navInterval = null;
   }
 }
 

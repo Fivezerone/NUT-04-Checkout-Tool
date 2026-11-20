@@ -1,0 +1,87 @@
+/**
+ * tokens.theme.css
+ * Generated via scripts/build-tokens.mjs
+ * DO NOT EDIT DIRECTLY
+ *
+ * Exposes semantic colour utilities to Tailwind CSS v4.
+ */
+
+@theme inline {
+  --color-canvas: var(--sem-canvas);
+  --color-surface: var(--sem-surface);
+  --color-surface-raised: var(--sem-surface-raised);
+  --color-surface-muted: var(--sem-surface-muted);
+  --color-border-subtle: var(--sem-border-subtle);
+  --color-border-control: var(--sem-border-control);
+  --color-border: var(--sem-border-subtle);
+  --color-strong: var(--sem-strong);
+  --color-text: var(--sem-text);
+  --color-muted-foreground: var(--sem-muted-foreground);
+  --color-placeholder: var(--sem-placeholder);
+  --color-brand: var(--sem-brand);
+  --color-brand-hover: var(--sem-brand-hover);
+  --color-brand-subtle: var(--sem-brand-subtle);
+  --color-on-brand: var(--sem-on-brand);
+  --color-critical: var(--sem-critical);
+  --color-critical-subtle: var(--sem-critical-subtle);
+  --color-warning: var(--sem-warning);
+  --color-warning-subtle: var(--sem-warning-subtle);
+  --color-success: var(--sem-success);
+  --color-success-subtle: var(--sem-success-subtle);
+  --color-info: var(--sem-info);
+  --color-info-subtle: var(--sem-info-subtle);
+  --color-pending: var(--sem-pending);
+  --color-pending-subtle: var(--sem-pending-subtle);
+  --color-focus: var(--sem-focus);
+  --color-grade-a: var(--sem-grade-a);
+  --color-grade-b: var(--sem-grade-b);
+  --color-grade-c: var(--sem-grade-c);
+  --color-grade-d: var(--sem-grade-d);
+  --color-grade-e: var(--sem-grade-e);
+  --color-on-grade-a: var(--sem-on-grade-a);
+  --color-on-grade-b: var(--sem-on-grade-b);
+  --color-on-grade-c: var(--sem-on-grade-c);
+  --color-on-grade-d: var(--sem-on-grade-d);
+  --color-on-grade-e: var(--sem-on-grade-e);
+
+  /* Compatibility utilities matching codebase call sites */
+  --color-brand-mint: var(--sem-brand);
+  --color-brand-navy: var(--sem-strong);
+  --color-brand-sun: var(--color-sun-400);
+  --color-brand-coral: var(--color-coral-400);
+  --color-border-control-subtle: var(--sem-border-subtle);
+  --color-status-success: var(--sem-success);
+  --color-status-success-subtle: var(--sem-success-subtle);
+  --color-status-warning: var(--sem-warning);
+  --color-status-warning-subtle: var(--sem-warning-subtle);
+  --color-status-info: var(--sem-info);
+  --color-status-info-subtle: var(--sem-info-subtle);
+  --color-status-critical: var(--sem-critical);
+  --color-status-critical-subtle: var(--sem-critical-subtle);
+  --color-status-error: var(--sem-critical);
+  --color-status-error-subtle: var(--sem-critical-subtle);
+  --color-ns-grade-a: var(--sem-grade-a);
+  --color-ns-grade-b: var(--sem-grade-b);
+  --color-ns-grade-c: var(--sem-grade-c);
+  --color-ns-grade-d: var(--sem-grade-d);
+  --color-ns-grade-e: var(--sem-grade-e);
+
+  /* Shadcn / base utility color aliases */
+  --color-background: var(--sem-canvas);
+  --color-foreground: var(--sem-text);
+  --color-muted: var(--sem-surface-muted);
+  --color-card: var(--sem-surface);
+  --color-card-foreground: var(--sem-text);
+  --color-popover: var(--sem-surface);
+  --color-popover-foreground: var(--sem-text);
+  --color-primary: var(--sem-brand);
+  --color-primary-foreground: var(--sem-on-brand);
+  --color-secondary: var(--sem-surface-muted);
+  --color-secondary-foreground: var(--sem-text);
+  --color-accent: var(--sem-brand-subtle);
+  --color-accent-foreground: var(--sem-brand);
+  --color-destructive: var(--sem-critical);
+  --color-destructive-foreground: #FFFFFF;
+  --color-input: var(--sem-border-control);
+  --color-ring: var(--sem-focus);
+}

@@ -25,24 +25,24 @@ const GRADE_DATA: Record<
   B: {
     label: 'B',
     bg: '#85bb2f',
-    text: '#ffffff',
+    text: '#14320a',
     description: 'Good nutritional quality',
   },
   C: {
     label: 'C',
     bg: '#fecb02',
-    text: '#212121',
+    text: '#3a2e00',
     description: 'Average nutritional quality',
   },
   D: {
     label: 'D',
     bg: '#ee8100',
-    text: '#ffffff',
+    text: '#331c00',
     description: 'Poor nutritional quality',
   },
   E: {
     label: 'E',
-    bg: '#e63e11',
+    bg: '#d1320a',
     text: '#ffffff',
     description: 'Unfavourable nutritional quality',
   },

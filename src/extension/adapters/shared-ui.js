@@ -74,7 +74,7 @@ const NutriSharedUI = {
         const result = await strategy();
         if (result && result.length > 0) return result;
       } catch (e) {
-        // Strategy failed, continue to next
+        console.debug('[SharedUI] Strategy execution failed, trying next:', e);
       }
     }
     return [];
@@ -82,6 +82,7 @@ const NutriSharedUI = {
 
   // Close whatever flyout is currently open (single-flyout constraint, Part C3).
   _closeActiveFlyout() {
+    const { restoreFocus = false } = (arguments.length > 0 && arguments[0]) ? arguments[0] : {};
     if (window._nutriscoreActiveFlyout) {
       // D-27: remove Escape handler before removing element
       if (window._nutriscoreActiveFlyout._nsEscHandler) {
@@ -97,9 +98,13 @@ const NutriSharedUI = {
     }
     if (window._nutriscoreActiveTrigger) {
       window._nutriscoreActiveTrigger.setAttribute('aria-expanded', 'false');
-      try {
-        window._nutriscoreActiveTrigger.focus?.({ preventScroll: true });
-      } catch (e) {}
+      if (restoreFocus) {
+        try {
+          window._nutriscoreActiveTrigger.focus?.({ preventScroll: true });
+        } catch (e) {
+          console.debug('[SharedUI] Focus restore prevented:', e);
+        }
+      }
       window._nutriscoreActiveTrigger = null;
     }
   },
@@ -293,13 +298,127 @@ const NutriSharedUI = {
   // Main badge injection
   // ---------------------------------------------------------------------------
   injectBadge(card, productResult, price, placementStyle) {
-    const existingBadge = card.querySelector?.(".nutriscore-isolated-root");
-    if (existingBadge) existingBadge.remove();
+    if (!card || !productResult) return null;
 
-    if (!placementStyle) placementStyle = "position:absolute;top:8px;right:8px;z-index:10;";
+    // Category / Catalog Gating: Do not render badges on excluded non-food items
+    // or items that do not exist in the retailer database
+    if (productResult.status === "NOT_FOUND" || productResult.scoringStatus === "not_found") {
+      return null;
+    }
+    if (productResult.isExcluded && (!productResult.nutriscore_grade || productResult.nutriscore_grade === "UNKNOWN") && productResult.scoringStatus === "not_attempted") {
+      return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Anti-Collision Layout Strategy (PLP Grid vs Horizontal Row vs PDP)
+    // Determine placement BEFORE cleanup so we can clean the right anchor.
+    // -------------------------------------------------------------------------
+    let targetAnchor = card;
+    let insertionMode = "append"; // "append" or "afterend"
+    let computedStyle = placementStyle;
+
+    if (!computedStyle) {
+      const pagePath = typeof location !== "undefined" ? (location.pathname || "").toLowerCase() : "";
+      const isKnownPdpUrl = pagePath.includes("/p/") || pagePath.includes("/product/") || pagePath.includes("/products/view/");
+      const isKnownCategoryUrl = pagePath.includes("/c/") || pagePath.includes("/category/") || pagePath.includes("/categories/") || pagePath.includes("/search") || pagePath.includes("/collection/");
+
+      // 1. Detect Product Detail Page (PDP) Hero / Buy-Box
+      // A PDP container must be a buy-box wrapper (not a grid tile)
+      const isPdpBuyBox = !isKnownCategoryUrl && (
+        card.matches?.(".product-info-main, [class*='pdp'], [data-testid*='pdp'], .product-detail, #product-detail, [data-slot='product-detail']") ||
+        (isKnownPdpUrl && !!card.querySelector?.("h1.page-title, h1[class*='title'], [data-testid='product-title'], h1") && !card.matches?.(".group, .product-item, [class*='card']"))
+      );
+
+      // 2. Detect Horizontal List / Cart / Checkout Row
+      // A cart row must have an EXPLICIT cart signal: a named cart-item class/testid, a trash/remove
+      // button, a quantity combobox/stepper, or a Livewire remove() wire:click attribute.
+      // We deliberately avoid matching on input[type='checkbox'] alone because wishlist star/heart
+      // toggles on PLP cards are implemented as hidden checkboxes and cause false positives.
+      const hasTrashBtn = !!card.querySelector?.("[data-testid='trash-icon'], [data-testid='remove-item'], [aria-label*='remove'], [aria-label*='delete']");
+      const hasWireRemove = !!card.querySelector?.("[wire\\:click^='remove(']");
+      const hasQtyStepper = !!card.querySelector?.("button[role='combobox'], input[name*='qty'], input[name*='quantity'], [data-testid*='quantity']");
+      const isCartOrList = card.matches?.("li[class*='cart'], tr, [class*='cart-item'], [data-testid*='cart-item'], [data-testid*='item-row']") ||
+                           hasTrashBtn || hasWireRemove || hasQtyStepper;
+
+      const titleEl = card.querySelector?.("[data-testid='product-title'], h1, h2, h3, h4, .line-clamp-2, .line-clamp-1, [class*='title'], [class*='name']");
+
+      if (isPdpBuyBox && titleEl) {
+        // PDP Buy Box: inject in document flow directly beneath title
+        targetAnchor = titleEl;
+        insertionMode = "afterend";
+        computedStyle = "display:inline-flex;align-items:center;margin:8px 0 12px 0;clear:both;position:relative;z-index:10;width:fit-content;";
+      } else if (isCartOrList && titleEl) {
+        // Horizontal Cart / List Row: inject beneath title element, full-width block so it
+        // occupies its own line and does not collapse into the adjacent price/qty column.
+        targetAnchor = titleEl;
+        insertionMode = "afterend";
+        computedStyle = "display:block;margin:4px 0 6px 0;width:fit-content;position:relative;z-index:10;";
+      } else {
+        // PLP Grid: strictly anchor to the image container so badge is overlaid on the product
+        // photo at top-right and NEVER collides with title or price text below.
+        // Strategy 1: use img.closest() to find a semantic image wrapper (fastest, most precise).
+        // Strategy 2: walk up from img.parentElement until a positioned/named wrapper is found.
+        // Strategy 3: fall back to card itself (ensures position:relative is set on it).
+        const img = card.querySelector?.("img");
+        let mediaWrapper = null;
+        if (img) {
+          // Strategy 1: closest() — works when wrapper has a known class or is an <a> element
+          if (typeof img.closest === "function") {
+            mediaWrapper = img.closest("a, div.relative, div[class*='image'], div[class*='img'], div[class*='thumb'], div[class*='photo'], div[class*='picture'], div.group");
+            // Reject if closest() reached card itself (too broad — badge would float over whole card)
+            if (mediaWrapper && mediaWrapper === card) {
+              mediaWrapper = null;
+            }
+          }
+          // Strategy 2: parent-walk — good for Tailwind utility-class wrappers like overflow-hidden rounded-t-lg
+          if (!mediaWrapper) {
+            let el = img.parentElement;
+            while (el && el !== card) {
+              const cls = el.className || "";
+              if (cls.includes("relative") || cls.includes("image") || cls.includes("img") ||
+                  cls.includes("thumb") || cls.includes("photo") || cls.includes("picture") ||
+                  el.style?.position === "relative" || el.tagName === "A") {
+                mediaWrapper = el;
+                break;
+              }
+              el = el.parentElement;
+            }
+            // Strategy 2b: use img's direct parent if no semantic wrapper found in walk
+            if (!mediaWrapper && img.parentElement && img.parentElement !== card) {
+              mediaWrapper = img.parentElement;
+            }
+          }
+        }
+        // Strategy 3: final fallback to card itself
+        if (!mediaWrapper) mediaWrapper = card;
+        targetAnchor = mediaWrapper;
+        insertionMode = "append";
+        computedStyle = "position:absolute;top:8px;right:8px;z-index:10;pointer-events:auto;";
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Idempotency: clean up any existing badges AFTER placement is determined.
+    // Clean the whole card subtree first, then also the specific targetAnchor
+    // to handle cases where a prior injection targeted a different anchor within
+    // the same card (e.g., after a rescan changes placement from image to PDP mode).
+    // -------------------------------------------------------------------------
+    card.querySelectorAll?.(".nutriscore-isolated-root")?.forEach?.(b => b.remove());
+    if (targetAnchor && targetAnchor !== card) {
+      targetAnchor.querySelectorAll?.(".nutriscore-isolated-root")?.forEach?.(b => b.remove());
+      // Also clean any sibling badge that was inserted afterend of targetAnchor previously
+      const nextSib = targetAnchor.nextElementSibling;
+      if (nextSib?.classList?.contains("nutriscore-isolated-root")) nextSib.remove();
+    }
+    // Clean parent in case a prior rescan injected on the parent container
+    const cardParent = card.parentElement;
+    if (cardParent && cardParent !== document.body && cardParent !== document.documentElement) {
+      cardParent.querySelectorAll?.(".nutriscore-isolated-root")?.forEach?.(b => b.remove());
+    }
+
     const badgeContainer = document.createElement("div");
     badgeContainer.className = "nutriscore-isolated-root";
-    badgeContainer.style.cssText = placementStyle;
+    badgeContainer.style.cssText = computedStyle;
 
     const useClosed = typeof NutriFlags !== "undefined"
       ? NutriFlags.isEnabled("ns.ui.closed_shadow", true)
@@ -307,13 +426,22 @@ const NutriSharedUI = {
     const shadow = badgeContainer.attachShadow({ mode: useClosed ? "closed" : "open" });
     NutriSharedUI._shadowRoots.set(badgeContainer, shadow);
 
-    const gradeColors = window.NutriScoreGradeColors || {
-      C: { bg: "#fecb02", txt: "#212121", label: "Moderate" }
+    const gradeColors = {
+      A: { bg: "var(--ns-grade-a, #038141)", txt: "var(--ns-on-grade-a, #ffffff)", label: "Very Good" },
+      B: { bg: "var(--ns-grade-b, #85bb2f)", txt: "var(--ns-on-grade-b, #14320a)", label: "Good" },
+      C: { bg: "var(--ns-grade-c, #fecb02)", txt: "var(--ns-on-grade-c, #3a2e00)", label: "Moderate" },
+      D: { bg: "var(--ns-grade-d, #ee8100)", txt: "var(--ns-on-grade-d, #331c00)", label: "Poor" },
+      E: { bg: "var(--ns-grade-e, #d1320a)", txt: "var(--ns-on-grade-e, #ffffff)", label: "Unfavourable" },
     };
 
     let grade = (productResult.nutriscore_grade || "UNKNOWN").toUpperCase();
     const scoringStatus = productResult.scoringStatus || "computed";
-    const isNoData = grade === "UNKNOWN" || grade === "NULL" || scoringStatus === "not_attempted" || scoringStatus === "insufficient_data";
+    let isNoData =
+      grade === "UNKNOWN" ||
+      grade === "NULL" ||
+      scoringStatus === "not_attempted" ||
+      scoringStatus === "insufficient_data" ||
+      !gradeColors[grade];
 
     let info;
     if (isNoData) {
@@ -321,10 +449,10 @@ const NutriSharedUI = {
       info = {
         bg: scoringStatus === "insufficient_data" ? "#FFFFFF" : "#EAF1F4",
         txt: scoringStatus === "insufficient_data" ? "#073A4B" : "#46636F",
-        label: scoringStatus === "insufficient_data" ? "Limited Info" : "Not Rated"
+        label: scoringStatus === "insufficient_data" ? "Limited Info" : "Not Rated",
       };
     } else {
-      info = gradeColors[grade] || gradeColors.C;
+      info = gradeColors[grade];
     }
 
     const styles = `
@@ -364,10 +492,11 @@ const NutriSharedUI = {
       }
     } else {
       const grades = ['A', 'B', 'C', 'D', 'E'];
-      const scaleBoxes = grades.map(g => {
-        const isActive = g === grade;
-        const gInfo = gradeColors[g] || { bg: '#85bb2f', txt: '#ffffff' };
-        return `<span class="ns-scale-box ns-${g.toLowerCase()}${isActive ? ' active' : ''}" style="
+      const scaleBoxes = grades
+        .map((g) => {
+          const isActive = g === grade;
+          const gInfo = gradeColors[g] || { bg: '#85bb2f', txt: '#14320a' };
+          return `<span class="ns-scale-box ns-${g.toLowerCase()}${isActive ? ' active' : ''}" style="
           display:inline-flex;align-items:center;justify-content:center;
           width:${isActive ? '20px' : '14px'};
           height:${isActive ? '24px' : '18px'};
@@ -379,7 +508,8 @@ const NutriSharedUI = {
           opacity:${isActive ? '1' : '0.75'};
           transition:all .15s ease;
         ">${g}</span>`;
-      }).join('');
+        })
+        .join('');
       trigger.innerHTML = `<div class="ns-scale-module" style="display:inline-flex;align-items:center;gap:1px;background:#FFFFFF;border:1px solid #D6E3E8;border-radius:6px;padding:2px;box-shadow:0 1px 3px rgba(7,58,75,0.08);height:28px;">${scaleBoxes}</div>`;
     }
     shadow.appendChild(trigger);
@@ -434,12 +564,17 @@ const NutriSharedUI = {
       let diseaseHTML = "";
 
       const conf = productResult.evidenceTier || productResult.confidence || "";
+      const SVG_ICONS = {
+        check: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+        info: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`,
+        alert: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
+      };
       let confLabel = "";
-      if (conf === "high_confidence") confLabel = "ⓘ High confidence";
-      else if (conf === "confirmed") confLabel = "📊 Verified";
-      else if (conf === "estimated") confLabel = "📋 Category est.";
-      else if (conf === "not_rated") confLabel = "⚠ Not enough data";
-      else if (conf) confLabel = "⚠ Estimated";
+      if (conf === "high_confidence") confLabel = `${SVG_ICONS.info}<span>High confidence</span>`;
+      else if (conf === "confirmed") confLabel = `${SVG_ICONS.check}<span>Verified</span>`;
+      else if (conf === "estimated") confLabel = `${SVG_ICONS.info}<span>Category est.</span>`;
+      else if (conf === "not_rated") confLabel = `${SVG_ICONS.alert}<span>Not enough data</span>`;
+      else if (conf) confLabel = `${SVG_ICONS.info}<span>Estimated</span>`;
 
       const provLevel = productResult.evidenceLevel || "unknown";
       const EVIDENCE_LABEL = {
@@ -593,36 +728,41 @@ const NutriSharedUI = {
       flyoutEl.setAttribute('aria-modal', 'true');
       flyoutEl.setAttribute('tabindex', '-1');
 
-      // D-27: Escape key closes flyout (auto-removed when flyout closes via _closeActiveFlyout)
+      // D-27: Escape key closes flyout and restores focus (F-08)
       const escHandler = (e) => {
-        if (e.key === 'Escape') { NutriSharedUI._closeActiveFlyout(); }
+        if (e.key === 'Escape') {
+          NutriSharedUI._closeActiveFlyout({ restoreFocus: true });
+        }
       };
       document.addEventListener('keydown', escHandler);
       flyoutEl._nsEscHandler = escHandler;
 
-      // Accessible Tab trap inside the flyout dialog
+      // Accessible Tab trap inside the flyout dialog (F-08: inspect shadow root activeElement)
       flyoutEl.addEventListener('keydown', (e) => {
         if (e.key === 'Tab') {
-          const focusables = Array.from(flyoutEl.querySelectorAll('button:not([disabled]), [tabindex="0"]'));
+          const focusables = Array.from(
+            flyoutEl.querySelectorAll('button:not([disabled]), [tabindex="0"]'),
+          );
           if (focusables.length === 0) return;
           const first = focusables[0];
           const last = focusables[focusables.length - 1];
-          if (e.shiftKey && document.activeElement === first) {
+          const active = flyoutEl.getRootNode().activeElement;
+          if (e.shiftKey && (active === first || active === flyoutEl)) {
             e.preventDefault();
             last.focus();
-          } else if (!e.shiftKey && document.activeElement === last) {
+          } else if (!e.shiftKey && active === last) {
             e.preventDefault();
             first.focus();
           }
         }
       });
 
-      // Wire header close button
+      // Wire header close button (restores focus to trigger)
       const closeBtn = flyoutEl.querySelector("[data-ns-close]");
       if (closeBtn) {
         closeBtn.addEventListener("click", (ev) => {
           ev.stopPropagation();
-          NutriSharedUI._closeActiveFlyout();
+          NutriSharedUI._closeActiveFlyout({ restoreFocus: true });
         });
       }
 
@@ -658,7 +798,7 @@ const NutriSharedUI = {
       window._nutriscoreOutside = (ev) => {
         const path = typeof ev.composedPath === 'function' ? ev.composedPath() : [];
         if (!path.includes(flyoutEl) && !path.includes(trigger)) {
-          NutriSharedUI._closeActiveFlyout();
+          NutriSharedUI._closeActiveFlyout({ restoreFocus: false });
         }
       };
       setTimeout(() => {
@@ -670,9 +810,14 @@ const NutriSharedUI = {
 
     // Feature C Part C1: badge z-index is 10 (passive, inherits card stacking).
     card.setAttribute("data-nutriscore-id", productResult.productId || "");
-    card.style.position = "relative";
-    card.style.overflow = "visible";
-    card.appendChild(badgeContainer);
+    if (insertionMode === "afterend" && targetAnchor && targetAnchor.insertAdjacentElement) {
+      targetAnchor.insertAdjacentElement("afterend", badgeContainer);
+    } else {
+      if (targetAnchor) {
+        // Feature C: Position badge inline into targetAnchor without rewriting host card position/overflow (F-08)
+        targetAnchor.appendChild(badgeContainer);
+      }
+    }
     return shadow;
   },
 
@@ -684,6 +829,8 @@ const NutriSharedUI = {
 
     const pill = document.createElement('div');
     pill.id = 'nutriscore-store-paused-pill';
+    pill.setAttribute('role', 'status');
+    pill.setAttribute('aria-live', 'polite');
     pill.style.cssText = [
       "position:fixed",
       "bottom:20px",
@@ -716,6 +863,7 @@ const NutriSharedUI = {
         font-weight:700;
         cursor:pointer;
         min-height:28px;
+        min-width:44px;
       ">Resume</button>
     `;
 
@@ -736,6 +884,8 @@ const NutriSharedUI = {
 
     const callout = document.createElement('div');
     callout.id = 'nutriscore-checkout-callout';
+    callout.setAttribute('role', 'region');
+    callout.setAttribute('aria-label', 'Pre-Checkout Health Review');
     callout.style.cssText = [
       "position:fixed",
       "bottom:24px",
@@ -753,15 +903,23 @@ const NutriSharedUI = {
     ].join(";");
 
     const itemCount = basketSummary?.itemCount ?? 0;
-    const avgGrade = basketSummary?.averageGrade || 'B';
+    const avgGrade = basketSummary?.averageGrade || null;
 
     callout.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
         <div style="font-weight:700;font-size:14px;color:var(--ns-text-strong,#073A4B);">Pre-Checkout Health Review</div>
-        <button data-ns-close-callout style="background:none;border:none;cursor:pointer;color:var(--ns-text-muted,#46636F);font-size:18px;line-height:1;padding:0;" aria-label="Dismiss">&times;</button>
+        <button data-ns-close-callout style="background:none;border:none;cursor:pointer;color:var(--ns-text-muted,#46636F);font-size:18px;line-height:1;min-width:24px;min-height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;" aria-label="Dismiss">&times;</button>
       </div>
       <div style="font-size:12px;color:var(--ns-text,#234B5A);margin:8px 0 12px;">
-        ${itemCount > 0 ? `Your cart has ${itemCount} items with an average Nutri-Score of <strong>${this.escapeHTML(avgGrade)}</strong>.` : 'Review your cart health and swap suggestions before completing checkout.'}
+        ${
+          itemCount > 0 && avgGrade
+            ? `Your cart has ${itemCount} items with an average Nutri-Score of <strong>${this.escapeHTML(
+                avgGrade,
+              )}</strong>.`
+            : itemCount > 0
+              ? `Your cart has ${itemCount} items ready for nutrition review.`
+              : 'Review your cart health and swap suggestions before completing checkout.'
+        }
       </div>
       <button data-ns-open-panel style="
         width:100%;
@@ -814,7 +972,9 @@ if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged)
         }
       }
     });
-  } catch (e) {}
+  } catch (e) {
+    console.debug('[SharedUI] Theme init storage read failed:', e);
+  }
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local') {

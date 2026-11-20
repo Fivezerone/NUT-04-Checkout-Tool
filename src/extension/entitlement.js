@@ -288,7 +288,9 @@ self.NutriEntitlement = (() => {
         if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
           try {
             chrome.runtime.sendMessage({ type: 'token_revoked', status: res.status });
-          } catch (_e) {}
+          } catch (_e) {
+            console.debug('[Entitlement] Token revoked message broadcast error:', _e);
+          }
         }
         return 'basic';
       }

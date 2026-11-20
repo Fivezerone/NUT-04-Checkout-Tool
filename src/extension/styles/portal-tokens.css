@@ -5,6 +5,10 @@
  */
 
 :host {
+  all: initial;
+  font-size: 12px;
+  box-sizing: border-box;
+
   /* Spacing */
   --space-0: 0px;
   --space-0-5: 0.25rem;
@@ -37,7 +41,8 @@
   --ns-brand: #04785A;
   --ns-brand-hover: #03644A;
   --ns-brand-subtle: #E6FBF4;
-  --ns-focus: #0B6E91;
+  --ns-on-brand: #FFFFFF;
+  --ns-focus: #0B6E91; /* 5.75:1 on white */
   --ns-radius: 12px;
   --ns-radius-card: 16px;
   --ns-radius-control: 8px;
@@ -53,9 +58,9 @@
   --ns-grade-d: #ee8100;
   --ns-grade-e: #e63e11;
   --ns-on-grade-a: #ffffff;
-  --ns-on-grade-b: #14320a;
-  --ns-on-grade-c: #3a2e00;
-  --ns-on-grade-d: #331c00;
+  --ns-on-grade-b: #14320a; /* 6.14:1 on B */
+  --ns-on-grade-c: #3a2e00; /* 8.76:1 on C */
+  --ns-on-grade-d: #331c00; /* 5.95:1 on D */
   --ns-on-grade-e: #ffffff;
 
   /* Status Tints */
@@ -82,7 +87,8 @@
   --ns-brand: #06D7A0;
   --ns-brand-hover: #34EAB6;
   --ns-brand-subtle: #07353A;
-  --ns-focus: #6CC6E3;
+  --ns-on-brand: #04222D; /* Contrast against mint fill */
+  --ns-focus: #6CC6E3; /* 4.79:1 on dark surface */
   --ns-shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
   --ns-shadow-flyout: 0 12px 28px rgb(0 0 0 / 0.4), 0 1px 3px rgb(0 0 0 / 0.2);
   --ns-shadow-raised: 0 12px 28px rgb(0 0 0 / 0.4);

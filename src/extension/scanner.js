@@ -141,7 +141,14 @@ class NutriScanner {
   rescan() {
     this._seen     = new WeakSet();
     this._attempts = new WeakMap();
-    this._enqueueRoot(this._root);
+    this._enqueueRoot(this._root || document.body);
+    this._queue.length = 0;
+    this._pending.clear();
+    if (!this._root?.isConnected) {
+      this._mo?.disconnect();
+      this._root = this._adapter?.getObserveTarget?.() || document.body;
+      if (this._root) this._mo?.observe(this._root, { childList: true, subtree: true });
+    }
   }
 
   // ── 1. DISCOVERY ──────────────────────────────────────────────────────────

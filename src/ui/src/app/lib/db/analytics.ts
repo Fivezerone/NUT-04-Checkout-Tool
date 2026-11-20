@@ -256,7 +256,7 @@ export function calculateAnalytics(filteredLedger: any[], totalStoredCount: numb
     totalStoredEvents: totalStoredCount,
     filteredPeriodEvents: filteredLedger.length,
     basketQuality: {
-      averageGrade: computeAverageGrade(counts) || "C",
+      averageGrade: computeAverageGrade(counts),
       pts: ptsState.ptsSum,
       distribution: counts as any
     },

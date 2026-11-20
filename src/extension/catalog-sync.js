@@ -652,7 +652,7 @@ self.NutriCatalogSync = (() => {
         });
       }
     } catch (err) {
-      // Ignore meta error
+      console.warn('[NutriCatalogSync] Failed to initialize catalog meta fallback:', err);
     }
   }
 
@@ -669,7 +669,9 @@ self.NutriCatalogSync = (() => {
               periodInMinutes: 360, // 6 hours
               delayInMinutes: Math.floor(Math.random() * 30), // 0-30m jitter
             });
-          } catch (_e) {}
+          } catch (_e) {
+            console.debug('[NutriCatalogSync] Alarm creation ignored:', _e);
+          }
         }
 
         const meta = await NutriScoreDB.getCatalogMeta();
@@ -703,7 +705,7 @@ self.NutriCatalogSync = (() => {
             return;
           }
         } catch(err) {
-          // Ignore meta fetch errors here
+          console.warn('[NutriCatalogSync] Fallback check failed:', err);
         }
         // If we don't have a catalog, we must throw because the extension cannot function
         syncPromise = null;

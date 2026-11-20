@@ -34,16 +34,33 @@
   --leading-page: 2rem;
 
   /* NutriScore Grades (Charter standard) */
-  --ns-grade-a: #038141;
-  --ns-grade-b: #85bb2f;
-  --ns-grade-c: #fecb02;
-  --ns-grade-d: #ee8100;
-  --ns-grade-e: #e63e11;
-  --ns-on-grade-a: #ffffff;
-  --ns-on-grade-b: #14320a;
-  --ns-on-grade-c: #3a2e00;
-  --ns-on-grade-d: #331c00;
-  --ns-on-grade-e: #ffffff;
+  --sem-grade-a: #038141;
+  --sem-grade-b: #85bb2f;
+  --sem-grade-c: #fecb02;
+  --sem-grade-d: #ee8100;
+  --sem-grade-e: #e63e11;
+  --sem-on-grade-a: #ffffff;
+  --sem-on-grade-b: #14320a; /* 6.14:1 on B */
+  --sem-on-grade-c: #3a2e00; /* 8.76:1 on C */
+  --sem-on-grade-d: #331c00; /* 5.95:1 on D */
+  --sem-on-grade-e: #ffffff; /* Large text standard */
+
+  /* Backward-compatible aliases for grade variables */
+  --ns-grade-a: var(--sem-grade-a);
+  --ns-grade-b: var(--sem-grade-b);
+  --ns-grade-c: var(--sem-grade-c);
+  --ns-grade-d: var(--sem-grade-d);
+  --ns-grade-e: var(--sem-grade-e);
+  --ns-on-grade-a: var(--sem-on-grade-a);
+  --ns-on-grade-b: var(--sem-on-grade-b);
+  --ns-on-grade-c: var(--sem-on-grade-c);
+  --ns-on-grade-d: var(--sem-on-grade-d);
+  --ns-on-grade-e: var(--sem-on-grade-e);
+  --color-grade-a: var(--sem-grade-a);
+  --color-grade-b: var(--sem-grade-b);
+  --color-grade-c: var(--sem-grade-c);
+  --color-grade-d: var(--sem-grade-d);
+  --color-grade-e: var(--sem-grade-e);
 
   /* Primitives */
   --color-navy-900: #073a4b;
@@ -61,78 +78,84 @@
   --color-critical-600: #c81e4f;
   --color-critical-800: #9f1239;
 
-  /* Semantic Light Mode */
-  --color-canvas: #F5F9FA;
-  --color-surface: #FFFFFF;
-  --color-surface-raised: #FFFFFF;
-  --color-surface-muted: #EAF1F4;
-  --color-border-subtle: #D6E3E8;
-  --color-border-control: #6B8794; /* 3.81:1 on white (WCAG AA non-text) */
-  --color-border: #D6E3E8;
-  --color-text-strong: #073A4B; /* 12.24:1 on white */
-  --color-text: #234B5A; /* 8.90:1 on canvas */
-  --color-text-muted: #46636F; /* 6.05:1 on canvas */
-  --color-placeholder: #5B7682; /* 4.82:1 on white */
-  --color-brand: #04785A;
-  --color-brand-hover: #03644A;
-  --color-brand-subtle: #E6FBF4;
-  --color-on-brand: #FFFFFF;
+  /* Semantic Light Mode: Primary --sem-* namespace */
+  --sem-canvas: #F5F9FA;
+  --sem-surface: #FFFFFF;
+  --sem-surface-raised: #FFFFFF;
+  --sem-surface-muted: #EAF1F4;
+  --sem-border-subtle: #D6E3E8;
+  --sem-border-control: #6B8794; /* 3.81:1 on white (WCAG AA non-text) */
+  --sem-border: #D6E3E8;
+  --sem-strong: #073A4B; /* 12.24:1 on white */
+  --sem-text: #234B5A; /* 8.90:1 on canvas */
+  --sem-muted-foreground: #46636F; /* 6.05:1 on canvas, 6.41:1 on card */
+  --sem-placeholder: #5B7682; /* 4.82:1 on white */
+  --sem-brand: #04785A;
+  --sem-brand-hover: #03644A;
+  --sem-brand-subtle: #E6FBF4;
+  --sem-on-brand: #FFFFFF;
 
-  /* Status Semantic Tints (Always accompanied by icons & text) */
-  --color-success: #04785A;
-  --color-success-subtle: #E6FBF4;
-  --color-info: #0A5A77;
-  --color-info-subtle: #E5F4F9;
-  --color-pending: #7A5400;
-  --color-pending-subtle: #FFF6DC;
-  --color-warning: #9A3412;
-  --color-warning-subtle: #FFF0EA;
-  --color-critical: #9F1239;
-  --color-critical-subtle: #FFF1F4;
+  /* Status Semantic Tints */
+  --sem-success: #04785A;
+  --sem-success-subtle: #E6FBF4;
+  --sem-info: #0A5A77;
+  --sem-info-subtle: #E5F4F9;
+  --sem-pending: #7A5400;
+  --sem-pending-subtle: #FFF6DC;
+  --sem-warning: #9A3412;
+  --sem-warning-subtle: #FFF0EA;
+  --sem-critical: #9F1239;
+  --sem-critical-subtle: #FFF1F4;
 
   /* Focus Ring */
-  --focus-ring: #0B6E91;
+  --sem-focus: #0B6E91; /* 5.75:1 on white */
+  --focus-ring: var(--sem-focus);
   --focus-ring-offset: 2px;
+
+  /* Backward-compatible aliases for runtime CSS */
+  --color-canvas: var(--sem-canvas);
+  --color-surface: var(--sem-surface);
+  --color-surface-raised: var(--sem-surface-raised);
+  --color-surface-muted: var(--sem-surface-muted);
+  --color-border-subtle: var(--sem-border-subtle);
+  --color-border-control: var(--sem-border-control);
+  --color-border: var(--sem-border-subtle);
+  --color-text-strong: var(--sem-strong);
+  --color-text: var(--sem-text);
+  --color-text-muted: var(--sem-muted-foreground);
+  --color-placeholder: var(--sem-placeholder);
+  --color-brand: var(--sem-brand);
+  --color-brand-hover: var(--sem-brand-hover);
+  --color-brand-subtle: var(--sem-brand-subtle);
+  --color-on-brand: var(--sem-on-brand);
+  --color-success: var(--sem-success);
+  --color-success-subtle: var(--sem-success-subtle);
+  --color-info: var(--sem-info);
+  --color-info-subtle: var(--sem-info-subtle);
+  --color-pending: var(--sem-pending);
+  --color-pending-subtle: var(--sem-pending-subtle);
+  --color-warning: var(--sem-warning);
+  --color-warning-subtle: var(--sem-warning-subtle);
+  --color-critical: var(--sem-critical);
+  --color-critical-subtle: var(--sem-critical-subtle);
 
   /* Elevation Shadows */
   --shadow-card: 0 1px 2px rgb(7 58 75 / 0.04), 0 1px 3px rgb(7 58 75 / 0.06);
   --shadow-raised: 0 12px 28px rgb(7 58 75 / 0.12);
   --shadow-modal: 0 16px 48px rgb(7 58 75 / 0.20);
 
-  /* Default Component / Surface Tokens */
-  --t-color-action-primary: #04785A;
+  /* Surface action defaults */
+  --t-color-action-primary: var(--sem-brand);
   --t-radius-card: 16px;
   --t-radius-control: 8px;
   --t-row-height: 44px;
-  --t-color-surface: var(--color-surface);
-  --t-color-surface-subtle: var(--color-surface-muted);
-  --t-color-border-subtle: var(--color-border-subtle);
-  --t-color-border-control: var(--color-border-control);
-  --t-color-text-strong: var(--color-text-strong);
-  --t-color-text: var(--color-text);
-  --t-color-text-muted: var(--color-text-muted);
-
-  /* shadcn/radix bridge from semantic tokens */
-  --background: var(--color-canvas);
-  --foreground: var(--color-text-strong);
-  --card: var(--color-surface);
-  --card-foreground: var(--color-text-strong);
-  --popover: var(--color-surface-raised);
-  --popover-foreground: var(--color-text-strong);
-  --primary: var(--color-brand);
-  --primary-foreground: var(--color-on-brand);
-  --secondary: var(--color-surface-muted);
-  --secondary-foreground: var(--color-text);
-  --muted: var(--color-surface-muted);
-  --muted-foreground: var(--color-text-muted);
-  --accent: var(--color-brand-subtle);
-  --accent-foreground: var(--color-brand);
-  --destructive: var(--color-critical);
-  --destructive-foreground: #FFFFFF;
-  --border: var(--color-border-subtle);
-  --input: var(--color-border-control);
-  --ring: var(--focus-ring);
-  --radius: var(--t-radius-control);
+  --t-color-surface: var(--sem-surface);
+  --t-color-surface-subtle: var(--sem-surface-muted);
+  --t-color-border-subtle: var(--sem-border-subtle);
+  --t-color-border-control: var(--sem-border-control);
+  --t-color-text-strong: var(--sem-strong);
+  --t-color-text: var(--sem-text);
+  --t-color-text-muted: var(--sem-muted-foreground);
 
   /* Transition speeds */
   --transition-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
@@ -140,6 +163,28 @@
   --header-height: 4rem;
   --rail-width: 16rem;
   --content-max: 80rem;
+
+  /* Correctly mapped shadcn bridge */
+  --background: var(--sem-canvas);
+  --foreground: var(--sem-strong);
+  --card: var(--sem-surface);
+  --card-foreground: var(--sem-strong);
+  --popover: var(--sem-surface-raised);
+  --popover-foreground: var(--sem-strong);
+  --primary: var(--sem-brand);
+  --primary-foreground: var(--sem-on-brand);
+  --secondary: var(--sem-surface-muted);
+  --secondary-foreground: var(--sem-text);
+  --muted: var(--sem-surface-muted);
+  --muted-foreground: var(--sem-muted-foreground);
+  --accent: var(--sem-brand-subtle);
+  --accent-foreground: var(--sem-brand);
+  --destructive: var(--sem-critical);
+  --destructive-foreground: #FFFFFF;
+  --border: var(--sem-border-subtle);
+  --input: var(--sem-border-control);
+  --ring: var(--sem-focus);
+  --radius: var(--t-radius-control);
 }
 
 /* Surface: Shopper */
@@ -165,50 +210,34 @@
   --t-row-height: 36px;
 }
 
-/* Dark Mode: Single Navy-based definition (fixes D-02) */
+/* Dark Mode: Navy-based definition (D-02, F-06) */
 :root[data-mode="dark"], .dark {
   color-scheme: dark;
-  --color-canvas: #04222D;
-  --color-surface: #072C3A;
-  --color-surface-raised: #0B3A4B;
-  --color-surface-muted: #0E3F52;
-  --color-border-subtle: #184A5E;
-  --color-border-control: #5E8190; /* 3.51:1 on dark canvas */
-  --color-border: #184A5E;
-  --color-text-strong: #E6F2F5; /* 14.45:1 */
-  --color-text: #CCE2E8;
-  --color-text-muted: #A9C3CC; /* 7.95:1 */
-  --color-placeholder: #6B8A96;
-  --color-brand: #06D7A0;
-  --color-brand-hover: #34EAB6;
-  --color-brand-subtle: #07353A;
-  --color-on-brand: #04222D;
+  --sem-canvas: #04222D;
+  --sem-surface: #072C3A;
+  --sem-surface-raised: #0B3A4B;
+  --sem-surface-muted: #0E3F52;
+  --sem-border-subtle: #184A5E;
+  --sem-border-control: #5E8190; /* 3.51:1 on dark canvas */
+  --sem-border: #184A5E;
+  --sem-strong: #E6F2F5; /* 14.45:1 */
+  --sem-text: #CCE2E8;
+  --sem-muted-foreground: #A9C3CC; /* 7.95:1 on dark canvas */
+  --sem-placeholder: #6B8A96;
+  --sem-brand: #06D7A0;
+  --sem-brand-hover: #34EAB6;
+  --sem-brand-subtle: #07353A;
+  --sem-on-brand: #04222D;
 
-  --color-success: #06D7A0;
-  --color-success-subtle: #07353A;
-  --color-info: #6CC6E3;
-  --color-info-subtle: #08374D;
-  --color-pending: #FFD167;
-  --color-pending-subtle: #3D3110;
-  --color-warning: #F78C6A;
-  --color-warning-subtle: #3D1F16;
-  --color-critical: #FF7A9B;
-  --color-critical-subtle: #3D1220;
-
-  --background: var(--color-canvas);
-  --foreground: var(--color-text-strong);
-  --card: var(--color-surface);
-  --card-foreground: var(--color-text-strong);
-  --popover: var(--color-surface-raised);
-  --popover-foreground: var(--color-text-strong);
-  --primary: var(--color-brand);
-  --primary-foreground: var(--color-on-brand);
-  --secondary: var(--color-surface-muted);
-  --secondary-foreground: var(--color-text);
-  --muted: var(--color-surface-muted);
-  --muted-foreground: var(--color-text-muted);
-  --accent: var(--color-brand-subtle);
-  --accent-foreground: var(--color-brand);
-  --border: var(--color-border-subtle);
-  --input: var(--color-border-control);
+  --sem-success: #06D7A0;
+  --sem-success-subtle: #07353A;
+  --sem-info: #6CC6E3;
+  --sem-info-subtle: #08374D;
+  --sem-pending: #FFD167;
+  --sem-pending-subtle: #3D3110;
+  --sem-warning: #F78C6A;
+  --sem-warning-subtle: #3D1F16;
+  --sem-critical: #FF7A9B;
+  --sem-critical-subtle: #3D1220;
+  --sem-focus: #6CC6E3; /* 4.79:1 on dark surface */
 }

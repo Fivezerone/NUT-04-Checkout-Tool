@@ -194,6 +194,24 @@ const CarrefourAdapter = {
   },
 
   /**
+   * Evaluates if a category or URL corresponds to non-food segments (e.g. electronics).
+   * Used to gate badges exclusively to food segments.
+   */
+  _isNonFoodCategory(categoryText, urlString) {
+    const combined = `${categoryText || ""} ${urlString || ""}`.toLowerCase().replace(/[-_&/]/g, " ").replace(/\s+/g, " ");
+    const nonFoodKeywords = [
+      "electronic", "appliance", "television", "tv", "audio", "video",
+      "smartphone", "phone", "mobile", "tablet", "computer", "laptop",
+      "clothing", "apparel", "shoe", "fashion",
+      "home and living", "home living", "home cleaning", "cleaning", "pet", "furniture", "kitchenware", "cookware",
+      "bedding", "bath", "hardware", "tool", "garden",
+      "beauty", "cosmetic", "perfume", "fragrance", "personal care",
+      "stationery", "office", "toy", "game", "baby gear", "luggage", "automotive"
+    ];
+    return nonFoodKeywords.some(kw => combined.includes(kw));
+  },
+
+  /**
    * Resolves the enclosing product card container for a given anchor link.
    * Prioritizes O(1) indexed selectors (data-testid, classes) before substring style attributes.
    * @param {Element} anchor
@@ -202,6 +220,10 @@ const CarrefourAdapter = {
   _findCardContainer(anchor) {
     let card = anchor.closest("[data-testid='product-card']") ||
                anchor.closest(".cl-product-card") ||
+               anchor.closest(".group") ||
+               anchor.closest(".border-gray-50") ||
+               anchor.closest("div[class*='relative flex flex-col']") ||
+               anchor.closest("div[class*='rounded-lg border']") ||
                anchor.closest(".flex-col.relative") ||
                anchor.closest("li[class*='product']") ||
                anchor.closest("div[class*='product-card']") ||
@@ -259,9 +281,11 @@ const CarrefourAdapter = {
 
     // 3. Extract Price
     let priceNumeric = 0;
-    const priceEl = card.querySelector("[data-testid='product-price'], [class*='price'], [class*='Price'], .items-baseline, .text-lg.font-bold, .text-xl.font-bold");
+    const priceEl = card.querySelector("[data-testid='product-price'], div.items-baseline, div[class*='items-baseline'], [class*='price'], [class*='Price'], .text-lg.font-bold, .text-xl.font-bold");
     if (priceEl) {
-      priceNumeric = (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).parsePrice(priceEl.textContent);
+      // Find the price container and parse full text (e.g. "KES 18,995.00"), avoiding matching only the "KES" span
+      const container = (typeof priceEl.closest === "function" ? priceEl.closest("div.items-baseline, div[class*='items-baseline'], [data-testid='product-price'], [class*='price']") : null) || priceEl;
+      priceNumeric = (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).parsePrice(container.textContent);
     }
 
     return {
@@ -276,6 +300,11 @@ const CarrefourAdapter = {
   detectProducts() {
     const products = [];
     const pageCategory = this._extractCategory();
+    const pageUrl = typeof location !== "undefined" ? location.href : "";
+    if (this._isNonFoodCategory(pageCategory, pageUrl)) {
+      return products; // Gated: zero cards on non-food categories
+    }
+
     const productLinks = document.querySelectorAll("a[href*='/p/'], a[href*='/product/']");
     const processedCards = new Set();
 
@@ -320,17 +349,23 @@ const CarrefourAdapter = {
    */
   candidatesIn(root) {
     const candidates = [];
-    const processedCards = new Set();
-    const pageCategory = this._extractCategory();
-
-    // Use root when it provides querySelectorAll, else document
     const scope = (root && typeof root.querySelectorAll === "function") ? root : (typeof document !== "undefined" ? document : null);
     if (!scope) return candidates;
+
     const productLinks = [];
     if (scope.matches?.("a[href*='/p/'], a[href*='/product/']")) {
       productLinks.push(scope);
     }
     productLinks.push(...scope.querySelectorAll("a[href*='/p/'], a[href*='/product/']"));
+
+    const pageCategory = this._extractCategory();
+    const pageUrl = typeof location !== "undefined" ? location.href : "";
+    if (this._isNonFoodCategory(pageCategory, pageUrl)) {
+      return candidates; // Gated: zero candidates on non-food categories
+    }
+
+    const processedCards = new Set();
+    const candidateCards = [];
 
     productLinks.forEach((anchor) => {
       const card = this._findCardContainer(anchor);
@@ -338,7 +373,15 @@ const CarrefourAdapter = {
       if (card.querySelector(".nutriscore-isolated-root")) return; // already injected
 
       processedCards.add(card);
+      candidateCards.push({ card, anchor });
+    });
 
+    // Deduplicate: If cardA contains cardB, retain outer container cardA and drop child cardB
+    const uniqueCandidates = candidateCards.filter((item, idx, arr) => {
+      return !arr.some((other, oIdx) => oIdx !== idx && other.card.contains(item.card));
+    });
+
+    uniqueCandidates.forEach(({ card, anchor }) => {
       const parsed = this._parseCard(card, anchor, pageCategory);
       if (!parsed) return;
 
@@ -542,46 +585,57 @@ const CarrefourAdapter = {
   },
 
   extractCartAction(node) {
-    const btn = node.closest("button");
+    if (!node) return null;
+    const btn = (typeof node.closest === "function") ? node.closest(
+      "button, [role='button'], a, div[class*='btn']"
+    ) : null;
     if (!btn) return null;
-    
-    const aria = btn.getAttribute("aria-label") || "";
-    const text = btn.textContent || "";
-    if (!aria.toLowerCase().includes("add to cart") && !text.toLowerCase().includes("add to cart")) return null;
-    
-    const card = btn.closest("li") || btn.closest("[data-testid='product-card']") || btn.closest(".cl-product-card") || document.body;
-    
-    let name = "";
-    const nameEl = card.querySelector("[data-testid='product-title'], h1, h2, h3, [class*='title'], [class*='name']");
-    if (nameEl) name = nameEl.textContent.trim();
-    
-    let price = 0;
-    const priceEl = card.querySelector("[data-testid='product-price'], [class*='price'], .text-xl.font-bold, .text-lg.font-bold");
-    if (priceEl) {
-       price = (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).parsePrice(priceEl.textContent);
-    }
-    
-    let id = card.getAttribute("data-product-id") || card.getAttribute("data-id");
-    if (!id) {
-       const anchor = card.querySelector("a[href*='/p/'], a[href*='/product/']");
-       if (anchor) {
-          const match = anchor.href.match(/\/(?:p|product)\/(\d+)/);
-          if (match) id = match[1];
-       }
-    }
-    if (!id) {
-       const match = window.location.href.match(/\/(?:p|product)\/(\d+)/);
-       if (match) id = match[1];
-    }
-    
-    if (!id && !name) return null;
-    
+
+    const aria = (btn.getAttribute?.("aria-label") || btn.getAttribute?.("title") || "").toLowerCase();
+    const text = (btn.textContent || "").trim();
+
+    // Modern Carrefour Add to Cart signals:
+    // 1. Text has "add to cart", "buy now", or "+" (the blue + button)
+    const isAddText = /^(?:\+|add to cart|add to basket|buy now|add)$/i.test(text) ||
+                      /(?:add to cart|add to basket|buy now)/i.test(text);
+
+    // 2. Aria-label has "add to cart", "add", "add to basket"
+    const isAddAria = aria.includes("add to cart") || aria.includes("add to basket") || aria === "add" || aria.startsWith("add ");
+
+    // 3. Testid or class
+    const dataTestId = (btn.getAttribute?.("data-testid") || "").toLowerCase();
+    const isAddTestId = dataTestId.includes("add-to-cart") || dataTestId.includes("add_to_cart") || dataTestId.includes("add-button");
+
+    // 4. Blue + button with SVG icon inside card
+    const hasPlusSvg = !!btn.querySelector?.("svg, path, [data-icon*='plus']");
+    const isModernBluePlus = (btn.matches?.("button[class*='primary'], button[class*='blue']") ||
+                             btn.className?.includes?.("primary") ||
+                             btn.className?.includes?.("blue")) && (hasPlusSvg || text === "+");
+
+    const isAdd = isAddText || isAddAria || isAddTestId || isModernBluePlus || (hasPlusSvg && !!btn.closest?.(".group, .border-gray-50, div[class*='relative flex flex-col']"));
+    if (!isAdd) return null;
+
+    // Find the enclosing product card container
+    const card = (typeof btn.closest === "function" ? btn.closest(
+      ".group, .border-gray-50, div[class*='relative flex flex-col'], div[class*='rounded-lg border'], [data-testid='product-card'], [data-testid='product_card'], .cl-product-card, article, main, [data-slot='main']"
+    ) : null) || btn.parentElement;
+
+    if (!card) return null;
+
+    // Find anchor if available
+    const anchor = card.querySelector?.("a[href*='/p/'], a[href*='/product/']") || (typeof card.closest === "function" ? card.closest("a") : null);
+
+    const pageCategory = this._extractCategory?.() || "";
+    const parsed = this._parseCard(card, anchor, pageCategory);
+    if (!parsed || !parsed.name) return null;
+
     return {
-       retailer: "CARREFOUR",
-       productId: id || (typeof NutriSharedUI !== "undefined" ? NutriSharedUI : _shared).generateIdFromName(name),
-       product_name: name,
-       priceSnapshot: price,
-       quantity: 1
+      retailer: "CARREFOUR",
+      productId: String(parsed.id),
+      product_name: parsed.name,
+      priceSnapshot: parsed.price,
+      quantity: 1,
+      url: parsed.url || null
     };
   },
 

@@ -34,8 +34,8 @@ export function Checkbox({
         onClick={() => !disabled && onChange(!checked)}
         className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-focus shrink-0 cursor-pointer ${
           checked
-            ? 'bg-brand-mint border-brand-mint text-brand-navy font-bold'
-            : 'bg-surface border-border-control hover:border-text-strong'
+            ? 'bg-brand border-brand text-on-brand font-bold'
+            : 'bg-surface border-border-control hover:border-strong'
         } ${disabled ? 'opacity-50 cursor-not-allowed bg-surface-raised' : ''}`}
       >
         {checked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
@@ -45,7 +45,7 @@ export function Checkbox({
           <label
             htmlFor={checkboxId}
             className={`text-[12px] font-medium leading-tight cursor-pointer ${
-              disabled ? 'text-muted cursor-not-allowed' : 'text-strong'
+              disabled ? 'text-muted-foreground cursor-not-allowed' : 'text-strong'
             }`}
           >
             {label}

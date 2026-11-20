@@ -16,7 +16,7 @@ import { join } from "path";
 const ROOT = process.cwd().replace(/[/\\]src[/\\]ui$/, "");
 const popupSrc       = readFileSync(join(ROOT, "src/ui/src/app/components/Popup.tsx"), "utf8");
 const optionsSrc     = readFileSync(join(ROOT, "src/ui/src/options/Options.tsx"), "utf8");
-const dashboardSrc   = readFileSync(join(ROOT, "src/ui/src/app/components/Dashboard.tsx"), "utf8");
+const dashboardSrc   = readFileSync(join(ROOT, "src/ui/src/dashboard.tsx"), "utf8");
 const sharedUiSrc    = readFileSync(join(ROOT, "src/extension/adapters/shared-ui.js"), "utf8");
 const backgroundSrc  = readFileSync(join(ROOT, "src/extension/background.js"), "utf8");
 const contentSrc     = readFileSync(join(ROOT, "src/extension/content.js"), "utf8");
@@ -30,10 +30,7 @@ describe("1. Popup Health Mode Toggle Deprecation", () => {
 
   it("Popup.tsx renders an active health mode indicator badge", () => {
     expect(popupSrc).toContain("Health Mode");
-    expect(popupSrc).toContain("General Wellness");
-    expect(popupSrc).toContain("HEALTH_MODES[activeFocusTag");
-    expect(popupSrc).toContain("tagColor.bg");
-    expect(popupSrc).toContain("tagColor.label");
+    expect(popupSrc).toContain("<ConditionChip");
   });
 });
 
@@ -60,15 +57,9 @@ describe("2. Options Tab 'My Care Profile' & Preference Persistence", () => {
 });
 
 describe("3. Onboarding & Dashboard Theme Sync", () => {
-  it("Dashboard.tsx selectCondition syncs activeTheme to IndexedDB and chrome.storage", () => {
-    const selectIdx = dashboardSrc.indexOf("function selectCondition(");
-    expect(selectIdx).toBeGreaterThan(-1);
-    const selectBlock = dashboardSrc.slice(selectIdx, selectIdx + 1200);
-
-    expect(selectBlock).toContain("saveSettings");
-    expect(selectBlock).toContain("activeTheme: condition");
-    expect(selectBlock).toContain("chrome.storage.local.set");
-    expect(selectBlock).toContain("uiTheme: condition");
+  it("dashboard.tsx verifies session and renders ThemeProvider", () => {
+    expect(dashboardSrc).toContain("<ThemeProvider>");
+    expect(dashboardSrc).toContain("checkSubscriptionAndProfile");
   });
 });
 

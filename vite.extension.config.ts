@@ -1,23 +1,28 @@
 import { defineConfig } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
-import react from '@vitejs/plugin-react'
+import preact from '@preact/preset-vite'
 
 export default defineConfig({
   root: 'src/ui',
   base: './',
   envDir: __dirname,
-  plugins: [react({ jsxRuntime: 'classic' }), tailwindcss()],
+  define: {
+    'import.meta.env.VITE_API_URL': JSON.stringify(
+      process.env.VITE_API_URL || 'https://api.nutriscore.co.ke/api',
+    ),
+    'import.meta.env.VITE_OIDC_ISSUER': JSON.stringify(
+      process.env.VITE_OIDC_ISSUER || 'https://auth.nutriscore.co.ke/realms/nutriscore',
+    ),
+  },
+  plugins: [preact(), tailwindcss()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/ui/src'),
-      react: 'preact/compat',
-      'react-dom': 'preact/compat',
-      'react/jsx-runtime': 'preact/jsx-runtime',
-      'react/jsx-dev-runtime': 'preact/jsx-runtime',
     },
   },
   build: {
+    target: 'chrome116',
     outDir: '../../dist/extension',
     emptyOutDir: false,
     rollupOptions: {
@@ -26,6 +31,18 @@ export default defineConfig({
         dashboard: path.resolve(__dirname, 'src/ui/dashboard.html'),
         options: path.resolve(__dirname, 'src/ui/options.html'),
         sidepanel: path.resolve(__dirname, 'src/ui/sidepanel.html'),
+      },
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('preact')) {
+              return 'preact-vendor'
+            }
+            if (id.includes('lucide-react')) {
+              return 'lucide-vendor'
+            }
+          }
+        },
       },
     },
   },

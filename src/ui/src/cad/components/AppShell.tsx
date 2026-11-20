@@ -47,7 +47,7 @@ export function AppShell({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const allowedTabs = getCadNavigationIds(claims.role)
+  const allowedTabs = claims.role ? getCadNavigationIds(claims.role) : []
 
   const filteredCommandItems = allowedTabs.filter((tabId) => {
     const label = TAB_LABELS[tabId] || tabId
@@ -56,6 +56,12 @@ export function AppShell({
 
   return (
     <div className="cad-shell min-h-screen bg-canvas text-foreground flex flex-col font-sans text-xs" data-surface="clinical">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:bg-brand-mint focus:text-brand-navy focus:font-bold focus:rounded-xl focus:shadow-md focus:outline-none"
+      >
+        Skip to main content
+      </a>
       <Navigation
         onOpenNav={() => setNavigationOpen(true)}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
@@ -63,7 +69,7 @@ export function AppShell({
 
       <div className="flex flex-1 min-h-0">
         <SidebarNavigation
-          role={claims.role}
+          role={claims.role || 'patient'}
           currentTab={currentTab}
           setCurrentTab={setCurrentTab}
           open={navigationOpen}
@@ -82,7 +88,7 @@ export function AppShell({
 
           <SystemHealthBanner />
 
-          <main className="cad-main flex-1 min-w-0" id="main-content">
+          <main className="cad-main flex-1 min-w-0" id="main-content" tabIndex={-1}>
             {children}
           </main>
 

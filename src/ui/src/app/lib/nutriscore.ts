@@ -152,7 +152,7 @@ export interface DashboardViewModel {
   totalStoredEvents: number;
   filteredPeriodEvents: number;
   basketQuality: {
-    averageGrade: Grade;
+    averageGrade: Grade | null;
     pts: number;
     distribution: Record<Grade, number>;
   };
@@ -177,10 +177,13 @@ export interface DashboardViewModel {
 export const GRADE_ORDER: Grade[] = ["A", "B", "C", "D", "E"];
 
 export const gradeColorVar = (g: Grade | "UNKNOWN"): string => {
-  if (g === "UNKNOWN") return "#94a3b8"; // neutral slate-400 for unknown
-  return `var(--ns-grade-${(g || "C").toLowerCase()})`;
+  if (!g || g === "UNKNOWN") return "var(--ns-grade-unknown, #94a3b8)"; // neutral slate-400 for unknown
+  return `var(--ns-grade-${g.toLowerCase()})`;
 };
-export const gradeOnColorVar = (g: Grade): string => `var(--ns-on-grade-${(g || "C").toLowerCase()})`;
+export const gradeOnColorVar = (g: Grade | "UNKNOWN"): string => {
+  if (!g || g === "UNKNOWN") return "var(--ns-on-grade-unknown, #ffffff)";
+  return `var(--ns-on-grade-${g.toLowerCase()})`;
+};
 
 // Plain-language, low-reading-grade descriptions (Flesch-Kincaid <= 8).
 export const GRADE_LABEL: Record<Grade, string> = {

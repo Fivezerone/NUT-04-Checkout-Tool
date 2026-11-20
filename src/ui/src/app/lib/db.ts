@@ -106,7 +106,7 @@ export {
   computeCartCoverage,
   _consecutiveAbsentMap,
   resetConsecutiveAbsentTracker,
-  RETENTION_90_DAYS_MS,
+  getRetentionCutoff,
 } from "./db/cart";
 
 // Analytics

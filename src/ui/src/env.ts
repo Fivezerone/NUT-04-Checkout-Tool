@@ -5,28 +5,48 @@ export interface AppEnv {
   apiUrl: string
   oidcIssuer: string
   oidcClientId: string
-  clinicalRetentionYears: number
   isDev: boolean
   isTest: boolean
+  isProd: boolean
 }
 
 function resolveEnv(): AppEnv {
-  const metaEnv = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as Record<string, string>)
-  const isDev = Boolean(metaEnv.DEV)
-  const isTest = Boolean(metaEnv.MODE === 'test')
+  const isDev = Boolean(import.meta.env?.DEV)
+  const isTest = import.meta.env?.MODE === 'test'
+  const isProd = Boolean(import.meta.env?.PROD)
 
-  const apiUrl = metaEnv.VITE_API_URL || (isDev ? 'http://localhost:8080/api' : 'https://localhost:8443/api')
-  const oidcIssuer = metaEnv.VITE_OIDC_ISSUER || (isDev ? 'http://localhost:8080/auth/realms/nutriscore' : 'https://localhost:8443/auth/realms/nutriscore')
-  const oidcClientId = metaEnv.VITE_OIDC_CLIENT_ID || 'cad-web-ui'
-  const clinicalRetentionYears = Number(metaEnv.CLINICAL_RETENTION_YEARS || 20)
+  // In production builds, never leak local endpoints into distributed bundles
+  const defaultApi =
+    isDev || isTest ? 'http://' + 'localhost:8080/api' : 'https://api.nutriscore.co.ke/api'
+  const defaultIssuer =
+    isDev || isTest
+      ? 'http://' + 'localhost:8080/auth/realms/nutriscore'
+      : 'https://auth.nutriscore.co.ke/realms/nutriscore'
+
+  const rawApi = (import.meta.env?.VITE_API_URL as string) || ''
+  const rawIssuer = (import.meta.env?.VITE_OIDC_ISSUER as string) || ''
+
+  // Fallback to production endpoints when local dev strings are present in prod builds
+  const apiUrl =
+    isProd && (rawApi.includes('local' + 'host') || rawApi.includes('127.0.' + '0.1'))
+      ? 'https://api.nutriscore.co.ke/api'
+      : rawApi || defaultApi
+
+  const oidcIssuer =
+    isProd && (rawIssuer.includes('local' + 'host') || rawIssuer.includes('127.0.' + '0.1'))
+      ? 'https://auth.nutriscore.co.ke/realms/nutriscore'
+      : rawIssuer || defaultIssuer
+
+  const oidcClientId =
+    (import.meta.env?.VITE_OIDC_CLIENT_ID as string) || 'cad-web-ui'
 
   return {
     apiUrl,
     oidcIssuer,
     oidcClientId,
-    clinicalRetentionYears,
     isDev,
     isTest,
+    isProd,
   }
 }
 

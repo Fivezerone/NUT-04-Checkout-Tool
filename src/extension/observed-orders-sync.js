@@ -27,7 +27,9 @@
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('')
       }
-    } catch {}
+    } catch (e) {
+      console.debug('[ObservedOrdersSync] Subtle crypto digest unavailable, falling back:', e)
+    }
 
     try {
       // Node.js fallback in test / toolchain environment
@@ -35,7 +37,9 @@
         const cryptoMod = require('node:crypto')
         return cryptoMod.createHash('sha256').update(str).digest('hex')
       }
-    } catch {}
+    } catch (e) {
+      console.debug('[ObservedOrdersSync] Node crypto unavailable, falling back:', e)
+    }
 
     // Deterministic string hash fallback (browser fallback without subtle)
     let h1 = 0xdeadbeef
